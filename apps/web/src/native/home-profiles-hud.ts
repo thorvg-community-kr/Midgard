@@ -1,5 +1,5 @@
 // Profiles of who lives in a home (camp, tent and their growth stages) or stays at a lodging, in the building inspector.
-import { Rect, Align, ButtonStyle, button, type Color } from '../../../../packages/native-ui/src';
+import { Rect, Align, ButtonStyle, button, well, type Color } from '../../../../packages/native-ui/src';
 import { Activity, Role, callingName, type Person } from '../../../../packages/engine/src/person';
 import { isHome, isLodging, structureSpec } from '../../../../packages/engine/src/building-catalog';
 import type { Building } from '../../../../packages/engine/src/town-models';
@@ -85,7 +85,7 @@ function mark(app: GameHudApp, state: HomeState, wounded: boolean, r: Rect): voi
     c.line(f32(r.x + 8), f32(r.y + 4), f32(r.x + 8), f32(r.y + 12), t.danger, 2);
   }
   const ink: Color = state === HomeState.Downed ? t.danger : state === HomeState.Out ? t.muted : t.accent;
-  c.rect(box, t.surface, 8, ink, 1);
+  c.rect(box, { ...t.surface, a: 255 }, 8, ink, 1);
   if (state === HomeState.Asleep) c.text(box, 'z', ink, 11, true, Align.Center);
   else if (state === HomeState.Home) {
     c.line(f32(cx - 4), cy, cx, f32(cy - 4), ink, 1.4);
@@ -137,8 +137,7 @@ function freeBed(app: GameHudApp, r: Rect): void {
   const c = app.context,
     t = app.theme,
     face = new Rect(f32(r.x + f32((r.w - 52) / 2)), f32(r.y + 4), 52, 52);
-  c.rect(r, { r: 0, g: 0, b: 0, a: 0 }, 4, t.border, 1);
-  c.rect(face, t.raised, 3);
+  well(c, r);
   c.text(new Rect(r.x, f32(face.y + 58), r.w, 14), 'Free bed', t.muted, 10, false, Align.Center);
 }
 /** Draws the header, the profile tiles of the current page, free beds and the pager. */

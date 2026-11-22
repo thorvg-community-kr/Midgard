@@ -116,6 +116,8 @@ export interface State {
   hovered: boolean;
   pressed: boolean;
   focused: boolean;
+  /** How far the centre of a raised control's face sits from the centre of its bounds. */
+  lift?: number;
 }
 export interface IconState extends State {
   active: boolean;

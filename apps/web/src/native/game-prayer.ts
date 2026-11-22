@@ -5,10 +5,14 @@ import {
   EventType,
   Key,
   TextInput,
+  board,
   button,
+  meter,
+  tag,
   textField,
   rgba,
   setTransform,
+  well,
 } from '../../../../packages/native-ui/src';
 import { Resources, Structure } from '../../../../packages/engine/src/building-catalog';
 import { Activity, callingName, type Person } from '../../../../packages/engine/src/person';
@@ -229,7 +233,7 @@ export function renderPrayer(this: GameAppState, width: number, height: number):
     true,
     false,
   );
-  c.rect(new Rect(0, 0, width, height), rgba(6, 10, 13, 210));
+  c.rect(new Rect(0, 0, width, height), rgba(14, 12, 28, 200));
   const w = Math.min(1000, width - 24),
     h = Math.min(690, height - 24),
     panel = new Rect((width - w) / 2, (height - h) / 2, w, h),
@@ -238,11 +242,11 @@ export function renderPrayer(this: GameAppState, width: number, height: number):
     header = short ? 42 : 56,
     footer = short ? 46 : 64;
   c.control('prayer-panel', panel, undefined, true, false);
-  c.rect(panel, rgba(31, 39, 39), 6, rgba(145, 155, 130));
+  board(c, panel, { header: header - 6 });
   c.text(
-    new Rect(panel.x + 18, panel.y + 10, w - 36, 24),
-    'AN OFFERING TO ODIN',
-    t.text,
+    new Rect(panel.x + 18, panel.y + (short ? 7 : 8), w - 36, 24),
+    'An offering to Odin',
+    t.accent,
     short ? 15 : 19,
     true,
   );
@@ -261,6 +265,7 @@ export function renderPrayer(this: GameAppState, width: number, height: number):
       ? new Rect(stage.x + sceneW + 18, stage.y, w - sceneW - 46, bodyH)
       : new Rect(panel.x + 14, stage.y + sceneH + 8, w - 28, bodyH - sceneH - 8);
   state.scene.update(stage.w, stage.h, now, elapsed, state.offering, state.born, state.refused);
+  well(c, new Rect(stage.x - 2, stage.y - 2, stage.w + 4, stage.h + 4), undefined, { rim: t.border, cut: 0 });
   c.clip(stage, () => {
     const paint = state.adapter.sync(state.scene.root);
     setTransform(paint, {
@@ -308,7 +313,7 @@ export function renderPrayer(this: GameAppState, width: number, height: number):
       );
       if (info.hovered) {
         hint = resourceHints[key];
-        c.rect(new Rect(labelX - 3, y + 1, Math.max(1, controlsX - labelX - 4), rowH - 2), t.raised, 3);
+        c.rect(new Rect(labelX - 3, y + 1, Math.max(1, controlsX - labelX - 4), rowH - 2), { ...t.raised, a: 150 }, 3);
       }
       c.text(
         new Rect(labelX, y, Math.max(25, controlsX - labelX - 4), rowH * 0.55),
@@ -398,8 +403,8 @@ export function renderPrayer(this: GameAppState, width: number, height: number):
     );
     if (hint) {
       const tip = new Rect(stage.x + 6, stage.y + stage.h - 26, stage.w - 12, 22);
-      c.rect(tip, rgba(10, 18, 20, 230), 3);
-      c.text(tip.inset(5), c.elideText(hint, tip.w - 10, 10), t.text, 10);
+      tag(c, tip, { lip: 1 });
+      c.text(tip.inset(5), c.elideText(hint, tip.w - 10, 10), t.ink, 10);
     }
   } else {
     const title = state.error
@@ -434,8 +439,7 @@ export function renderPrayer(this: GameAppState, width: number, height: number):
           text(form.y + 150 + i * 24, `${resourceNames[key]}  ${state.offering[key]}`, t.muted, 12),
         );
     const progress = rite ? Math.max(0, Math.min(1, elapsed / rite.end)) : 0;
-    c.rect(new Rect(form.x, form.y + form.h - 9, form.w, 3), t.border, 1);
-    c.rect(new Rect(form.x, form.y + form.h - 9, form.w * progress, 3), t.accent, 1);
+    meter(c, new Rect(form.x, form.y + form.h - 11, form.w, 6), progress, t.accent);
   }
   const bottom = panel.y + h - footer;
   if (state.started < 0) {

@@ -1,5 +1,5 @@
 import type { Paint, Scene, Matrix } from '@thorvg/webcanvas';
-import type { NativeFontMetrics } from './fonts';
+import { koreanTitleFont, type NativeFontMetrics } from './fonts';
 import { FrameStyle, Theme } from './theme';
 import { lerpFloat } from './numeric';
 import { hasHangul, koreanFont, translate } from '../../localization/src/index';
@@ -118,6 +118,16 @@ export class Context {
   }
   theme(): Theme {
     return this.tokens;
+  }
+  /** Draws `render` under another theme, such as an opaque window over a bare title menu. */
+  withTheme(theme: Theme, render: () => void): void {
+    const previous = this.tokens;
+    this.tokens = theme;
+    try {
+      render();
+    } finally {
+      this.tokens = previous;
+    }
   }
   time(): number {
     return this.seconds;
@@ -462,7 +472,7 @@ export class Context {
     this.paint(JSON.stringify(['R', bounds, fill, radius, border, stroke, carved]), () => {
       const shape = new this.tvg.Shape();
       if (carved) {
-        const c = Math.min(6, Math.max(3, f(radius * f(1.5))), f(bounds.w / 4), f(bounds.h / 4));
+        const c = Math.min(6, Math.max(2, radius), f(bounds.w / 4), f(bounds.h / 4));
         const x = bounds.x,
           y = bounds.y,
           r = f(x + bounds.w),
@@ -482,41 +492,6 @@ export class Context {
       if (border.a) shape.stroke({ width: stroke, color: [border.r, border.g, border.b, border.a] });
       return shape;
     });
-    if (carved && border.a && bounds.w >= 120 && bounds.h >= 64) {
-      const ink = { ...border, a: Math.trunc(f(border.a * f(0.55))) };
-      this.paint(JSON.stringify(['E', bounds, ink]), () => {
-        const shape = new this.tvg.Shape(),
-          x = f(bounds.x + 6),
-          y = f(bounds.y + 6),
-          r = f(f(bounds.x + bounds.w) - 6),
-          b = f(f(bounds.y + bounds.h) - 6);
-        shape
-          .moveTo(f(x + 10), y)
-          .lineTo(f(r - 10), y)
-          .moveTo(f(x + 10), b)
-          .lineTo(f(r - 10), b)
-          .moveTo(x, f(y + 9))
-          .lineTo(x, f(y + 2))
-          .lineTo(f(x + 7), f(y + 2))
-          .moveTo(f(r - 7), f(b - 2))
-          .lineTo(r, f(b - 2))
-          .lineTo(r, f(b - 9));
-        if (bounds.h >= 96)
-          for (const edge of [f(bounds.x + 3), f(f(bounds.x + bounds.w) - 3)]) {
-            const middle = f(bounds.y + f(bounds.h / 2));
-            for (let i = -1; i <= 1; i++) {
-              const cy = f(middle + i * 8);
-              shape
-                .moveTo(edge, f(cy - 4))
-                .lineTo(f(edge + f(1.8)), cy)
-                .lineTo(edge, f(cy + 4))
-                .lineTo(f(edge - f(1.8)), cy)
-                .close();
-            }
-          }
-        return shape.stroke({ width: f(0.65), color: [ink.r, ink.g, ink.b, ink.a] });
-      });
-    }
   }
   animate(id: string, target: number, duration = 0.14): number {
     target = f(target);
@@ -570,9 +545,9 @@ export class Context {
   ): void {
     if (bounds.w <= 0 || bounds.h <= 0 || !value) return;
     value = translate(value);
-    const font = this.fontFor?.(value, bold) || this.scriptFont(value, bold),
-      logicalSize = size > 0 ? size : this.tokens.fontSize,
-      points = Math.fround(logicalSize * 0.75);
+    const logicalSize = size > 0 ? size : this.tokens.fontSize,
+      font = this.fittedFont(value, bold, logicalSize, bounds.w),
+      points = Math.fround(logicalSize * 0.75 * this.faceScale(font));
     this.paint(JSON.stringify(['T', bounds, color, points, align, horizontalOffset, font, value]), () => {
       const label = new this.tvg.Text()
         .font(font)
@@ -608,22 +583,41 @@ export class Context {
       return group;
     });
   }
-  /** DejaVu has no Hangul, so Korean text takes the Korean face once it is loaded. */
-  private scriptFont(value: string, bold: boolean): string {
+  /**
+   * The theme's face for a text: its title face for large bold text, else its bold or regular face. Korean
+   * takes the Korean faces once they are loaded, and a text the theme's face cannot write (or a theme face
+   * that is not loaded) falls back to DejaVu.
+   */
+  private scriptFont(value: string, bold: boolean, size: number): string {
+    const t = this.tokens,
+      title = bold && !!t.titleFont && size >= t.titleFrom;
     if (hasHangul(value)) {
-      const korean = bold ? `${koreanFont}-Bold` : koreanFont;
+      const korean = bold ? `${koreanFont}-Bold` : koreanFont,
+        heading = this.metrics[koreanTitleFont]?.covered;
+      if (title && this.metrics[koreanTitleFont] && (!heading || this.writes(heading, value)))
+        return koreanTitleFont;
       if (this.metrics[korean]) return korean;
       if (this.metrics[koreanFont]) return koreanFont;
     }
-    return bold ? this.tokens.boldFont : this.tokens.font;
+    for (const name of title ? [t.titleFont, t.boldFont] : [bold ? t.boldFont : t.font]) {
+      const covered = this.metrics[name]?.covered;
+      if (this.metrics[name] && (!covered || this.writes(covered, value))) return name;
+    }
+    return bold ? 'DejaVuSans-Bold' : 'DejaVuSans';
   }
-  textWidth(value: string, size = 0, bold = false, fontContext = ''): number {
-    if (!value) return 0;
-    value = translate(value);
-    const font = this.fontFor?.(fontContext || value, bold) || this.scriptFont(fontContext || value, bold);
+  /** A title too long for its box is set in the narrower bold face instead of being cut. */
+  private fittedFont(value: string, bold: boolean, size: number, width: number): string {
+    const font = this.fontFor?.(value, bold) || this.scriptFont(value, bold, size);
+    if (!this.titled(font) || this.measure(value, font, size) <= width) return font;
+    return this.scriptFont(value, bold, 0);
+  }
+  private titled(font: string): boolean {
+    return !!this.tokens.titleFont && (font === this.tokens.titleFont || font === koreanTitleFont);
+  }
+  private measure(value: string, font: string, size: number): number {
     const label = new this.tvg.Text()
       .font(font)
-      .fontSize((size > 0 ? size : this.tokens.fontSize) * 0.75)
+      .fontSize(size * 0.75 * this.faceScale(font))
       .text(value);
     try {
       return label.bounds().width;
@@ -631,11 +625,36 @@ export class Context {
       label.dispose();
     }
   }
+  private writes(covered: ReadonlySet<number>, value: string): boolean {
+    for (const character of value) {
+      const code = character.codePointAt(0)!;
+      // Line breaks and tabs are layout, not glyphs.
+      if (code >= 32 && !covered.has(code)) return false;
+    }
+    return true;
+  }
+  private faceScale(font: string): number {
+    const t = this.tokens;
+    return font === t.font || font === t.boldFont || font === t.titleFont ? t.fontScale : 1;
+  }
+  textWidth(value: string, size = 0, bold = false, fontContext = ''): number {
+    if (!value) return 0;
+    value = translate(value);
+    const logicalSize = size > 0 ? size : this.tokens.fontSize,
+      font =
+        this.fontFor?.(fontContext || value, bold) || this.scriptFont(fontContext || value, bold, logicalSize);
+    return this.measure(value, font, logicalSize);
+  }
   elideText(value: string, width: number, size = 0, bold = false, suffix = ''): string {
     if (width <= 0 || !value) return '';
     value = translate(value);
-    const full = value + suffix;
+    const full = value + suffix,
+      logicalSize = size > 0 ? size : this.tokens.fontSize;
     if (this.textWidth(full, size, bold) <= width) return full;
+    // text() sets such a title in the bold face, where it may fit whole.
+    if (this.titled(this.scriptFont(full, bold, logicalSize))) {
+      if (this.measure(full, this.scriptFont(full, bold, 0), logicalSize) <= width) return full;
+    }
     const points = Array.from(value),
       ends: string[] = [];
     for (let i = 1; i < points.length; i++) ends.push(points.slice(0, i).join(''));

@@ -1,4 +1,4 @@
-import { Rect, Align, ButtonStyle, button, type Context, type Color } from '../../../../packages/native-ui/src';
+import { Rect, Align, ButtonStyle, button, tag as paperTag, type Context, type Color } from '../../../../packages/native-ui/src';
 import { openExpedition } from './expedition-window';
 import { translate } from '../../../../packages/localization/src/index';
 import { Tool, toolStructure } from '../../../../packages/engine/src/game-tools';
@@ -117,12 +117,12 @@ export function freshMark(app: GameHudApp, bounds: Rect, tag: boolean): void {
   const c = app.context,
     t = app.theme;
   if (!tag) {
-    c.rect(new Rect(f32(f32(bounds.x + bounds.w) - 11), f32(bounds.y + 4), 7, 7), t.accent, 3.5);
+    c.rect(new Rect(f32(f32(bounds.x + bounds.w) - 11), f32(bounds.y + 4), 7, 7), t.danger, 3.5);
     return;
   }
   const w = f32(c.textWidth('New', 8, true) + 8),
     r = new Rect(f32(f32(bounds.x + bounds.w) - w - 3), f32(bounds.y + 3), w, 12);
-  c.rect(r, t.accent, 6);
+  c.rect(r, t.danger, 6);
   c.text(r, 'New', t.accentText, 8, true, Align.Center);
 }
 /** A small padlock in a locked build card's corner. */
@@ -152,19 +152,19 @@ export function requirementTip(app: GameHudApp, id: string, tool: Tool, needs: r
         above = f32(anchor.y - h - 6),
         y = above >= area.y + 4 ? above : Math.min(f32(anchor.y + anchor.h + 6), f32(area.y + area.h - h - 4)),
         box = new Rect(x, y, w, h);
-      c.rect(box, { ...t.raised, a: 255 }, t.radius, t.border);
-      c.text(new Rect(f32(x + 10), f32(y + 6), f32(w - 20), 16), c.elideText(title, f32(w - 20), 11, true), t.text, 11, true);
+      paperTag(c, box);
+      c.text(new Rect(f32(x + 10), f32(y + 6), f32(w - 20), 16), c.elideText(title, f32(w - 20), 11, true), t.ink, 11, true);
       needs.forEach((need, i) => {
         const row = f32(y + 26 + 18 * i),
           mark = new Rect(f32(x + 10), f32(row + 4), 9, 9);
         if (need.done) {
-          c.line(mark.x, f32(mark.y + 4), f32(mark.x + 3), f32(mark.y + 8), t.success, 1.6);
-          c.line(f32(mark.x + 3), f32(mark.y + 8), f32(mark.x + 9), mark.y, t.success, 1.6);
-        } else c.rect(mark, { ...t.surface, a: 0 }, 2, t.accent);
+          c.line(mark.x, f32(mark.y + 4), f32(mark.x + 3), f32(mark.y + 8), t.inkMuted, 1.8);
+          c.line(f32(mark.x + 3), f32(mark.y + 8), f32(mark.x + 9), mark.y, t.inkMuted, 1.8);
+        } else c.rect(mark, { ...t.surface, a: 0 }, 2, t.inkAccent, 1.4);
         c.text(
           new Rect(f32(x + 26), row, f32(w - 36), 17),
           c.elideText(need.text, f32(w - 36), 11),
-          need.done ? t.muted : t.text,
+          need.done ? t.inkMuted : t.ink,
           11,
         );
       });
@@ -447,13 +447,13 @@ export function boonTip(app: GameHudApp, anchor: Rect): void {
           w,
           h,
         );
-      c.rect(box, { ...t.raised, a: 255 }, t.radius, t.border);
-      c.text(new Rect(f32(box.x + 10), f32(box.y + 5), f32(w - 20), 16), 'Boons of the sealed worlds', t.accent, 10, true);
+      paperTag(c, box);
+      c.text(new Rect(f32(box.x + 10), f32(box.y + 5), f32(w - 20), 16), 'Boons of the sealed worlds', t.inkAccent, 10, true);
       lines.forEach((line, i) =>
         c.text(
           new Rect(f32(box.x + 10), f32(box.y + 23 + 17 * i), f32(w - 20), 16),
           c.elideText(line, f32(w - 20), 10),
-          t.text,
+          t.ink,
           10,
         ),
       );

@@ -4,7 +4,11 @@ import {
   ButtonStyle,
   Icon,
   button,
+  frame as pictureFrame,
+  meter,
+  tag,
   type Color,
+  type Context,
 } from '../../../../packages/native-ui/src';
 import { Tool, Order, toolStructure } from '../../../../packages/engine/src/game-tools';
 import { noticeToast } from './notice-toast';
@@ -63,6 +67,14 @@ export function buildGroups(_town: Town): BuildGroup[] {
 }
 const dungeonKind = gateKindName;
 const wrap = wrapText;
+/** A line of guidance on a strip of paper, so it reads over any ground. */
+function strip(c: Context, text: string, area: Rect, ink: Color, size: number, centred = true): void {
+  if (!text) return;
+  const w = Math.min(area.w, f32(c.textWidth(text, size, true) + 28)),
+    r = new Rect(centred ? f32(area.x + f32((area.w - w) / 2)) : area.x, area.y, w, area.h);
+  tag(c, r, { cut: 4 });
+  c.text(new Rect(f32(r.x + 10), r.y, f32(r.w - 20), r.h), c.elideText(text, f32(r.w - 20), size, true), ink, size, true, Align.Center);
+}
 export function hud(this: GameHudApp, width: number, height: number): void {
   this.updateContextDock(width, height);
   trackUnlocks(this);
@@ -70,31 +82,23 @@ export function hud(this: GameHudApp, width: number, height: number): void {
     t = this.theme;
   this.skyMural(width);
   if (this.town.raiding())
-    c.text(
+    strip(
+      c,
+      'Raid! Defend the settlement',
       new Rect(
         (width - Math.min(320, width - 24)) / 2,
-        f32(f32(this.skyBounds.y + this.skyBounds.h) + 8),
+        f32(f32(this.skyBounds.y + this.skyBounds.h) + 9),
         Math.min(320, width - 24),
         20,
       ),
-      'Raid! Defend the settlement',
-      t.danger,
+      t.inkDanger,
       12,
-      true,
-      Align.Center,
     );
   if ((this.status || this.current.problem) && !(this.touchMode && this.toolStructure() !== undefined))
-    c.text(
-      new Rect(16, f32(this.dockBounds.y - 28), f32(width - 32), 22),
-      this.status || this.current.problem,
-      t.danger,
-      13,
-      true,
-      Align.Center,
-    );
+    strip(c, this.status || this.current.problem, new Rect(16, f32(this.dockBounds.y - 30), f32(width - 32), 22), t.inkDanger, 13);
   if (this.pending !== Order.None)
-    c.text(
-      new Rect(12, f32(this.dockBounds.y - 34), f32(width - 24), 22),
+    strip(
+      c,
       this.touchMode
         ? this.pending === Order.Move
           ? 'Tap a destination'
@@ -106,13 +110,11 @@ export function hud(this: GameHudApp, width: number, height: number): void {
           : this.pending === Order.Work
             ? 'Work: choose a resource, building or road'
             : 'Attack: choose an enemy, resource or destination',
-      t.accent,
+      new Rect(12, f32(this.dockBounds.y - 36), f32(width - 24), 22),
+      t.ink,
       13,
-      true,
-      Align.Center,
     );
-  else if (currentAim(this))
-    c.text(new Rect(12, f32(this.dockBounds.y - 34), f32(width - 24), 22), aimPrompt(this), t.accent, 13, true, Align.Center);
+  else if (currentAim(this)) strip(c, aimPrompt(this), new Rect(12, f32(this.dockBounds.y - 36), f32(width - 24), 22), t.ink, 13);
   if (!this.touchMode && width > 640 && !this.town.camp() && this.town.map().dungeons().length) {
     const lair = this.town.map().dungeons()[0].origin,
       start = this.town.map().camp(),
@@ -123,10 +125,10 @@ export function hud(this: GameHudApp, width: number, height: number): void {
       hintX = 16,
       hintWidth = Math.max(1, f32(f32(width - hintX) - 316)),
       hint = `Found a camp (C) near ${this.town.map().dungeons()[0].name} (${way}).`;
-    let y = f32(f32(this.skyBounds.y + this.skyBounds.h) + 8);
-    for (const row of wrap(c, hint, hintWidth, 11, 2)) {
-      c.text(new Rect(hintX, y, hintWidth, 17), row, t.accent, 11);
-      y = f32(y + 17);
+    let y = f32(f32(this.skyBounds.y + this.skyBounds.h) + 10);
+    for (const row of wrap(c, hint, f32(hintWidth - 28), 11, 2)) {
+      strip(c, row, new Rect(hintX, y, hintWidth, 20), t.ink, 11, false);
+      y = f32(y + 24);
     }
   }
   noticeToast(this, width, height);
@@ -382,8 +384,7 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
       const at = y,
         fraction = growth.needed ? f32(growth.days / growth.needed) : 0;
       rows.push(() => {
-        c.rect(new Rect(left, f32(f32(top + at) + 4), inner, 8), t.raised, 4);
-        c.rect(new Rect(left, f32(f32(top + at) + 4), Math.max(8, f32(inner * fraction)), 8), t.accent, 4);
+        meter(c, new Rect(left, f32(f32(top + at) + 4), inner, 8), fraction, t.accent);
       });
       y = f32(y + 18);
       textRow(`${growth.days} / ${growth.needed} days`, t.muted, 12);
@@ -459,7 +460,7 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
   const h = Math.max(126, f32(y + 10));
   if (!draw) return h;
   const frame = new Rect(f32(panel.x + 12), f32(panel.y + 12), 84, 94);
-  c.rect(frame, t.raised, t.radius, t.border);
+  pictureFrame(c, frame);
   if (building) {
     const art = new Rect(f32(frame.x + 10), f32(frame.y + 10), f32(frame.w - 20), f32(frame.h - 20)),
       kind = building.kind;

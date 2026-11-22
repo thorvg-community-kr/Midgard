@@ -1,4 +1,4 @@
-import { Rect, Align, button, ButtonStyle } from '../../../../packages/native-ui/src';
+import { Rect, Align, button, ButtonStyle, frame, meter, tag } from '../../../../packages/native-ui/src';
 import {
   Role,
   Activity,
@@ -82,7 +82,7 @@ export function personPanel(this: GameHudApp, panel: Rect): void {
       entry = { key, paint: hudPaint(c, personPortrait(p, mood, r.w - 2, r.h - 2, backdrop)) };
       this.dockPortraits.set(p.id, entry);
     }
-    c.rect(r, t.raised, t.radius, t.border);
+    frame(c, r);
     c.add(entry.paint);
     entry.paint.transform({
       e11: 1,
@@ -184,8 +184,7 @@ export function personPanel(this: GameHudApp, panel: Rect): void {
       const x = panel.x + 12 + index * (w + gap),
         color = (positive ? value : 1 - value) < 0.3 ? t.danger : t.success;
       c.text(new Rect(x, y, w, 16), label + ' ' + Math.round(value * 100) + '%', t.muted, 9);
-      c.rect(new Rect(x, y + 18, w, 4), t.raised, 2);
-      c.rect(new Rect(x, y + 18, Math.max(1, w * Math.max(0, Math.min(1, value))), 4), color, 2);
+      meter(c, new Rect(x, y + 17, w, 6), value, color);
     }
     if (!narrow)
       c.text(
@@ -226,11 +225,7 @@ export function personPanel(this: GameHudApp, panel: Rect): void {
         false,
         { fill: { r: 0, g: 0, b: 0, a: 0 } },
       );
-      c.rect(
-        new Rect(r.x + 3, r.y + r.h - 5, Math.max(1, (r.w - 6) * p.health), 3),
-        p.health < 0.3 ? t.danger : t.success,
-        1,
-      );
+      meter(c, new Rect(r.x + 2, r.y + r.h - 6, r.w - 4, 4), p.health, p.health < 0.3 ? t.danger : t.success);
       if (p.downedAt >= 0) c.rect(r, { r: 0, g: 0, b: 0, a: 0 }, t.radius, t.danger, 2);
       portraitMarks(this, p, r);
     }
@@ -269,7 +264,7 @@ function portraitMarks(app: GameHudApp, p: Person, r: Rect): void {
   if (p.holding) {
     const x = r.x + 9,
       y = r.y + 9;
-    c.rect(new Rect(r.x + 2, r.y + 2, 14, 15), t.surface, 3, t.accent, 1);
+    c.rect(new Rect(r.x + 2, r.y + 2, 14, 15), { ...t.surface, a: 235 }, 3);
     c.line(x - 4, y - 4, x + 4, y - 4, t.accent, 1.4);
     c.line(x - 4, y - 4, x - 4, y + 1, t.accent, 1.4);
     c.line(x + 4, y - 4, x + 4, y + 1, t.accent, 1.4);
@@ -281,7 +276,7 @@ function portraitMarks(app: GameHudApp, p: Person, r: Rect): void {
     const label = groups.join(''),
       w = c.textWidth(label, 9, true) + 8,
       box = new Rect(r.x + r.w - w - 2, r.y + 2, w, 13);
-    c.rect(box, t.surface, 3, t.border, 1);
-    c.text(box, label, t.text, 9, true, Align.Center);
+    tag(c, box, { cut: 2, lip: 1 });
+    c.text(box, label, t.ink, 9, true, Align.Center);
   }
 }

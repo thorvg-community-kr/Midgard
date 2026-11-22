@@ -1,6 +1,6 @@
 // The skill part of the selection panel: both skills of a calling with cooldown, ready count, the locked second
 // skill and an auto toggle each; tabs to choose the calling when the selection is mixed.
-import { Rect, Align, ButtonStyle, button } from '../../../../packages/native-ui/src';
+import { Rect, Align, ButtonStyle, button, meter, tag } from '../../../../packages/native-ui/src';
 import { f32, clamp } from '../../../../packages/engine/src/numeric';
 import { SkillAim } from '../../../../packages/engine/src/skill-catalog';
 import { tooltip, wrapText } from './game-combat-hud';
@@ -82,9 +82,8 @@ function skillButton(app: GameHudApp, entry: CallingSkills, slot: number, r: Rec
       : single
         ? 1 - clamp(a.remaining / Math.max(1, a.cooldown), 0, 1)
         : group.ready / group.holders.length,
-    bar = new Rect(f32(r.x + 3), f32(r.y + r.h - 5), f32(r.w - 6), 3);
-  c.rect(bar, t.raised, 1);
-  if (!locked) c.rect(new Rect(bar.x, bar.y, Math.max(1, f32(bar.w * charge)), 3), ready ? t.accent : t.muted, 1);
+    bar = new Rect(f32(r.x + 4), f32(r.y + r.h - 8), f32(r.w - 8), 3);
+  meter(c, bar, locked ? 0 : charge, ready ? t.accent : t.muted);
   const key = app.touchMode ? '' : skillKeys[slot] + '  ',
     shown = locked
       ? `Lv ${group.spec.level}`
@@ -158,8 +157,8 @@ function callingTabs(app: GameHudApp, groups: readonly CallingSkills[], focus: C
   let x = area.x;
   if (!app.touchMode) {
     const badge = new Rect(x, area.y, 30, h);
-    c.rect(badge, t.raised, 3, t.border);
-    c.text(badge, 'Tab', t.accent, 10, true, Align.Center);
+    tag(c, badge, { cut: 2, lip: 1 });
+    c.text(badge, 'Tab', t.ink, 10, true, Align.Center);
     x = f32(x + 36);
   }
   const room = f32(area.x + area.w - x),
@@ -191,7 +190,7 @@ function callingTabs(app: GameHudApp, groups: readonly CallingSkills[], focus: C
     // A pip per skill: filled when someone has it ready, hollow while it recovers, absent while locked.
     g.slots.forEach((slot, s) => {
       const pip = new Rect(f32(r.x + w - 22 + s * 10), f32(r.y + h / 2 - 3), 6, 6);
-      if (!slot.holders.length) c.rect(pip, t.raised, 3);
+      if (!slot.holders.length) c.rect(pip, t.well, 3);
       else if (slot.ready) c.rect(pip, t.accent, 3);
       else c.rect(pip, { r: 0, g: 0, b: 0, a: 0 }, 3, t.muted, 1);
     });

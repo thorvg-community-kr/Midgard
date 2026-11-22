@@ -1,5 +1,5 @@
 import { burdenFrom, carriedWeight, carryLimit } from '../../../../packages/engine/src/carried-resources';
-import { Rect, button, ButtonStyle, Align, type Context } from '../../../../packages/native-ui/src';
+import { Rect, button, ButtonStyle, Align, well, type Context } from '../../../../packages/native-ui/src';
 import {
   inventorySlots,
   equipmentSlots,
@@ -251,6 +251,9 @@ export function equipmentPanel(app: GameHudApp, p: Person, panel: Rect): void {
       },
       selected ? ButtonStyle.Primary : ButtonStyle.Default,
       true,
+      undefined,
+      false,
+      { sunken: true },
     );
     itemIcon(c, r, slot.item, false, selected);
     if (slot.quantity)
@@ -293,6 +296,9 @@ export function equipmentPanel(app: GameHudApp, p: Person, panel: Rect): void {
       },
       item ? ButtonStyle.Primary : ButtonStyle.Default,
       enabled,
+      undefined,
+      false,
+      { sunken: true },
     );
     const placeholders = {
       weapon: 'sword',
@@ -371,7 +377,7 @@ export function equipmentPanel(app: GameHudApp, p: Person, panel: Rect): void {
     detailW = panel.x + panel.w - detailX;
   if (detailW >= 150) {
     const box = new Rect(detailX, top, detailW, Math.min(panel.h - 58, 220));
-    c.rect(box, t.raised, 3, t.border);
+    well(c, box);
     const text = (at: number, value: string, color = t.text, size = 11, bold = false) => {
       if (at + 21 > box.h) return;
       c.text(

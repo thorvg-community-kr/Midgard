@@ -1,7 +1,7 @@
 // Fighting, rescue and loss in the player's hands, eyes and ears.
 import type { Paint } from '@thorvg/webcanvas';
 import { translate } from '../../../../packages/localization/src/index';
-import { Rect, Align, ButtonStyle, button, type Context, type Color } from '../../../../packages/native-ui/src';
+import { Rect, Align, ButtonStyle, board, button, frame as pictureFrame, meter, tag, type Context, type Color } from '../../../../packages/native-ui/src';
 import { Person, Role, Activity, callingName, type Monster } from '../../../../packages/engine/src/person';
 import { CombatCue, type CombatEvent, type Fallen } from '../../../../packages/engine/src/combat-events';
 import { canControl, isPlayerResident } from '../../../../packages/engine/src/faction';
@@ -106,9 +106,9 @@ export function tooltip(c: Context, id: string, hovered: boolean, lines: readonl
         above = f32(anchor.y - h - 6),
         y = above >= area.y + 4 ? above : f32(anchor.y + anchor.h + 6),
         r = new Rect(x, y, width, h);
-      c.rect(r, t.raised, 3, t.border);
+      tag(c, r);
       rows.forEach((row, i) =>
-        c.text(new Rect(f32(x + 10), f32(y + 5 + i * 16), f32(width - 20), 16), row, i === 0 ? t.text : t.muted, 11, i === 0),
+        c.text(new Rect(f32(x + 10), f32(y + 5 + i * 16), f32(width - 20), 16), row, i === 0 ? t.ink : t.inkMuted, 11, i === 0),
       );
     },
     'combat-tooltip',
@@ -117,7 +117,6 @@ export function tooltip(c: Context, id: string, hovered: boolean, lines: readonl
 }
 function portrait(app: GameAppState, slot: string, person: Person, mood: Mood, r: Rect): void {
   const c = app.context,
-    t = app.theme,
     state = app.combatHud,
     backdrop = portraitBackdrop(app.town.map(), person.position, app.town.climate()),
     key = JSON.stringify([slot, person.id, person.look, person.race, String(person.lookRevision), person.calling, r.w, r.h, mood, injuryOf(person), backdrop]);
@@ -131,7 +130,7 @@ function portrait(app: GameAppState, slot: string, person: Person, mood: Mood, r
     state.portraits.set(slot, entry);
   }
   state.drawn.add(slot);
-  c.rect(r, t.raised, t.radius, t.border);
+  pictureFrame(c, r);
   c.add(entry.paint);
   entry.paint.transform({ e11: 1, e12: 0, e13: r.x + 1, e21: 0, e22: 1, e23: r.y + 1, e31: 0, e32: 0, e33: 1 });
 }
@@ -352,7 +351,7 @@ function guardianBar(app: GameHudApp, width: number, y: number): number {
     r = new Rect(x, y, w, h),
     pulse = windup && !app.reducedMotion() ? f32(0.5 + 0.5 * Math.sin(c.time() * 12)) : 1;
   c.control('guardian-bar', r, undefined, true, false);
-  c.rect(r, t.surface, t.radius, windup ? faded(t.danger, 140 + 115 * pulse) : t.border, windup ? 2 : 1);
+  board(c, r, { trim: windup ? faded(t.danger, 140 + 115 * pulse) : t.border, trimWidth: windup ? 2 : 1 });
   c.text(new Rect(f32(x + 12), f32(y + 4), f32(w - 120), 18), c.elideText(name ? `Guardian of ${name}` : 'Guardian', f32(w - 120), 12, true), t.text, 12, true);
   c.text(
     new Rect(f32(x + w - 112), f32(y + 4), 100, 18),
@@ -363,8 +362,7 @@ function guardianBar(app: GameHudApp, width: number, y: number): number {
     Align.End,
   );
   const bar = new Rect(f32(x + 12), f32(y + 25), f32(w - 24), 9);
-  c.rect(bar, t.raised, 2);
-  c.rect(new Rect(bar.x, bar.y, Math.max(2, f32(bar.w * share)), bar.h), t.danger, 2);
+  meter(c, bar, share, t.danger);
   // The notch marks where it enrages and calls its brood.
   c.rect(new Rect(f32(bar.x + f32(bar.w / 2) - 1), f32(bar.y - 3), 2, f32(bar.h + 6)), t.text, 0);
   if (windup) {
@@ -392,7 +390,7 @@ function autoPauseBanner(app: GameHudApp, width: number, y: number): number {
     r = new Rect(x, y, w, h),
     downed = pause.person >= 0;
   c.control('auto-pause', r, undefined, true, false);
-  c.rect(r, t.surface, t.radius, downed ? t.danger : t.accent, 2);
+  board(c, r, { trim: downed ? t.danger : t.accent, trimWidth: 2 });
   c.text(new Rect(f32(x + 12), f32(y + 6), f32(w - 24), 20), c.elideText(pause.title, f32(w - 24), 14, true), downed ? t.danger : t.accent, 14, true);
   detail.forEach((row, i) => c.text(new Rect(f32(x + 12), f32(y + 28 + i * 15), f32(w - 24), 15), row, t.text, 11));
   c.text(
@@ -453,7 +451,7 @@ function memorialBanner(app: GameHudApp, width: number, y: number): number {
     r = new Rect(x, y, w, h),
     body = fallenPerson(fallen);
   c.control('memorial', r, undefined, true, false);
-  c.rect(r, t.surface, t.radius, t.accent, 2);
+  board(c, r, { trim: t.accent, trimWidth: 2 });
   portrait(app, 'memorial', body, Mood.Asleep, new Rect(f32(x + 10), f32(y + 10), size, f32(size + 8)));
   c.text(new Rect(left, f32(y + 6), inner, 20), c.elideText(`${fallen.name} has died`, inner, 14, true), t.accent, 14, true);
   c.text(new Rect(left, f32(y + 27), inner, 15), c.elideText(lines[0], inner, 11), t.muted, 11);
@@ -506,8 +504,7 @@ function downedAlerts(app: GameHudApp, width: number, y: number): void {
     c.text(new Rect(f32(r.x + 46), f32(r.y + 4), f32(cardW - 50), 17), c.elideText(p.name, f32(cardW - 50), 11, true), t.text, 11, true);
     c.text(new Rect(f32(r.x + 46), f32(r.y + 19), f32(cardW - 50), 14), `${Math.ceil(left)} s`, t.danger, 10, true);
     const bar = new Rect(f32(r.x + 46), f32(r.y + 35), f32(cardW - 54), 4);
-    c.rect(bar, t.raised, 1);
-    c.rect(new Rect(bar.x, bar.y, Math.max(1, f32(bar.w * clamp(left / total, 0, 1))), bar.h), t.danger, 1);
+    meter(c, bar, left / total, t.danger);
     tooltip(c, id, s.hovered, [
       `${p.name} is bleeding out`,
       'Click to look and select the nearest ally who can help, then right-click the body to revive.',

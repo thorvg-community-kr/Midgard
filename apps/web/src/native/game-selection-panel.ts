@@ -1,5 +1,5 @@
 import type { Paint } from '@thorvg/webcanvas';
-import { Rect, button, type Context, type Color } from '../../../../packages/native-ui/src';
+import { Rect, button, frame as pictureFrame, meter, type Context, type Color } from '../../../../packages/native-ui/src';
 import { Order } from '../../../../packages/engine/src/game-tools';
 import { f32 } from '../../../../packages/engine/src/numeric';
 import { animalSpec } from '../../../../packages/engine/src/wildlife';
@@ -124,7 +124,7 @@ export function worldObjectPanel(this: GameHudApp, panel: Rect): void {
     t = this.theme;
   if (!animal && cell < 0) return;
   const portrait = new Rect(f32(panel.x + 12), f32(panel.y + 12), 96, 120);
-  c.rect(portrait, t.raised, t.radius, t.border);
+  pictureFrame(c, portrait);
   const left = f32(panel.x + 120),
     width = f32(panel.w - 132);
   const text = (y: number, words: string, color: Color, size = 12, bold = false) =>
@@ -146,13 +146,7 @@ export function worldObjectPanel(this: GameHudApp, panel: Rect): void {
     text(58, 'Food +' + spec.food + ' when hunted', t.muted);
     const health = Math.max(0, Math.min(1, f32(animal.health / spec.health)));
     text(79, 'Health ' + Math.ceil(f32(health * 100)) + '%', t.muted, 11);
-    c.rect(new Rect(f32(left + 78), f32(panel.y + 87), Math.max(1, f32(width - 78)), 5), t.raised, 2);
-    if (health > 0)
-      c.rect(
-        new Rect(f32(left + 78), f32(panel.y + 87), Math.max(1, f32(f32(width - 78) * health)), 5),
-        t.success,
-        2,
-      );
+    meter(c, new Rect(f32(left + 78), f32(panel.y + 86), Math.max(1, f32(width - 78)), 7), health, t.success);
     button(c, 'animal-hunt', new Rect(left, f32(panel.y + 104), width, 30), 'Attack  A', () =>
       this.prepare(Order.Attack),
     );

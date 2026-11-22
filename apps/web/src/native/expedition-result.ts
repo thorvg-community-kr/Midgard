@@ -1,6 +1,6 @@
 // The result screen at the end of an expedition: how it ended, what the party did, who came back and in what
 // state, the spoils and what the floor opened. The settlement waits behind it; closing it eases the view home.
-import { Rect, Align, ButtonStyle, button, rgba, type Color } from '../../../../packages/native-ui/src';
+import { Rect, Align, ButtonStyle, board, button, frame as pictureFrame, groove, rgba, slab, tone as toned, type Color } from '../../../../packages/native-ui/src';
 import { callingName, type Person } from '../../../../packages/engine/src/person';
 import { describe } from '../../../../packages/engine/src/building-catalog';
 import { f32 } from '../../../../packages/engine/src/numeric';
@@ -189,20 +189,20 @@ export function handleResultEvent(this: ResultApp, event: AppEvent): boolean {
 
 // ---------------------------------------------------------------- drawing
 
-const veil = rgba(6, 10, 13, 200);
+const veil = rgba(14, 12, 28, 190);
 function portrait(app: GameAppState, member: MemberOutcome, home: { x: number; y: number }, r: Rect): void {
   const c = app.context,
     living = app.town.person(member.id),
     body: Person | null = member.fallen ? fallenPerson(member.fallen) : living,
     mood = member.fallen ? Mood.Asleep : living ? moodOf(living) : Mood.Content;
-  c.rect(r, app.theme.raised, 3);
+  pictureFrame(c, r);
   if (!body) return;
   c.paint(JSON.stringify(['result-face', body.id, body.look, body.race, String(body.lookRevision), body.calling, mood, r]), () => {
     const paint = hudPaint(c, personPortrait(body, mood, r.w, r.h, portraitBackdrop(app.town.map(), home, app.town.climate())));
     paint.translate(r.x, r.y);
     return paint;
   });
-  if (member.fallen) c.rect(r, rgba(20, 22, 20, 110), 3);
+  if (member.fallen) c.rect(r, rgba(24, 22, 38, 120));
 }
 function stateColor(app: GameAppState, member: MemberOutcome): Color {
   const t = app.theme;
@@ -253,7 +253,7 @@ export function renderExpeditionResult(this: ResultApp, width: number, height: n
     h = Math.min(f32(height - 16), fixed + shownRows * (rowH + 6)),
     panel = new Rect(f32(f32(width - w) / 2), f32(f32(height - h) / 2), w, h);
   c.control('expedition-result-panel', panel, undefined, true, false);
-  c.rect(panel, t.surface, 6, tone, 2);
+  board(c, panel, { trim: tone, trimWidth: 2 });
   let y = f32(panel.y + 14);
   c.text(new Rect(f32(panel.x + pad), y, inner, 28), c.elideText(resultTitle(outcome), inner, 20, true), tone, 20, true, Align.Center);
   y = f32(y + 30);
@@ -271,7 +271,7 @@ export function renderExpeditionResult(this: ResultApp, width: number, height: n
     y = f32(y + 18);
   }
   y = f32(y + 6);
-  c.line(f32(panel.x + pad), y, f32(panel.x + w - pad), y, t.border, 1);
+  groove(c, f32(panel.x + pad), f32(y - 1), f32(w - pad * 2), true);
   y = f32(y + 8);
   deeds.forEach((row, i) => {
     const column = wide ? i % 2 : 0,
@@ -284,7 +284,7 @@ export function renderExpeditionResult(this: ResultApp, width: number, height: n
     y = f32(y + 17);
   }
   if (rewards.length) y = f32(y + 6);
-  c.line(f32(panel.x + pad), y, f32(panel.x + w - pad), y, t.border, 1);
+  groove(c, f32(panel.x + pad), f32(y - 1), f32(w - pad * 2));
   y = f32(y + 10);
   outcome.members.slice(0, shownRows * columns).forEach((member, i) => {
     const r = new Rect(
@@ -293,8 +293,8 @@ export function renderExpeditionResult(this: ResultApp, width: number, height: n
       colW,
       rowH,
     );
-    c.rect(r, t.raised, 4);
-    const face = new Rect(f32(r.x + 5), f32(r.y + 4), 36, f32(rowH - 8));
+    slab(c, r, toned(t.surface, t.raised, 0.6), { lip: 2 });
+    const face = new Rect(f32(r.x + 7), f32(r.y + 6), 34, f32(rowH - 14));
     portrait(this, member, outcome.home, face);
     const left = f32(face.x + face.w + 9),
       textW = f32(r.x + r.w - left - 8);

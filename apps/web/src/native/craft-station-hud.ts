@@ -1,4 +1,4 @@
-import { Rect, Align, ButtonStyle, button, type Color } from '../../../../packages/native-ui/src';
+import { Rect, Align, ButtonStyle, button, frame as pictureFrame, meter, slab, tone, well, type Color } from '../../../../packages/native-ui/src';
 import { Structure, describe, structureSpec, type Resources } from '../../../../packages/engine/src/building-catalog';
 import type { Building } from '../../../../packages/engine/src/town-models';
 import type { Town } from '../../../../packages/engine/src/town';
@@ -256,7 +256,7 @@ export function stationRows(app: GameHudApp, station: Building, out: InspectorRo
     out.rows.push(() => {
       const y = f32(top + at),
         frame = new Rect(left, y, face, face);
-      c.rect(frame, t.raised, 3, t.border);
+      pictureFrame(c, frame);
       if (crafter)
         c.paint(JSON.stringify(['station-face', crafter.id, crafter.look, crafter.race, String(crafter.lookRevision), crafter.calling, moodOf(crafter), face, left, y]), () => {
           const paint = hudPaint(
@@ -359,8 +359,7 @@ export function stationRows(app: GameHudApp, station: Building, out: InspectorRo
     out.y = f32(out.y + 30);
     const barAt = out.y;
     out.rows.push(() => {
-      c.rect(new Rect(left, f32(top + barAt), inner, 6), t.raised, 3);
-      c.rect(new Rect(left, f32(top + barAt), Math.max(6, f32(inner * share)), 6), t.accent, 3);
+      meter(c, new Rect(left, f32(top + barAt - 1), inner, 8), share, t.accent);
     });
     out.y = f32(out.y + 12);
     // A crafter at the bench without the materials stands still: say why.
@@ -463,7 +462,9 @@ export function stationRows(app: GameHudApp, station: Building, out: InspectorRo
         r = new Rect(left, y, inner, rowH),
         // On a phone the icon and button sit beside the name and cost, leaving the effect line the whole row.
         buttonY = f32(y + (narrow ? 4 : (rowH - 26) / 2));
-      c.rect(r, faded ? t.surface : t.raised, 3, quest ? t.accent : t.border);
+      // What can be made stands proud of the board; what cannot lies in it.
+      if (faded) well(c, r, tone(t.surface, t.dusk, 0.16), { rim: quest ? t.accent : undefined });
+      else slab(c, r, tone(t.surface, t.raised, 0.7), { lip: 2, trim: quest ? t.accent : undefined });
       itemIcon(
         c,
         narrow
@@ -594,8 +595,8 @@ export function craftBars(app: GameHudApp, width: number, height: number): void 
       w = 52,
       r = new Rect(f32(roof.x - w / 2), f32(roof.y - 16), w, 8);
     if (r.x < -w || r.x > width || r.y < 0 || r.y > height) continue;
-    c.rect(r, t.surface, 4, t.border);
-    c.rect(new Rect(f32(r.x + 1), f32(r.y + 1), Math.max(4, f32((w - 2) * share)), 6), t.accent, 3);
+    c.rect(new Rect(f32(r.x - 2), f32(r.y - 2), f32(w + 4), 13), { ...t.surface, a: 255 }, 3);
+    meter(c, r, share, t.accent);
     c.requestFrameAt(c.time() + 0.25);
   }
 }

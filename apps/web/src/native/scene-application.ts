@@ -8,8 +8,13 @@ import {
   Key,
   Rect,
   Theme,
+  board,
   button,
   loadKoreanFont,
+  slab,
+  tag,
+  tone,
+  well,
   type NativeFontMetrics,
 } from '../../../../packages/native-ui/src/index';
 import { locale, locales, setLocale, storeLocale, type Locale } from '../../../../packages/localization/src/index';
@@ -31,12 +36,11 @@ import { gameTheme, reducedMotionPreferred } from './game-theme';
 import { motionPreference, motionPreferences, setMotionPreference } from './motion-preference';
 import { startTitlePlay, type TitlePlay } from './title-session';
 import { drawTitleWordmark } from './title-wordmark';
+import { hudGlyph } from './hud-glyphs';
 import { IntroSaga } from './intro-saga';
 import { structureSpec } from '../../../../packages/engine/src/building-catalog';
 import { Activity, activityName } from '../../../../packages/engine/src/person';
 const f = Math.fround;
-const settingsIcon =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.6" stroke-linejoin="round"><path d="M10 2.8h4l.5 2.5 1.7 1 2.4-.8 2 3.5-1.9 1.7v2.6l1.9 1.7-2 3.5-2.4-.8-1.7 1-.5 2.5h-4l-.5-2.5-1.7-1-2.4.8-2-3.5 1.9-1.7v-2.6L3.4 9l2-3.5 2.4.8 1.7-1Z"/><circle cx="12" cy="12" r="3.2"/></svg>';
 type Intro = 'None' | 'Cover' | 'Saga' | 'Loading' | 'Reveal';
 
 /** Real seconds of unpaused play between automatic saves. */
@@ -113,8 +117,6 @@ export class SceneApplication implements Application {
     this.root = new tvg.Scene();
     this.overlay = new Context(tvg, fonts);
     this.fonts = fonts;
-    if (!this.overlay.setIcons([{ name: 'settings', data: settingsIcon, mime: 'svg' }]))
-      throw new Error(this.overlay.iconError());
     this.savePath = value.saveFile || services.preferenceSavePath();
     if (value.studio || value.characterFile) this.requested = 'CharacterStudio';
     else if (value.mapEditor) this.requested = 'MapEditor';
@@ -251,23 +253,31 @@ export class SceneApplication implements Application {
       const left = f(titleCenter - f(bw / 2)),
         top = f(height * f(0.42));
       let hoveredItem = '';
+      // The menu is lettering alone; the item under the pointer is lit and flanked by two studs.
       const menu = (id: string, bounds: Rect, label: string, activate: () => void, enabled = true) => {
-        const state = button(this.overlay, id, bounds, label, activate, ButtonStyle.Quiet, enabled);
+        const lit = enabled && this.hoveredTitleItem === id,
+          state = button(this.overlay, id, bounds, label, activate, ButtonStyle.Quiet, enabled, undefined, false, {
+            fontSize: 18,
+            bold: true,
+            text: lit ? theme.accent : theme.text,
+          });
         if (enabled && state.hovered) hoveredItem = id;
         if (enabled && (state.hovered || state.focused || state.pressed)) {
-          const color = state.pressed ? { r: 255, g: 245, b: 208, a: 255 } : theme.accent;
-          this.overlay.rect(
-            new Rect(f(bounds.x + 24), f(f(bounds.y + bounds.h) - 3), f(bounds.w - 48), 2),
-            color,
-          );
-          this.overlay.text(
-            new Rect(f(bounds.x + 3), bounds.y, 18, bounds.h),
-            '>',
-            color,
-            16,
-            true,
-            Align.Center,
-          );
+          const color = state.pressed ? { r: 255, g: 245, b: 208, a: 255 } : theme.accent,
+            half = f(this.overlay.textWidth(label, 18, true) / 2 + 20),
+            middle = f(bounds.y + bounds.h / 2 + (state.lift ?? 0)),
+            center = f(bounds.x + bounds.w / 2);
+          for (const side of [-1, 1])
+            this.overlay.paint(JSON.stringify(['title-stud', id, side, half, middle, color]), () => {
+              const x = f(center + side * half);
+              return new this.tvg.Shape()
+                .moveTo(x, f(middle - 5))
+                .lineTo(f(x + 5), middle)
+                .lineTo(x, f(middle + 5))
+                .lineTo(f(x - 5), middle)
+                .close()
+                .fill(color.r, color.g, color.b, color.a);
+            });
         }
       };
       const saves = this.savedSlots().length > 0;
@@ -291,7 +301,7 @@ export class SceneApplication implements Application {
           this.titleSound.play(new Sound(Cue.Click, f(0.35), 0));
         this.hoveredTitleItem = hoveredItem;
       }
-      if (this.settingsOpen) this.drawSettings(width, height, theme);
+      if (this.settingsOpen) this.drawSettings(width, height);
       else if (this.message)
         this.overlay.text(
           new Rect(24, f(top + 258), f(width - 48), 42),
@@ -321,19 +331,21 @@ export class SceneApplication implements Application {
           this.touchInput ? 44 : 36,
         );
         const state = button(this.overlay, 'settings', bounds, '', () => this.openSettings());
-        this.overlay.icon('settings/gear', bounds.inset(7), 'settings', theme.text, {
-          hovered: state.hovered,
-          pressed: state.pressed,
-          active: this.settingsOpen,
-          enabled: true,
-          focused: state.focused,
-        });
-        if (this.settingsOpen) this.drawSettings(width, height, theme);
+        hudGlyph(
+          this.overlay,
+          'cog',
+          f(bounds.x + bounds.w / 2),
+          f(bounds.y + bounds.h / 2 + (state.lift ?? 0)),
+          state.hovered ? theme.accent : theme.text,
+          1,
+          tone(theme.raised, theme.light, state.hovered ? 0.16 : 0),
+        );
+        if (this.settingsOpen) this.drawSettings(width, height);
         else if (this.message && this.current === 'Game' && seconds < this.messageUntil) {
           const w = Math.min(300, f(width - 32)),
             toast = new Rect(f(f(width - w) / 2), 58, w, 30);
-          this.overlay.rect(toast, theme.raised, theme.radius, theme.border);
-          this.overlay.text(toast.inset(4), this.message, theme.text, 12, false, Align.Center);
+          tag(this.overlay, toast, { cut: 5, lip: 3 });
+          this.overlay.text(toast.inset(4), this.message, theme.ink, 12, true, Align.Center);
           this.overlay.requestFrameAt(this.messageUntil);
         }
       }
@@ -564,7 +576,7 @@ export class SceneApplication implements Application {
       true,
       false,
     );
-    this.overlay.rect(viewport, { r: 0, g: 0, b: 0, a: 168 });
+    this.overlay.rect(viewport, { r: 14, g: 12, b: 28, a: 170 });
     const columns = 3,
       rows = Math.ceil(slots.length / columns),
       pad = width < 520 ? 14 : 24,
@@ -586,26 +598,17 @@ export class SceneApplication implements Application {
     }
     const panel = new Rect(f(Math.round((width - w) / 2)), f(Math.round((height - h) / 2)), f(w), h);
     this.overlay.control('settings/panel', panel, () => {}, true, false);
-    this.overlay.rect(
-      new Rect(f(panel.x - 2), f(panel.y + 6), f(panel.w + 4), f(panel.h + 4)),
-      { r: 0, g: 0, b: 0, a: 70 },
-      12,
-    );
-    this.overlay.rect(panel, theme.surface, 10, theme.border);
+    board(this.overlay, panel, { header: 46 });
     this.overlay.text(
-      new Rect(f(panel.x + pad), f(panel.y + 15), f(panel.w - 80), 28),
+      new Rect(f(panel.x + pad), f(panel.y + 9), f(panel.w - 80), 28),
       saving ? 'Save Game' : 'Load Game',
-      theme.text,
+      theme.accent,
       18,
       true,
     );
-    const dismiss = new Rect(f(f(panel.x + panel.w) - pad - 26), f(panel.y + 15), 28, 28);
-    const state = button(this.overlay, 'settings/close', dismiss, '', close, ButtonStyle.Quiet);
-    const ink = state.hovered || state.focused ? theme.text : theme.muted;
-    this.overlay.line(f(dismiss.x + 9), f(dismiss.y + 9), f(dismiss.x + 19), f(dismiss.y + 19), ink, f(1.5));
-    this.overlay.line(f(dismiss.x + 19), f(dismiss.y + 9), f(dismiss.x + 9), f(dismiss.y + 19), ink, f(1.5));
-    const well = { r: 0, g: 0, b: 0, a: 96 },
-      small = card < 120;
+    const dismiss = new Rect(f(f(panel.x + panel.w) - pad - 26), f(panel.y + 9), 28, 28);
+    this.closeMark(dismiss, close, theme);
+    const small = card < 120;
     slots.forEach((slot, index) => {
       const bounds = new Rect(
           f(panel.x + pad + (index % columns) * (card + gap)),
@@ -638,15 +641,15 @@ export class SceneApplication implements Application {
         enabled,
       );
       const lit = enabled && (hit.hovered || hit.focused || hit.pressed);
-      this.overlay.rect(
-        bounds,
-        lit ? theme.selection : theme.raised,
-        6,
-        lit || current ? accent : theme.border,
-        current ? 2 : 1,
-      );
-      const picture = new Rect(f(bounds.x + 1), f(bounds.y + 1), card - 2, shot);
-      this.overlay.rect(picture, well, 5);
+      // A save is a tile; the one in use is trimmed in ochre.
+      slab(this.overlay, bounds, lit ? tone(theme.raised, theme.light, 0.14) : theme.raised, {
+        lip: 3,
+        cut: 4,
+        pressed: enabled && hit.pressed ? 1 : 0,
+        trim: current ? accent : undefined,
+      });
+      const picture = new Rect(f(bounds.x + 4), f(bounds.y + 4), card - 8, Math.round(((card - 8) * 9) / 16));
+      well(this.overlay, picture, undefined, { cut: 2 });
       const time = filled ? this.services.savedAt(path) : 0;
       if (filled)
         this.overlay.paint(`shot:${path}:${time}:${picture.x}:${picture.y}:${picture.w}`, () => {
@@ -702,6 +705,18 @@ export class SceneApplication implements Application {
       },
     );
   }
+  /** The cross that closes a window. */
+  private closeMark(bounds: Rect, close: () => void, theme: Theme): void {
+    const state = button(this.overlay, 'settings/close', bounds, '', close, ButtonStyle.Quiet);
+    hudGlyph(
+      this.overlay,
+      'close',
+      f(bounds.x + bounds.w / 2),
+      f(bounds.y + bounds.h / 2 + (state.lift ?? 0)),
+      state.hovered || state.focused ? theme.accent : theme.text,
+      0.8,
+    );
+  }
   private quickSave(): void {
     if (this.currentSlot !== undefined) this.save(this.currentSlot);
     else {
@@ -734,11 +749,15 @@ export class SceneApplication implements Application {
       session.command('session.resume');
     }
   }
-  private drawSettings(width: number, height: number, theme: Theme): void {
-    if (this.settingsPage !== 'Main') {
-      this.drawSlots(width, height);
-      return;
-    }
+  /** Settings are a window of the game's own boards, also over the bare title menu. */
+  private drawSettings(width: number, height: number): void {
+    const theme = gameTheme();
+    this.overlay.withTheme(theme, () => {
+      if (this.settingsPage !== 'Main') this.drawSlots(width, height);
+      else this.drawSettingsPage(width, height, theme);
+    });
+  }
+  private drawSettingsPage(width: number, height: number, theme: Theme): void {
     const game = this.current === 'Game';
     const close = () => this.closeSettings();
     this.overlay.modal(game ? 'settings/save' : `settings/language/${locale()}`, close);
@@ -752,32 +771,24 @@ export class SceneApplication implements Application {
       true,
       false,
     );
-    this.overlay.rect(viewport, { r: 0, g: 0, b: 0, a: 144 });
+    this.overlay.rect(viewport, { r: 14, g: 12, b: 28, a: 150 });
     const w = Math.min(320, f(width - 32)),
-      h = Math.min(game ? 366 : 184, height - 24),
+      h = Math.min(game ? 370 : 188, height - 24),
       pitch = game ? Math.min(50, (h - 100) / 5) : 50,
       rowHeight = Math.min(40, pitch - 8);
     const panel = new Rect(f(f(width - w) / 2), f(f(height - h) / 2), w, h);
     this.overlay.control('settings/panel', panel, () => {}, true, false);
-    this.overlay.rect(
-      new Rect(f(panel.x - 2), f(panel.y + 6), f(panel.w + 4), f(panel.h + 4)),
-      { r: 0, g: 0, b: 0, a: 70 },
-      12,
-    );
-    this.overlay.rect(panel, theme.surface, 10, theme.border);
+    board(this.overlay, panel, { header: 52 });
     this.overlay.text(
-      new Rect(f(panel.x + 24), f(panel.y + 17), f(panel.w - 80), 28),
+      new Rect(f(panel.x + 24), f(panel.y + 12), f(panel.w - 80), 28),
       'Settings',
-      theme.text,
+      theme.accent,
       18,
       true,
     );
-    const dismiss = new Rect(f(f(panel.x + panel.w) - 46), f(panel.y + 16), 28, 28);
-    const state = button(this.overlay, 'settings/close', dismiss, '', close, ButtonStyle.Quiet);
-    const ink = state.hovered || state.focused ? theme.text : theme.muted;
-    this.overlay.line(f(dismiss.x + 9), f(dismiss.y + 9), f(dismiss.x + 19), f(dismiss.y + 19), ink, f(1.5));
-    this.overlay.line(f(dismiss.x + 19), f(dismiss.y + 9), f(dismiss.x + 9), f(dismiss.y + 19), ink, f(1.5));
-    let y = f(panel.y + 64);
+    const dismiss = new Rect(f(f(panel.x + panel.w) - 46), f(panel.y + 12), 28, 28);
+    this.closeMark(dismiss, close, theme);
+    let y = f(panel.y + 68);
     this.overlay.text(new Rect(f(panel.x + 24), y, 110, rowHeight), 'Language', theme.text, 13);
     const choice = f(f(panel.w - 48 - 118) / locales.length);
     locales.forEach((name, index) =>

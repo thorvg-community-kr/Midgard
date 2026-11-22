@@ -293,7 +293,7 @@ export const hudPhrases: Phrases = {
   'Explore to discover a gate': '탐험해 관문을 찾으세요',
 
   // Roster
-  'SETTLEMENT HALL': '정착지 회관',
+  'Settlement Hall': '정착지 회관',
   Guests: '손님',
   'No guests are visiting the settlement.': '정착지를 방문 중인 손님이 없습니다.',
   'No player residents are available.': '지휘할 수 있는 주민이 없습니다.',
@@ -430,7 +430,7 @@ export const hudPhrases: Phrases = {
   'Shape a new life from an offering.': '제물로 새 생명을 빚습니다.',
   'Water · Bones · Gold · Food · Stone': '물 · 뼈 · 골드 · 식량 · 석재',
   'Prepare an offering': '제물 준비',
-  'AN OFFERING TO ODIN': '오딘에게 바치는 제물',
+  'An offering to Odin': '오딘에게 바치는 제물',
   '{0} · {1} · Settlement paused': '{0} · {1} · 정착지 일시 정지',
   'Settlement paused': '정착지 일시 정지',
   '{0} available': '보유 {0}',

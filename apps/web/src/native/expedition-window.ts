@@ -1,6 +1,6 @@
 // The expedition window: the one way a party is sent through a gate. It names the gate and the world behind it,
 // offers the open floors and the forecast, and lets the player choose who goes; the settlement waits meanwhile.
-import { Rect, Align, ButtonStyle, EventType, Key, button, rgba, type Color, type Context } from '../../../../packages/native-ui/src';
+import { Rect, Align, ButtonStyle, EventType, Key, board, button, frame as pictureFrame, groove, meter, rgba, slab, well, type Color, type Context } from '../../../../packages/native-ui/src';
 import { Activity, callingName, type Person } from '../../../../packages/engine/src/person';
 import { canControl, controlReason, isPlayerResident } from '../../../../packages/engine/src/faction';
 import { gateSealed, sealable, sealFloors } from '../../../../packages/engine/src/gate-seals';
@@ -185,14 +185,14 @@ export function handleExpeditionEvent(this: ExpeditionApp, event: AppEvent): boo
 
 // ---------------------------------------------------------------- drawing
 
-const veil = rgba(6, 10, 13, 200);
+const veil = rgba(14, 12, 28, 190);
 function tick(c: Context, x: number, y: number, color: Color): void {
   c.line(x, f32(y + 4), f32(x + 3), f32(y + 7), color, 2);
   c.line(f32(x + 3), f32(y + 7), f32(x + 9), y, color, 2);
 }
 export function portrait(app: GameAppState, p: Person, r: Rect): void {
   const c = app.context;
-  c.rect(r, app.theme.raised, 3);
+  pictureFrame(c, r);
   c.paint(JSON.stringify(['expedition-face', p.id, p.look, p.race, String(p.lookRevision), p.calling, moodOf(p), r]), () => {
     const paint = hudPaint(
       c,
@@ -217,12 +217,13 @@ function memberRow(app: GameAppState, p: Person, r: Rect): void {
   const middle = f32(r.y + f32(r.h / 2)),
     box = new Rect(f32(r.x + 10), f32(middle - 9), 18, 18);
   if (usable) {
-    c.rect(box, chosen ? t.accent : t.surface, 3, chosen ? t.accent : t.muted, 1.5);
-    if (chosen) tick(c, f32(box.x + 4), f32(box.y + 5), t.accentText);
+    if (chosen) slab(c, box, t.accent, { lip: 2 });
+    else well(c, box);
+    if (chosen) tick(c, f32(box.x + 4), f32(box.y + 4), t.accentText);
   }
   const face = new Rect(f32(r.x + 36), f32(r.y + 4), f32(Math.min(40, r.h - 8) * 0.85), f32(r.h - 8));
   portrait(app, p, face);
-  if (!usable) c.rect(face, rgba(20, 22, 20, 120), 3);
+  if (!usable) c.rect(face, rgba(24, 22, 38, 130));
   const left = f32(face.x + face.w + 10),
     barW = r.w >= 420 ? 92 : 58,
     textW = f32(r.x + r.w - left - barW - 18),
@@ -239,8 +240,7 @@ function memberRow(app: GameAppState, p: Person, r: Rect): void {
   const bar = new Rect(f32(r.x + r.w - barW - 10), f32(middle + 2), barW, 5),
     health = clamp(p.health, 0, 1);
   c.text(new Rect(bar.x, f32(middle - 15), barW, 14), `${Math.round(health * 100)}%`, health < 0.3 ? t.danger : t.muted, 10, false, Align.End);
-  c.rect(bar, t.raised, 2);
-  c.rect(new Rect(bar.x, bar.y, Math.max(2, f32(bar.w * health)), bar.h), health < 0.3 ? t.danger : t.success, 2);
+  meter(c, new Rect(bar.x, f32(bar.y - 1), bar.w, 7), health, health < 0.3 ? t.danger : t.success);
 }
 function floorRow(app: GameAppState, r: Rect, locked: boolean): void {
   const c = app.context,
@@ -314,13 +314,13 @@ export function renderExpedition(this: ExpeditionApp, width: number, height: num
     locked = !!lock,
     fixed = joining(town, state.gate);
   c.control('expedition-panel', panel, undefined, true, false);
-  c.rect(panel, t.surface, 6, t.border, 1.5);
+  board(c, panel, { header: 56 });
   const world = worldName(town.map().destination(site));
-  c.text(new Rect(f32(panel.x + pad), f32(panel.y + 10), f32(w - pad * 2 - 56), 26), c.elideText(site.name, f32(w - pad * 2 - 56), 18, true), t.text, 18, true);
+  c.text(new Rect(f32(panel.x + pad), f32(panel.y + 8), f32(w - pad * 2 - 56), 26), c.elideText(site.name, f32(w - pad * 2 - 56), 18, true), t.accent, 18, true);
   c.text(
-    new Rect(f32(panel.x + pad), f32(panel.y + 36), f32(w - pad * 2 - 56), 16),
+    new Rect(f32(panel.x + pad), f32(panel.y + 34), f32(w - pad * 2 - 56), 16),
     c.elideText(`${gateKindName(site.kind)}  -  a way to ${world}`, f32(w - pad * 2 - 56), 11),
-    t.accent,
+    t.muted,
     11,
   );
   button(
@@ -331,7 +331,7 @@ export function renderExpedition(this: ExpeditionApp, width: number, height: num
     () => closeExpedition(this),
     ButtonStyle.Quiet,
   );
-  const header = 60,
+  const header = 68,
     footer = (wide ? 58 : 64) + buttonH,
     body = new Rect(f32(panel.x + pad), f32(panel.y + header), f32(w - pad * 2), f32(h - header - footer)),
     infoW = wide ? f32(Math.min(340, body.w * 0.42)) : body.w;
@@ -367,7 +367,7 @@ export function renderExpedition(this: ExpeditionApp, width: number, height: num
     ? new Rect(f32(body.x + infoW + pad), body.y, f32(body.w - infoW - pad), body.h)
     : new Rect(body.x, f32(y + 8), body.w, f32(body.y + body.h - y - 8));
   if (locked) {
-    c.rect(list, t.raised, 4);
+    well(c, list);
     // A sealed gate is a victory, not a fault.
     const sealed = gateSealed(town, state.gate),
       rows = wrapText(c, lock, f32(list.w - 32), 13, 4, true);
@@ -382,7 +382,7 @@ export function renderExpedition(this: ExpeditionApp, width: number, height: num
     average = party.length ? Math.round(party.reduce((s, p) => s + p.level, 0) / party.length) : 0,
     grade = party.length ? partyVerdict(party.length, average, floorLevel(state.floor)) : Verdict.TooFew,
     tone = grade === Verdict.Ready ? t.success : grade === Verdict.Hard ? t.accent : t.danger;
-  c.line(f32(panel.x + pad), f32(bottom - 6), f32(panel.x + w - pad), f32(bottom - 6), t.border, 1);
+  groove(c, f32(panel.x + pad), f32(bottom - 8), f32(w - pad * 2));
   const lineW = f32(w - pad * 2),
     said = problem && problem !== 'Choose who goes' ? problem : verdict || 'Choose who goes: click or tap a resident to take them along.';
   if (!locked)

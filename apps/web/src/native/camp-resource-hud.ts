@@ -1,5 +1,5 @@
 import type { Animation } from '@thorvg/webcanvas';
-import { Context, Theme, Rect, Align, rgba, setTransform } from '../../../../packages/native-ui/src';
+import { Context, Theme, Rect, Align, board, rgba, setTransform } from '../../../../packages/native-ui/src';
 import { structureSpec } from '../../../../packages/engine/src/building-catalog';
 import type { Town } from '../../../../packages/engine/src/town';
 import { Season } from '../../../../packages/engine/src/town-models';
@@ -328,10 +328,8 @@ export class CampResourceHud {
     const winter = winterOutlookLine(town, camp),
       { x, y, w } = panel,
       h = f(panel.h - (winter ? winterLineHeight : 0)),
-      row = f((h - 36) / Math.ceil(names.length / 3)),
-      fill = { ...theme.raised, a: 255 };
-    context.rect(new Rect(x, y + 3, w, panel.h), rgba(0, 0, 0, 75), theme.radius);
-    context.rect(panel, fill, theme.radius, theme.border);
+      row = f((h - 36) / Math.ceil(names.length / 3));
+    board(context, panel, { header: 32 });
     context.text(
       new Rect(x + 12, y + 5, f(w * f(0.55)), 24),
       structureSpec(seat.kind).name + ' #' + (camp + 1),

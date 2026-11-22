@@ -297,9 +297,10 @@ This rebuilds every image and GIF in `.github/media/` from the running game in a
 | Web Audio + AudioWorklet                                 | Ambient sound, music, effects and voices                                  |
 | IndexedDB                                                | Browser-local saves and creative documents                                |
 | Lua 5.4.8 in WebAssembly                                 | Optional scripted HUD extensions                                          |
-| DejaVu Sans / DejaVu Sans Bold                           | In-game text                                                              |
-| Noto Sans KR                                             | Korean in-game text                                                       |
-| Cinzel                                                   | Title lettering and combat numbers                                        |
+| Alegreya Sans                                            | In-game text                                                              |
+| Cinzel (figures from Alegreya)                           | Titles, title lettering and combat numbers                                |
+| Noto Sans KR / Noto Serif KR                             | Korean in-game text and titles                                            |
+| DejaVu Sans / DejaVu Sans Bold                           | Creative tools' labels and fallback characters                            |
 | Loach-generated audio                                    | Procedural music, ambience, effects and generated voice banks             |
 
 Midgard continues the GoldFantasy project and its original game artwork and rules.
@@ -314,6 +315,8 @@ Third-party components keep their own licenses:
 - **Lua 5.4.8:** [MIT license](public/licenses/Lua-5.4.8.txt).
 - **DejaVu fonts:** [Bitstream Vera license and DejaVu public-domain changes](public/assets/native-fonts/DejaVuSans.LICENSE).
 - **Noto Sans KR:** [SIL Open Font License 1.1](public/assets/native-fonts/NotoSansKR.LICENSE).
+- **Noto Serif KR:** [SIL Open Font License 1.1](public/licenses/NotoSerifKR-OFL.txt).
+- **Alegreya Sans, Alegreya:** [SIL Open Font License 1.1](public/licenses/AlegreyaSans-OFL.txt) ([Alegreya](public/licenses/Alegreya-OFL.txt)).
 - **Cinzel:** [SIL Open Font License 1.1](public/licenses/Cinzel-OFL.txt).
 - **Audio:** [asset-specific provenance and notices](public/assets/audio/NOTICE.md).
 - **Powered by ThorVG splash:** [supplied animation source and provenance](public/assets/branding/NOTICE.md).

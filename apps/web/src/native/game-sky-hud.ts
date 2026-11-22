@@ -3,9 +3,11 @@ import {
   Align,
   ButtonStyle,
   Icon,
+  board,
   button,
   rgba,
   setTransform,
+  tag,
 } from '../../../../packages/native-ui/src';
 import { seasonName } from '../../../../packages/engine/src/town-models';
 import { weatherName } from '../../../../packages/engine/src/climate';
@@ -51,12 +53,7 @@ function orbitArc(shape: Shape, from: number): void {
 function celestialBody(tvg: ThorVGNamespace, moon: boolean): Scene {
   const body = new tvg.Scene();
   body.id = moon ? MuralPart.Moon : MuralPart.Sun;
-  const glow = new tvg.Shape().appendCircle(0, 0, 12, 12);
-  if (moon) glow.fill(184, 204, 218, 18);
-  else glow.fill(218, 184, 111, 22);
-  body.add(glow);
-  glow.dispose();
-  const backing = new tvg.Shape().appendCircle(0, 0, 7.5, 7.5).fill(25, 28, 25, 235);
+  const backing = new tvg.Shape().appendCircle(0, 0, 8.5, 8.5).fill(44, 42, 64);
   body.add(backing);
   backing.dispose();
   const emblem = new tvg.Shape();
@@ -66,27 +63,23 @@ function celestialBody(tvg: ThorVGNamespace, moon: boolean): Scene {
       .cubicTo(-7, -8, -9, 6, 4, 8)
       .cubicTo(-2, 3, -2, -3, 4, -7)
       .close()
-      .fill(210, 220, 212)
-      .stroke(f(0.65))
-      .stroke({ color: [210, 220, 212, 255] });
+      .fill(214, 222, 226);
   } else {
-    emblem
-      .appendCircle(0, 0, 5.5, 5.5)
-      .fill(207, 177, 110, 70)
-      .stroke(f(1.4))
-      .stroke({ color: [224, 195, 128, 255] });
-    const rays = new tvg.Shape()
-      .fill(0, 0, 0, 0)
-      .stroke(f(1.1))
-      .stroke({ color: [207, 177, 110, 255] });
+    // A flat sun: a disc inside a ring of eight teeth.
+    const rays = new tvg.Shape().fill(226, 180, 98);
     for (let i = 0; i < 8; ++i) {
       const angle = f(f(i * f(Math.PI)) / 4),
         x = f(Math.cos(angle)),
         y = f(Math.sin(angle));
-      rays.moveTo(f(x * 8), f(y * 8)).lineTo(f(x * f(10.5)), f(y * f(10.5)));
+      rays
+        .moveTo(f(x * 10.5), f(y * 10.5))
+        .lineTo(f(x * 6 - y * 2.2), f(y * 6 + x * 2.2))
+        .lineTo(f(x * 6 + y * 2.2), f(y * 6 - x * 2.2))
+        .close();
     }
     body.add(rays);
     rays.dispose();
+    emblem.appendCircle(0, 0, 5.2, 5.2).fill(246, 214, 138);
   }
   body.add(emblem);
   emblem.dispose();
@@ -101,8 +94,8 @@ function celestialMural(tvg: ThorVGNamespace): Scene {
   orbitArc(track, 0);
   track
     .fill(0, 0, 0, 0)
-    .stroke(f(0.85))
-    .stroke({ color: [153, 132, 94, 125] });
+    .stroke(f(1))
+    .stroke({ color: [120, 108, 132, 170] });
   for (let i = 0; i <= 4; ++i) {
     const at = orbitPoint(f(i / 4));
     track.moveTo(at.x, f(at.y - 2)).lineTo(at.x, f(at.y + 2));
@@ -111,7 +104,7 @@ function celestialMural(tvg: ThorVGNamespace): Scene {
   track.dispose();
   const remaining = new tvg.Shape();
   remaining.id = MuralPart.Remaining;
-  remaining.fill(0, 0, 0, 0).stroke(f(1.7)).stroke({ cap: tvg.StrokeCap.Round });
+  remaining.fill(0, 0, 0, 0).stroke(f(2)).stroke({ cap: tvg.StrokeCap.Round });
   scene.add(remaining);
   const bodies = new tvg.Scene();
   bodies.id = MuralPart.Bodies;
@@ -179,7 +172,7 @@ export function skyMural(this: GameHudApp, width: number): void {
     moonAt = orbitPoint(f(orbit + 1));
   if (parts.sunX !== sunAt.x || parts.sunY !== sunAt.y) {
     orbitArc(parts.remaining, cycle.progress);
-    parts.remaining.stroke({ color: cycle.daylight ? [212, 181, 114, 215] : [176, 197, 210, 215] });
+    parts.remaining.stroke({ color: cycle.daylight ? [226, 180, 98, 255] : [190, 204, 214, 255] });
   }
   setTransform(parts.sun, {
     e11: 1,
@@ -248,6 +241,7 @@ export function calendarDetails(this: GameHudApp, width: number): void {
     t = this.theme,
     date = this.town.calendar(),
     sky = this.town.climate(),
+    rule = { ...t.inkMuted, a: 90 },
     w = Math.min(288, width - 24),
     winter = winterOutlookLine(this.town),
     panel = new Rect(
@@ -256,48 +250,47 @@ export function calendarDetails(this: GameHudApp, width: number): void {
       w,
       winter ? 154 + winterLineHeight + 4 : 154,
     );
-  c.rect(new Rect(panel.x, panel.y + 3, panel.w, panel.h), rgba(0, 0, 0, 70), t.radius);
-  c.rect(panel, { ...t.raised, a: 255 }, t.radius, t.border);
-  c.line(panel.x + 12, panel.y, f(f(panel.x + panel.w) - 12), panel.y, { ...t.accent, a: 150 });
+  // An almanac leaf: paper, like every note that only informs.
+  tag(c, panel, { cut: 5, lip: 3 });
   const labels = ['Day', 'Month', 'Year'],
     values = [date.day, date.month, date.year];
   for (let i = 0; i < 3; i++) {
     const x = f(f(panel.x + 16) + f(f(i * f(w - 32)) / 3));
-    c.text(new Rect(x, panel.y + 8, f(f(w - 32) / 3), 14), labels[i], t.muted, 10);
-    c.text(new Rect(x, panel.y + 23, f(f(w - 32) / 3), 20), String(values[i]), t.text, 15, true);
+    c.text(new Rect(x, panel.y + 8, f(f(w - 32) / 3), 14), labels[i], t.inkMuted, 10);
+    c.text(new Rect(x, panel.y + 23, f(f(w - 32) / 3), 20), String(values[i]), t.ink, 15, true);
   }
-  c.line(panel.x + 16, panel.y + 49, f(f(panel.x + w) - 16), panel.y + 49, t.border);
+  c.line(panel.x + 16, panel.y + 49, f(f(panel.x + w) - 16), panel.y + 49, rule);
   const clock = timeOfDay(this.town.dayFraction());
-  c.text(new Rect(panel.x + 16, panel.y + 56, f(f(w / 2) - 24), 14), 'Season', t.muted, 10);
+  c.text(new Rect(panel.x + 16, panel.y + 56, f(f(w / 2) - 24), 14), 'Season', t.inkMuted, 10);
   c.text(
     new Rect(panel.x + 16, panel.y + 72, f(f(w / 2) - 24), 18),
     seasonName(date.season),
-    t.text,
+    t.ink,
     12,
     true,
   );
-  c.text(new Rect(f(f(panel.x + f(w / 2)) + 8), panel.y + 56, f(f(w / 2) - 24), 14), 'Time', t.muted, 10);
-  c.text(new Rect(f(f(panel.x + f(w / 2)) + 8), panel.y + 72, f(f(w / 2) - 24), 18), clock, t.text, 12, true);
+  c.text(new Rect(f(f(panel.x + f(w / 2)) + 8), panel.y + 56, f(f(w / 2) - 24), 14), 'Time', t.inkMuted, 10);
+  c.text(new Rect(f(f(panel.x + f(w / 2)) + 8), panel.y + 72, f(f(w / 2) - 24), 18), clock, t.ink, 12, true);
   const weather = weatherName(sky.weather) + '  ·  ' + lround(sky.temperature) + '°C';
-  c.text(new Rect(panel.x + 16, panel.y + 101, w - 32, 16), weather, t.muted, 11, false, Align.Center);
-  c.line(panel.x + 16, panel.y + 124, f(f(panel.x + w) - 16), panel.y + 124, t.border);
+  c.text(new Rect(panel.x + 16, panel.y + 101, w - 32, 16), weather, t.inkMuted, 11, false, Align.Center);
+  c.line(panel.x + 16, panel.y + 124, f(f(panel.x + w) - 16), panel.y + 124, rule);
   const cycle = dayCycle(this.town.yearFraction(), this.town.dayFraction());
-  c.text(new Rect(panel.x + 16, panel.y + 132, 48, 14), 'Sunrise', t.muted, 10);
-  c.text(new Rect(panel.x + 66, panel.y + 132, 48, 14), timeOfDay(cycle.sunrise), t.text, 11, true);
-  c.text(new Rect(f(f(panel.x + f(w / 2)) + 8), panel.y + 132, 48, 14), 'Sunset', t.muted, 10);
+  c.text(new Rect(panel.x + 16, panel.y + 132, 48, 14), 'Sunrise', t.inkMuted, 10);
+  c.text(new Rect(panel.x + 66, panel.y + 132, 48, 14), timeOfDay(cycle.sunrise), t.ink, 11, true);
+  c.text(new Rect(f(f(panel.x + f(w / 2)) + 8), panel.y + 132, 48, 14), 'Sunset', t.inkMuted, 10);
   c.text(
     new Rect(f(f(panel.x + f(w / 2)) + 58), panel.y + 132, 48, 14),
     timeOfDay(cycle.sunset),
-    t.text,
+    t.ink,
     11,
     true,
   );
   if (winter) {
-    c.line(panel.x + 16, panel.y + 154, f(f(panel.x + w) - 16), panel.y + 154, t.border);
+    c.line(panel.x + 16, panel.y + 154, f(f(panel.x + w) - 16), panel.y + 154, rule);
     c.text(
       new Rect(panel.x + 12, panel.y + 158, w - 24, winterLineHeight - 2),
       c.elideText(winter.text, w - 24, 11, winter.short),
-      winter.short ? t.danger : t.text,
+      winter.short ? t.danger : t.ink,
       11,
       winter.short,
       Align.Center,
@@ -314,9 +307,11 @@ export function timeControls(this: GameHudApp, width: number): void {
     const below = width < 900,
       right = below ? width - 16 : this.timeToggleBounds.x - 8,
       full = new Rect(right - fullWidth, below ? 62 : 12, fullWidth, this.touchMode ? 52 : 36);
-    c.clip(this.timePanelBounds, () => {
+    // The clip is taller than the panel so the board keeps its thickness and shadow while it slides out.
+    const reveal = this.timePanelBounds;
+    c.clip(new Rect(reveal.x, reveal.y, reveal.w, f(reveal.h + 10)), () => {
       c.control('time-controls-panel', this.timePanelBounds, undefined, true, false);
-      c.rect(full, t.surface, t.radius, t.border);
+      board(c, full);
       const labels = ['||', '1x', '2x', '3x', '4x', '5x'],
         held = this.speedHeld();
       for (let i = 0; i <= 5; i++) {
@@ -351,38 +346,28 @@ export function timeControls(this: GameHudApp, width: number): void {
     ),
     ink = this.timeExpanded ? t.accentText : t.text,
     bounds = this.timeToggleBounds;
-  c.paint(JSON.stringify(['time-hourglass', bounds, ink]), () => {
+  const lift = toggle.lift ?? 0;
+  // A solid hourglass: two caps and the two bulbs of sand between them.
+  c.paint(JSON.stringify(['time-hourglass', bounds, ink, lift]), () => {
     const shape = new c.tvg.Shape(),
-      x = bounds.x + 14,
-      y = bounds.y + 8;
+      x = bounds.x + bounds.w / 2 - 6,
+      y = bounds.y + bounds.h / 2 - 10 + lift;
     shape
-      .moveTo(x, y)
-      .lineTo(x + 12, y)
-      .lineTo(x + 12, y + 3)
-      .lineTo(x + 7, y + 9)
-      .lineTo(x + 7, y + 11)
-      .lineTo(x + 12, y + 17)
-      .lineTo(x + 12, y + 20)
-      .lineTo(x, y + 20)
-      .lineTo(x, y + 17)
-      .lineTo(x + 5, y + 11)
-      .lineTo(x + 5, y + 9)
-      .lineTo(x, y + 3)
+      .appendRect(x - 1, y, 14, 3)
+      .appendRect(x - 1, y + 17, 14, 3)
+      .moveTo(x + 1, y + 4)
+      .lineTo(x + 11, y + 4)
+      .lineTo(x + 7, y + 10)
+      .lineTo(x + 11, y + 16)
+      .lineTo(x + 1, y + 16)
+      .lineTo(x + 5, y + 10)
       .close()
-      .moveTo(x + 3, y + 17)
-      .lineTo(x + 9, y + 17)
-      .fill(0, 0, 0, 0)
-      .stroke(1.2)
-      .stroke({ color: [ink.r, ink.g, ink.b, ink.a] });
+      .fill(ink.r, ink.g, ink.b, ink.a);
     return shape;
   });
-  const x = this.timeToggleBounds.x + 6,
-    y = this.timeToggleBounds.y + 18;
-  c.line(x + (this.timeExpanded ? 0 : 3), y - 3, x + (this.timeExpanded ? 3 : 0), y, ink, 1.2);
-  c.line(x + (this.timeExpanded ? 3 : 0), y, x + (this.timeExpanded ? 0 : 3), y + 3, ink, 1.2);
   if (toggle.hovered && !this.timeExpanded && !this.touchMode) {
     const hint = new Rect(this.timeToggleBounds.x - 58, 56, 94, 26);
-    c.rect(hint, t.raised, t.radius, t.border);
-    c.text(hint, 'Time controls', t.text, 10, false, Align.Center);
+    tag(c, hint);
+    c.text(hint, 'Time controls', t.ink, 10, true, Align.Center);
   }
 }

@@ -1,4 +1,4 @@
-import { Rect, Align, ButtonStyle, button } from '../../../../packages/native-ui/src';
+import { Rect, Align, ButtonStyle, board, button, meter, tag } from '../../../../packages/native-ui/src';
 import { f32, clamp } from '../../../../packages/engine/src/numeric';
 import { describe } from '../../../../packages/engine/src/building-catalog';
 import { worldName } from '../../../../packages/engine/src/world-map';
@@ -45,7 +45,7 @@ export function realmPanel(this: GameHudApp, width: number, height: number): voi
   if (bounds.h < header) return;
   c.requestAnimationFrame();
   c.control('realm-panel', bounds, undefined, true, false);
-  c.rect(bounds, t.surface, t.radius, this.town.realmCleared ? t.success : t.border);
+  board(c, bounds, { trim: this.town.realmCleared ? t.success : t.border, header: bounds.h > header + 8 ? header : 0 });
   c.text(
     new Rect(f32(bounds.x + 12), f32(top + 6), f32(w - 60), 22),
     c.elideText(`${worldName(this.town.map().destination(site))}  -  floor ${this.town.realmFloor + 1}/${sealFloors}`, f32(w - 60), 12, true),
@@ -79,8 +79,7 @@ export function realmPanel(this: GameHudApp, width: number, height: number): voi
     const left = f32(bounds.x + 12);
     let y = f32(top + header);
     const bar = (x: number, span: number, fraction: number, color = t.success) => {
-      c.rect(new Rect(x, f32(y + 6), span, 6), t.raised, 3);
-      c.rect(new Rect(x, f32(y + 6), Math.max(2, f32(span * clamp(fraction, 0, 1))), 6), color, 3);
+      meter(c, new Rect(x, f32(y + 5), span, 7), fraction, color);
     };
     c.text(
       new Rect(left, y, 96, 18),
@@ -155,13 +154,11 @@ function partyFrame(app: GameHudApp, p: Person, r: Rect): void {
   if (downed) {
     const left = town.bleedOutLeft(p),
       share = left / Math.max(1, town.bleedOutTotal(p));
-    c.rect(new Rect(barX, y, barW, 6), t.raised, 3);
-    c.rect(new Rect(barX, y, Math.max(2, f32(barW * clamp(share, 0, 1))), 6), t.danger, 3);
+    meter(c, new Rect(barX, y, barW, 6), share, t.danger);
     c.text(new Rect(f32(barX + barW + 4), r.y, 30, r.h), `${Math.ceil(left)} s`, t.danger, 10, true, Align.End);
     c.requestFrameAt(c.time() + 0.25);
   } else {
-    c.rect(new Rect(barX, y, barW, 6), t.raised, 3);
-    c.rect(new Rect(barX, y, Math.max(2, f32(barW * clamp(p.health, 0, 1))), 6), p.health < 0.3 ? t.danger : t.success, 3);
+    meter(c, new Rect(barX, y, barW, 6), p.health, p.health < 0.3 ? t.danger : t.success);
     if (p.woundDays > 0) {
       // A wound caps health: the capped part of the bar is struck out.
       const cap = f32(barX + f32(barW * combatRules.woundedHealth));
@@ -175,7 +172,7 @@ function partyFrame(app: GameHudApp, p: Person, r: Rect): void {
     // One pip per skill: filled when ready, ringed while it recovers or runs, faint while still locked.
     skills.forEach((skill, slot) => {
       const pip = new Rect(f32(mx + 12 + slot * 9), f32(y - 1), 7, 7);
-      if (skill.locked) c.rect(pip, t.raised, 4);
+      if (skill.locked) c.rect(pip, t.well, 4);
       else if (skill.ready) c.rect(pip, t.accent, 4);
       else c.rect(pip, { r: 0, g: 0, b: 0, a: 0 }, 4, skill.active ? t.accent : t.muted, 1);
     });
@@ -218,8 +215,8 @@ function partyFrame(app: GameHudApp, p: Person, r: Rect): void {
         rows = lines.flatMap((line, i) => wrapText(c, line, width - 20, 11, 3, i === 0)),
         h = 10 + rows.length * 16,
         tip = new Rect(f32(anchor.x + anchor.w + 8), clamp(anchor.y, area.y + 4, f32(area.y + area.h - h - 4)), width, h);
-      c.rect(tip, t.raised, 3, t.border);
-      rows.forEach((row, i) => c.text(new Rect(f32(tip.x + 10), f32(tip.y + 5 + i * 16), f32(width - 20), 16), row, i === 0 ? t.text : t.muted, 11, i === 0));
+      tag(c, tip);
+      rows.forEach((row, i) => c.text(new Rect(f32(tip.x + 10), f32(tip.y + 5 + i * 16), f32(width - 20), 16), row, i === 0 ? t.ink : t.inkMuted, 11, i === 0));
     },
     'combat-tooltip',
     1,
@@ -236,7 +233,7 @@ export function realmRewardBanner(this: GameHudApp, width: number, height: numbe
     h = 96 + reward.lines.length * 20,
     bounds = new Rect(f32(f32(width - w) / 2), Math.max(70, f32(f32(height / 2) - f32(h / 2) - 40)), w, h);
   c.control('realm-reward', bounds, undefined, true, false);
-  c.rect(bounds, t.surface, t.radius, reward.sealed ? t.accent : t.success, 2);
+  board(c, bounds, { trim: reward.sealed ? t.accent : t.success, trimWidth: 2 });
   c.text(new Rect(bounds.x, f32(bounds.y + 16), w, 28), reward.title, reward.sealed ? t.accent : t.success, 20, true, Align.Center);
   reward.lines.forEach((line, index) =>
     c.text(
@@ -273,7 +270,7 @@ export function sagaBanner(this: GameHudApp, width: number, height: number): voi
     bounds = new Rect(f32(f32(width - w) / 2), Math.max(70, f32(f32(height / 2) - 110)), w, 168),
     seals = sealProgress(this.town);
   c.control('saga-banner', bounds, undefined, true, false);
-  c.rect(bounds, t.surface, t.radius, won ? t.success : t.danger, 2);
+  board(c, bounds, { trim: won ? t.success : t.danger, trimWidth: 2 });
   c.text(
     new Rect(bounds.x, f32(bounds.y + 18), w, 28),
     won ? 'Midgard is safe' : 'The settlement has fallen',

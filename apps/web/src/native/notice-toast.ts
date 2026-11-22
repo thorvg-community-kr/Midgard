@@ -1,4 +1,4 @@
-import { Align, EventType, Rect } from '../../../../packages/native-ui/src';
+import { Align, EventType, Rect, tag } from '../../../../packages/native-ui/src';
 import { f32 } from '../../../../packages/engine/src/numeric';
 import type { GameAppState } from './game-app-state';
 
@@ -29,11 +29,11 @@ export function noticeToast(app: GameAppState, width: number, height: number): v
     true,
     false,
   );
-  c.rect(toast, t.raised, t.radius, t.accent);
+  tag(c, toast, { cut: 5, lip: 3 });
   c.text(
     new Rect(f32(toast.x + 12), toast.y, f32(toast.w - 24), toast.h),
     c.elideText(app.notice, f32(w - 24), 13, true),
-    t.text,
+    t.ink,
     13,
     true,
     Align.Center,

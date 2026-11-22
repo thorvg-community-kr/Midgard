@@ -1,12 +1,12 @@
 import { Align, Rect, rgba, type Context, type Color } from '../../../../packages/native-ui/src';
 
-/** Same square plate, gold ink and bold face as WorldRenderer's dungeon label. */
+/** A small dusk plate with ochre lettering, in the interface's own colours. */
 export const worldNameplateStyle = {
   fontSize: 8,
   height: 14,
   padding: 6,
-  ink: rgba(214, 186, 120),
-  plate: rgba(14, 12, 18, 190),
+  ink: rgba(236, 200, 128),
+  plate: rgba(30, 28, 46, 222),
   /** Pixels between the target and its plate. */
   gap: 7,
 } as const;

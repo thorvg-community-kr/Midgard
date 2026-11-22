@@ -110,12 +110,12 @@ export function groupTabs(app: GameHudApp, height: number): void {
       state = button(c, id, r, '', () => recallGroup(app, digit), ButtonStyle.Quiet, true, undefined, active),
       downed = members.filter((p) => p.downedAt >= 0).length,
       health = members.reduce((sum, p) => sum + clamp(p.health, 0, 1), 0) / Math.max(1, members.length),
-      pip = new Rect(f32(r.x + w - 10), f32(r.y + 5), 4, f32(h - 10)),
+      pip = new Rect(f32(r.x + w - 11), f32(r.y + 4), 5, f32(h - 11)),
       fill = f32(pip.h * health);
     c.text(new Rect(f32(r.x + 7), r.y, 14, h), String(digit), active ? t.text : t.accent, 13, true);
     c.text(new Rect(f32(r.x + 21), r.y, f32(w - 34), h), `·${members.length}`, t.muted, 11);
-    c.rect(pip, t.raised, 2);
-    c.rect(new Rect(pip.x, f32(pip.y + pip.h - fill), pip.w, Math.max(1, fill)), downed || health < 0.3 ? t.danger : t.success, 2);
+    c.rect(pip, t.well, 1);
+    c.rect(new Rect(pip.x, f32(pip.y + pip.h - fill), pip.w, Math.max(1, fill)), downed || health < 0.3 ? t.danger : t.success, 1);
     tooltip(c, id, state.hovered, [
       `Group ${digit}: ${members.map((p) => p.name).join(', ')}`,
       downed ? `${downed} down. Health ${Math.round(health * 100)}% on average.` : `Health ${Math.round(health * 100)}% on average.`,

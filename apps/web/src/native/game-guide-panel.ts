@@ -1,6 +1,6 @@
 // The guide on screen: one card at a time beside the play area, and the log of every explanation so far.
 import { localeRevision, translate } from '../../../../packages/localization/src/index';
-import { Align, ButtonStyle, EventType, Rect, button } from '../../../../packages/native-ui/src';
+import { Align, ButtonStyle, EventType, Rect, board, button, groove, tag } from '../../../../packages/native-ui/src';
 import { clamp, f32 } from '../../../../packages/engine/src/numeric';
 import type { GameHudApp } from './game-hud-contract';
 import { wrapText } from './game-progress-hud';
@@ -56,29 +56,26 @@ function logButton(app: GameHudApp): void {
     s = app.guide,
     size = app.touchMode ? 44 : 36,
     r = new Rect(12, 12, size, size);
-  c.rect(r, t.surface, t.radius, s.logOpen ? t.accent : t.border);
-  const state = button(c, 'guide-log-button', r, '', () => toggleGuideLog(app), ButtonStyle.Quiet, true, undefined, s.logOpen);
+  const state = button(c, 'guide-log-button', r, '', () => toggleGuideLog(app), ButtonStyle.Default, true, undefined, s.logOpen);
   const ink = state.hovered || s.logOpen ? t.text : t.accent,
     cx = f32(r.x + r.w / 2),
-    cy = f32(r.y + r.h / 2);
-  // An open book: two pages meeting at the spine.
-  c.paint(JSON.stringify(['guide-book', cx, cy, ink]), () =>
-    new c.tvg.Shape()
-      .moveTo(cx, f32(cy - 6))
-      .cubicTo(f32(cx - 3), f32(cy - 8), f32(cx - 7), f32(cy - 8), f32(cx - 10), f32(cy - 6))
-      .lineTo(f32(cx - 10), f32(cy + 8))
-      .cubicTo(f32(cx - 7), f32(cy + 6), f32(cx - 3), f32(cy + 6), cx, f32(cy + 8))
-      .cubicTo(f32(cx + 3), f32(cy + 6), f32(cx + 7), f32(cy + 6), f32(cx + 10), f32(cy + 8))
-      .lineTo(f32(cx + 10), f32(cy - 6))
-      .cubicTo(f32(cx + 7), f32(cy - 8), f32(cx + 3), f32(cy - 8), cx, f32(cy - 6))
-      .lineTo(cx, f32(cy + 8))
-      .fill(0, 0, 0, 0)
-      .stroke({ width: f32(1.4), color: [ink.r, ink.g, ink.b, ink.a] }),
-  );
+    cy = f32(r.y + r.h / 2 + (state.lift ?? 0));
+  // An open book: two solid pages either side of the spine.
+  c.paint(JSON.stringify(['guide-book', cx, cy, ink]), () => {
+    const book = new c.tvg.Shape();
+    for (const side of [-1, 1])
+      book
+        .moveTo(f32(cx + side), f32(cy - 6))
+        .cubicTo(f32(cx + side * 4), f32(cy - 8.5), f32(cx + side * 8), f32(cy - 8.5), f32(cx + side * 11), f32(cy - 6.5))
+        .lineTo(f32(cx + side * 11), f32(cy + 7))
+        .cubicTo(f32(cx + side * 8), f32(cy + 5), f32(cx + side * 4), f32(cy + 5), f32(cx + side), f32(cy + 7.5))
+        .close();
+    return book.fill(ink.r, ink.g, ink.b, ink.a);
+  });
   const unread = guideUnread(s);
   if (unread > 0 && !s.logOpen) {
     const badge = new Rect(f32(r.x + r.w - 12), f32(r.y - 4), 16, 16);
-    c.rect(badge, t.accent, 8);
+    c.rect(badge, t.danger, 8);
     c.text(badge, unread > 9 ? '9+' : String(unread), t.accentText, 9, true, Align.Center);
   }
   if (!app.touchMode) tooltip(c, 'guide-log-button', state.hovered, ['Guide (F1)', 'Every first-time explanation, to read again.']);
@@ -112,22 +109,22 @@ function card(app: GameHudApp, width: number, height: number): void {
     false,
   );
   if (state.hovered) shown.until = Math.max(shown.until, now + 1.5);
-  c.rect(new Rect(f32(r.x - 1), f32(r.y + 3), f32(r.w + 2), f32(r.h + 2)), { r: 0, g: 0, b: 0, a: 60 }, f32(t.radius + 2));
-  c.rect(r, t.raised, t.radius, t.accent, f32(1.5));
+  // An explanation is a note on paper, apart from the boards that take orders.
+  tag(c, r, { cut: 5, lip: 3 });
   const left = f32(r.x + 14);
   let y = f32(r.y + 12);
-  c.text(new Rect(left, y, f32(inner - 80), 16), 'Guide', t.accent, 10, true);
+  c.text(new Rect(left, y, f32(inner - 80), 16), 'Guide', t.inkAccent, 10, true);
   if (entry.day !== null)
-    c.text(new Rect(f32(left + inner - 80), y, 80, 16), fill(line('Day {0}', entry.day)), t.muted, 10, false, Align.End);
+    c.text(new Rect(f32(left + inner - 80), y, 80, 16), fill(line('Day {0}', entry.day)), t.inkMuted, 10, false, Align.End);
   y = f32(y + 16);
-  c.text(new Rect(left, y, inner, 24), c.elideText(fill(titleOf(entry)), inner, 15, true), t.text, 15, true);
+  c.text(new Rect(left, y, inner, 24), c.elideText(fill(titleOf(entry)), inner, 15, true), t.ink, 15, true);
   y = f32(y + 26);
   for (const row of rows) {
-    c.text(new Rect(left, y, inner, 17), row, t.text, 12);
+    c.text(new Rect(left, y, inner, 17), row, t.ink, 12);
     y = f32(y + 17);
   }
   for (const text of detail) {
-    c.text(new Rect(left, y, inner, 16), c.elideText(text, inner, 11), t.muted, 11);
+    c.text(new Rect(left, y, inner, 16), c.elideText(text, inner, 11), t.inkMuted, 11);
     y = f32(y + 16);
   }
   const buttons = f32(r.y + r.h - 14 - bh),
@@ -140,10 +137,10 @@ function card(app: GameHudApp, width: number, height: number): void {
       guideLook(app, at);
     }, ButtonStyle.Default, true, undefined, false, { fontSize: 12 });
   if (s.queue.length)
-    c.text(new Rect(left, buttons, 110, bh), fill(line('{0} more waiting', s.queue.length)), t.muted, 10);
+    c.text(new Rect(left, buttons, 110, bh), fill(line('{0} more waiting', s.queue.length)), t.inkMuted, 10);
   // What is left of the card's time, as a thin line along its foot.
   const left01 = clamp((shown.until - now) / guideRules.cardSeconds, 0, 1);
-  c.rect(new Rect(f32(r.x + 3), f32(r.y + r.h - 4), f32((r.w - 6) * left01), 2), { ...t.accent, a: 150 }, 1);
+  c.rect(new Rect(f32(r.x + 6), f32(r.y + r.h - 5), f32((r.w - 12) * left01), 2), { ...t.inkAccent, a: 170 }, 0);
   c.requestFrameAt(Math.min(shown.until, now + 0.5));
 }
 interface EntryLayout {
@@ -171,9 +168,8 @@ function logPanel(app: GameHudApp, width: number): void {
     inner = f32(w - 32),
     left = f32(r.x + 16);
   c.control('guide-log', r, undefined, true, false);
-  c.rect(new Rect(f32(r.x - 1), f32(r.y + 4), f32(r.w + 2), f32(r.h + 2)), { r: 0, g: 0, b: 0, a: 70 }, f32(t.radius + 2));
-  c.rect(r, { ...t.surface, a: 255 }, t.radius, t.border);
-  c.text(new Rect(left, f32(r.y + 12), f32(inner - 50), 24), 'Guide', t.text, 17, true);
+  board(c, r, { header: 56 });
+  c.text(new Rect(left, f32(r.y + 12), f32(inner - 50), 24), 'Guide', t.accent, 17, true);
   c.text(new Rect(left, f32(r.y + 36), f32(inner - 50), 16), 'Every first-time explanation, newest first.', t.muted, 11);
   const close = new Rect(f32(r.x + r.w - 12 - bh), f32(r.y + 10), bh, bh),
     closing = button(c, 'guide-log/close', close, '', () => toggleGuideLog(app), ButtonStyle.Quiet),
@@ -186,7 +182,7 @@ function logPanel(app: GameHudApp, width: number): void {
   button(c, 'guide-log/focus', new Rect(left, y, half, bh), prefs.focus ? 'Camera focus: On' : 'Camera focus: Off', () => setGuidePreference('focus', !prefs.focus), ButtonStyle.Default, true, undefined, prefs.focus, { fontSize: 11 });
   button(c, 'guide-log/cards', new Rect(f32(left + half + 8), y, half, bh), prefs.cards ? 'Cards: On' : 'Cards: Off', () => setGuidePreference('cards', !prefs.cards), ButtonStyle.Default, true, undefined, prefs.cards, { fontSize: 11 });
   y = f32(y + bh + 12);
-  c.rect(new Rect(left, y, inner, 1), t.border, 0);
+  groove(c, left, y, inner);
   y = f32(y + 10);
   const newest = [...s.log].reverse(),
     footer = f32(r.y + r.h - 12 - bh),
@@ -233,7 +229,7 @@ function entryRow(app: GameHudApp, layout: EntryLayout, x: number, y: number, in
     c.text(new Rect(x, row, inner, 15), c.elideText(text, inner, 11), t.muted, 11);
     row = f32(row + 15);
   }
-  c.rect(new Rect(x, f32(y + layout.height - 5), inner, 1), { ...t.border, a: 90 }, 0);
+  groove(c, x, f32(y + layout.height - 6), inner);
 }
 /** Once per HUD frame, after every other panel: the log button, then the log or the card. */
 export function guideHud(app: GameHudApp, width: number, height: number): void {

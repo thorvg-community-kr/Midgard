@@ -1,5 +1,5 @@
 // The order buttons of the selection panel, each with its key and a tooltip that says what it does.
-import { Rect, Align, ButtonStyle, button } from '../../../../packages/native-ui/src';
+import { Rect, Align } from '../../../../packages/native-ui/src';
 import { Order, Tool } from '../../../../packages/engine/src/game-tools';
 import { f32 } from '../../../../packages/engine/src/numeric';
 import { actionButton, type HudGlyph } from './hud-actions';
@@ -10,7 +10,7 @@ import type { GameHudApp } from './game-hud-contract';
 
 interface OrderButton {
   id: string;
-  glyph: HudGlyph | 'hold';
+  glyph: HudGlyph;
   label: string;
   key: string;
   lines: string[];
@@ -113,23 +113,6 @@ export function unitOrders(app: GameHudApp): OrderButton[] {
     });
   return orders;
 }
-function holdButton(app: GameHudApp, id: string, r: Rect, order: OrderButton): boolean {
-  const c = app.context,
-    t = app.theme,
-    s = button(c, id, r, '', order.run, order.active ? ButtonStyle.Primary : ButtonStyle.Quiet, true),
-    color = order.active ? t.accentText : s.hovered ? t.accent : t.text,
-    x = f32(r.x + r.w / 2),
-    y = f32(r.y + r.h / 2),
-    line = (a: number, b: number, d: number, e: number) => c.line(f32(x + a), f32(y + b), f32(x + d), f32(y + e), color, 1.7);
-  // A shield planted on its point.
-  line(-6, -7, 6, -7);
-  line(-6, -7, -6, 1);
-  line(6, -7, 6, 1);
-  line(-6, 1, 0, 7);
-  line(6, 1, 0, 7);
-  line(0, -4, 0, 3);
-  return s.hovered;
-}
 /** Build, Move, Attack-move, Hold, Stop, Work, Clear, Select (and Leave for residents indoors). */
 export function unitOrdersCard(app: GameHudApp, area: Rect, scale = 1, global = false): void {
   const c = app.context,
@@ -147,17 +130,13 @@ export function unitOrdersCard(app: GameHudApp, area: Rect, scale = 1, global = 
         app.touchMode ? 44 : area.h,
       ),
       id = prefix + order.id;
-    let hovered = false;
-    if (order.glyph === 'hold') hovered = holdButton(app, id, r, order);
-    else {
-      actionButton(c, id, r, order.glyph, order.label, order.run, order.active, true, false);
-      hovered = !app.touchMode && r.contains(app.mouse.x, app.mouse.y);
-    }
+    actionButton(c, id, r, order.glyph, order.label, order.run, order.active, true, false);
+    const hovered = !app.touchMode && r.contains(app.mouse.x, app.mouse.y);
     if (!app.touchMode && order.key)
       c.text(
-        new Rect(f32(r.x + r.w - 16), f32(r.y + 2), 13, 12),
+        new Rect(f32(r.x + r.w - 17), f32(r.y + 2), 13, 12),
         order.key,
-        order.active ? t.accentText : t.muted,
+        order.active ? t.accentText : t.accent,
         9,
         true,
         Align.Center,

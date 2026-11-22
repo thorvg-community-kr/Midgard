@@ -1,6 +1,6 @@
 // Reading a swarm: how many dens and monsters a floor still holds, a den falling and the brood breaking as wins,
 // a raid wave with its size and an arrow at the screen edge, and what a floor holds before a party goes in.
-import { Rect, Align } from '../../../../packages/native-ui/src';
+import { Rect, Align, board } from '../../../../packages/native-ui/src';
 import { CombatCue, MonsterRank, type CombatEvent } from '../../../../packages/engine/src/combat-events';
 import { distance, project, sub, type Point } from '../../../../packages/engine/src/geometry';
 import { f32, clamp } from '../../../../packages/engine/src/numeric';
@@ -94,7 +94,7 @@ export function swarmBanner(app: GameHudApp, width: number, y: number): number {
   c.layer(
     r.inset(-2),
     () => {
-      c.rect(r, t.surface, t.radius, t.success, 2);
+      board(c, r, { trim: t.success, trimWidth: 2, flat: true });
       c.text(new Rect(f32(x + 12), f32(y + 5), f32(w - 24), 20), banner.title, t.success, 14, true, Align.Center);
       c.text(
         new Rect(f32(x + 12), f32(y + 26), f32(w - 24), 16),
@@ -135,7 +135,7 @@ export function waveWarning(app: GameHudApp, width: number, height: number, y: n
   if (age <= waveSeconds) {
     const { x, w } = column(width),
       r = new Rect(x, y, w, 26);
-    c.rect(r, t.surface, t.radius, t.danger, 2);
+    board(c, r, { trim: t.danger, trimWidth: 2 });
     c.text(
       r,
       c.elideText(`A raid wave of ${wave.size} comes from the ${wayTo(home, wave.from)}`, f32(w - 16), 12, true),
@@ -170,7 +170,7 @@ function edgeArrow(app: GameHudApp, at: Point, size: number, width: number, heig
     uy = dy / l,
     tip = { x: x + ux * 16, y: y + uy * 16 },
     back = (side: number) => ({ x: x + ux * 2 - uy * 9 * side, y: y + uy * 2 + ux * 9 * side });
-  c.rect(new Rect(f32(x - 15), f32(y - 15), 30, 30), t.surface, 15, t.danger, 2);
+  c.rect(new Rect(f32(x - 15), f32(y - 15), 30, 30), { ...t.surface, a: 255 }, 15, t.danger, 2);
   c.text(new Rect(f32(x - 15), f32(y - 15), 30, 30), String(size), t.danger, 11, true, Align.Center);
   for (const side of [1, -1]) {
     const b = back(side);

@@ -1,4 +1,4 @@
-import { Rect, Align, ButtonStyle, button, rgba, type Color } from '../../../../packages/native-ui/src';
+import { Rect, Align, ButtonStyle, band, button, frame as pictureFrame, tone, type Color } from '../../../../packages/native-ui/src';
 import {
   Role,
   Activity,
@@ -38,29 +38,18 @@ export function rosterPanel(this: GameHudApp, panel: Rect): void {
     this.craftWorkshopFilter = null;
     this.equipmentTab = 'equipment';
   };
-  const stone = rgba(37, 39, 34),
-    ochre = rgba(176, 151, 101),
-    ink = rgba(226, 215, 188);
-  c.rect(panel.inset(2), stone, 3, ochre);
-  // A shallow interlocking frieze evokes a painted hall without covering portraits.
-  c.paint(JSON.stringify(['oath-frieze', panel.x, panel.y, panel.w]), () => {
-    const path = new c.tvg.Shape();
-    for (let x = panel.x + 12; x < panel.x + panel.w - 18; x += 24)
-      path
-        .moveTo(x, panel.y + 9)
-        .lineTo(x + 8, panel.y + 15)
-        .lineTo(x + 16, panel.y + 9)
-        .lineTo(x + 24, panel.y + 15);
-    return path.stroke({ width: 1, color: [176, 151, 101, 100] });
-  });
+  const ochre = tone(t.accent, t.muted, 0.35),
+    ink = t.text;
+  // The hall's name stands on a carved band with a dog-tooth frieze.
+  band(c, panel, short ? 32 : 46, !short);
   c.text(
-    new Rect(panel.x + 16, panel.y + (short ? 13 : 21), panel.w - 58, short ? 21 : 25),
-    'SETTLEMENT HALL',
-    ink,
+    new Rect(panel.x + 16, panel.y + (short ? 6 : 11), panel.w - 58, short ? 21 : 25),
+    'Settlement Hall',
+    t.accent,
     17,
     true,
   );
-  const tabY = panel.y + (short ? 36 : 52),
+  const tabY = panel.y + (short ? 36 : 54),
     tabW = Math.min(132, (panel.w - 32) / 2);
   for (const tab of ['units', 'guests'] as const) {
     const x = panel.x + 14 + (tab === 'guests' ? tabW + 6 : 0);
@@ -129,6 +118,7 @@ export function rosterPanel(this: GameHudApp, panel: Rect): void {
       entry = { key, paint: hudPaint(c, personPortrait(p, mood, frame.w, frame.h, backdrop)) };
       this.dockPortraits.set(p.id, entry);
     }
+    pictureFrame(c, frame);
     c.add(entry.paint);
     entry.paint.transform({
       e11: 1,
@@ -141,7 +131,6 @@ export function rosterPanel(this: GameHudApp, panel: Rect): void {
       e32: 0,
       e33: 1,
     });
-    c.rect(frame, rgba(0, 0, 0, 0), 2, ochre);
   };
   const visible = entries.slice(this.rosterPage * rows, (this.rosterPage + 1) * rows);
   for (let i = 0; i < visible.length; ++i) {
@@ -253,7 +242,8 @@ export function rosterPanel(this: GameHudApp, panel: Rect): void {
   const detail = narrow
     ? new Rect(listX, top + 98, panel.w - 28, panel.y + panel.h - (top + 98) - 12)
     : new Rect(listX + leftW + 14, top, panel.w - leftW - 42, panel.y + panel.h - top - 12);
-  if (!narrow) c.line(detail.x - 7, top, detail.x - 7, panel.y + panel.h - 15, rgba(176, 151, 101, 80));
+  if (!narrow)
+    c.rect(new Rect(detail.x - 8, top, 1.5, panel.y + panel.h - 15 - top), tone(t.surface, t.dusk, 0.4));
   const selected = entries.find((entry) => entry.key === this.rosterSelected);
   if (!selected) {
     c.text(

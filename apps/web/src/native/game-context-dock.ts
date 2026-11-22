@@ -1,4 +1,4 @@
-import { Rect, Align, setTransform } from '../../../../packages/native-ui/src';
+import { Rect, Align, board, setTransform } from '../../../../packages/native-ui/src';
 import { Tool, Order } from '../../../../packages/engine/src/game-tools';
 import { f32 as f, clamp } from '../../../../packages/engine/src/numeric';
 import { DockView } from './game-app-state';
@@ -249,12 +249,7 @@ export function renderDockContent(this: GameHudApp, panel: Rect): void {
 }
 export function taskbar(this: GameHudApp, width: number, height: number): void {
   const c = this.context;
-  c.rect(
-    this.dockBounds,
-    this.theme.surface,
-    Math.min(this.theme.radius + 2, f(this.dockBounds.h / 2)),
-    this.theme.border,
-  );
+  board(c, this.dockBounds);
   c.control('context-dock', this.dockBounds, () => {}, true, false);
   const layer = c.layer(this.dockBounds.inset(1), () => {
     if (this.dockGhost && this.dockProgress < f(0.55)) {

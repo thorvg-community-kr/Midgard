@@ -1,5 +1,5 @@
 import { translate } from '../../../../packages/localization/src/index';
-import { Rect, Align, ButtonStyle, EventType, button } from '../../../../packages/native-ui/src';
+import { Rect, Align, ButtonStyle, EventType, board, button, meter } from '../../../../packages/native-ui/src';
 import { lerpFloat } from '../../../../packages/native-ui/src/numeric';
 import {
   settlementGoals,
@@ -25,6 +25,7 @@ import { sealProgress } from '../../../../packages/engine/src/gate-seals';
 import { isPlayerBuilding } from '../../../../packages/engine/src/faction';
 import type { GameHudApp } from './game-hud-contract';
 import { questAction, boonTip } from './game-progress-hud';
+import { hudGlyph } from './hud-glyphs';
 import { craftBars } from './craft-station-hud';
 export function objectives(this: GameHudApp, width: number, height: number, top: number): void {
   // Work at a crafting station shows over it in the world.
@@ -66,7 +67,7 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
   c.control('objectives-panel', bounds, undefined, true, false);
   let border = t.border;
   if (pulse > 0) border = { ...t.accent, a: Math.trunc(f32(180 + f32(75 * pulse))) };
-  c.rect(bounds, t.surface, t.radius, border);
+  board(c, bounds, { trim: border, header: h > header + 8 ? 38 : 0 });
   button(
     c,
     'objectives-toggle',
@@ -80,23 +81,7 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
     },
     ButtonStyle.Quiet,
   );
-  const ink = t.accent;
-  c.paint(JSON.stringify(['Q', bounds.x, y, ink]), () => {
-    const shape = new c.tvg.Shape(),
-      x = f32(bounds.x + 22),
-      middle = f32(y + 19);
-    return shape
-      .moveTo(x, f32(middle - 8))
-      .lineTo(f32(x + 7), middle)
-      .lineTo(x, f32(middle + 8))
-      .lineTo(f32(x - 7), middle)
-      .close()
-      .moveTo(f32(x - 3), middle)
-      .lineTo(f32(x - 1), f32(middle + 3))
-      .lineTo(f32(x + 4), f32(middle - 4))
-      .fill(0, 0, 0, 0)
-      .stroke({ width: f32(1.2), color: [ink.r, ink.g, ink.b, ink.a] });
-  });
+  hudGlyph(c, 'quest', f32(bounds.x + 22), f32(y + header / 2), t.accent, 0.9, t.surface);
   c.text(
     new Rect(f32(bounds.x + 38), f32(y + 7), f32(w - (compact && collapsed ? 50 : 196)), 24),
     compact && collapsed ? `Quests ${completed}/${goals.length}` : 'Quests',
@@ -222,12 +207,7 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
       10,
     );
     const displayed = c.animate('quests/progress/' + current, clamp(progress, 0, 1), 0.2);
-    c.rect(new Rect(left, f32(y + 152), f32(w - 28), 3), t.border);
-    c.rect(new Rect(left, f32(y + 152), f32(f32(w - 28) * displayed), 3), t.accent);
-    for (let i = 0; i <= 4; i++) {
-      const at = f32(left + f32(f32(f32(w - 28) * i) / 4));
-      c.line(at, f32(y + 150), at, f32(y + 157), f32(i / 4) <= displayed ? t.accent : t.border, f32(0.8));
-    }
+    meter(c, new Rect(left, f32(y + 149), f32(w - 28), 7), displayed, t.accent);
     if (expanded < 200 || !action) return;
     button(
       c,

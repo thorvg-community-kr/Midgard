@@ -1,5 +1,5 @@
 import type { Animation } from '@thorvg/webcanvas';
-import { Context, Theme, Rect, Align, rgba, setTransform } from '../../../../packages/native-ui/src';
+import { Context, Theme, Rect, Align, board, rgba, setTransform, tag } from '../../../../packages/native-ui/src';
 import type { Resources } from '../../../../packages/engine/src/building-catalog';
 import { f32 as f, clamp } from '../../../../packages/engine/src/numeric';
 import { resourceIcons, nativeFixed } from './hud-assets';
@@ -121,7 +121,7 @@ export class ResourceBar {
     this.bounds = bounds;
     this.hovered = -1;
     this.moving = false;
-    context.rect(bounds, theme.surface, theme.radius, theme.border);
+    board(context, bounds);
     const rowHeight = f(f(bounds.h - 12) / this.slots.length),
       compactRows = bounds.w < 120 || rowHeight < 36;
     let stagger = 0;
@@ -273,7 +273,7 @@ export class ResourceBar {
       Math.max(context.clip().x + 8, f(f(f(context.clip().x + context.clip().w) - width) - 8)),
     );
     const tooltip = new Rect(x, f(this.hoveredCell.y + f(f(this.hoveredCell.h - 30) / 2)), width, 30);
-    context.rect(tooltip, theme.raised, theme.radius, theme.border);
-    context.text(tooltip, this.description, theme.text, 12, false, Align.Center);
+    tag(context, tooltip);
+    context.text(tooltip, this.description, theme.ink, 12, false, Align.Center);
   }
 }

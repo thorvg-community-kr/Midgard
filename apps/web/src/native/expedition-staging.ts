@@ -3,7 +3,7 @@
 // screen until the gate ends the expedition and the result screen opens. Presentation only: holding time just skips
 // the town's advance for those frames, so the simulation sees the same steps it would have seen later.
 import type { Shape } from '@thorvg/webcanvas';
-import { Rect, type Context } from '../../../../packages/native-ui/src';
+import { Rect, board, type Context } from '../../../../packages/native-ui/src';
 import { CombatCue } from '../../../../packages/engine/src/combat-events';
 import { isPlayerResident } from '../../../../packages/engine/src/faction';
 import { project, type Point } from '../../../../packages/engine/src/geometry';
@@ -321,7 +321,7 @@ export function stagingBanner(
     h = 34 + detail.length * 15,
     r = new Rect(x, y, w, h);
   c.control('staging-banner', r, undefined, true, false);
-  c.rect(r, t.surface, t.radius, t.danger, 2);
+  board(c, r, { trim: t.danger, trimWidth: 2 });
   c.text(new Rect(f32(x + 12), f32(y + 6), f32(w - 24), 20), c.elideText(title, f32(w - 24), 14, true), t.danger, 14, true);
   detail.forEach((row, i) => c.text(new Rect(f32(x + 12), f32(y + 28 + i * 15), f32(w - 24), 15), row, t.text, 11));
   return f32(y + h + 6);

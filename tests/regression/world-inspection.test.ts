@@ -159,6 +159,7 @@ it('shows a static landmark description without building or unit command actions
       },
       rect: () => {},
       line: () => {},
+      paint: () => {},
     },
   });
   worldObjectPanel.call(app as any, new Rect(0, 0, 420, 148));

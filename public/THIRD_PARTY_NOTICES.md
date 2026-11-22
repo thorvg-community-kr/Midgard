@@ -12,9 +12,11 @@ The opening Powered by ThorVG animation is supplied separately. See its [source 
 
 ## Fonts
 
-The game loads **DejaVu Sans** and **DejaVu Sans Bold** from `assets/native-fonts/`. The fonts retain the Bitstream Vera font license; DejaVu changes are in the public domain. See the [complete font notice](assets/native-fonts/DejaVuSans.LICENSE) and the [DejaVu project](https://dejavu-fonts.github.io/).
+The interface is written in **Alegreya Sans** (Medium and ExtraBold), and its titles, the title lettering and the combat numbers in **Cinzel**. The Cinzel title face takes its ten figures from **Alegreya** Bold, because Cinzel draws 1 like the letter I. All three are licensed under the SIL Open Font License, Version 1.1: see the [Alegreya Sans notice](licenses/AlegreyaSans-OFL.txt), the [Alegreya notice](licenses/Alegreya-OFL.txt) and the [Cinzel notice](licenses/Cinzel-OFL.txt). The shipped files are subsets built by `scripts/build-ui-fonts.py`.
 
-Korean text uses **Noto Sans KR** and **Noto Sans KR Bold**, and the title lettering and combat numbers use **Cinzel**. Both are licensed under the SIL Open Font License, Version 1.1: see the [Noto Sans KR notice](assets/native-fonts/NotoSansKR.LICENSE) and the [Cinzel notice](licenses/Cinzel-OFL.txt).
+Korean text uses **Noto Sans KR** and **Noto Sans KR Bold**, and Korean titles **Noto Serif KR** ExtraBold, under the same license: see the [Noto Sans KR notice](assets/native-fonts/NotoSansKR.LICENSE) and the [Noto Serif KR notice](licenses/NotoSerifKR-OFL.txt).
+
+**DejaVu Sans** and **DejaVu Sans Bold** remain in `assets/native-fonts/` for the creative tools' labels and for any character the faces above cannot write. The fonts retain the Bitstream Vera font license; DejaVu changes are in the public domain. See the [complete font notice](assets/native-fonts/DejaVuSans.LICENSE) and the [DejaVu project](https://dejavu-fonts.github.io/).
 
 ## Lua extension interpreter
 
