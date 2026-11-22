@@ -15,8 +15,11 @@ export interface SagaPanel {
   readonly scene: SceneNode;
   /** One-shot sounds under `assets/audio`, each fired as the panel passes `at` (0..1). */
   readonly cues?: readonly { at: number; sound: string; volume: number }[];
-  /** `beat` runs 0..1 across the panel; `seconds` keeps looping motion at one pace. */
-  pose(beat: number, seconds: number): void;
+  /**
+   * `beat` runs 0..1 across the panel and `at` is the same moment in seconds; `seconds` keeps
+   * looping motion at one pace.
+   */
+  pose(beat: number, seconds: number, at: number): void;
 }
 
 export const sagaFinish: Finish = { ink: 0, rim: 12 };
@@ -27,6 +30,36 @@ export const ease = (v: number): number => {
 };
 /** 0 before `from`, 1 after `to`, eased between. */
 export const span = (v: number, from: number, to: number): number => ease((v - from) / (to - from));
+/** 0 before `from`, 1 after `to`, straight between. */
+export const ramp = (v: number, from: number, to: number): number => clamp01((v - from) / (to - from));
+/** Quick away and a soft landing: something thrown, a camera that arrives. */
+export const easeOut = (v: number): number => 1 - (1 - clamp01(v)) ** 3;
+/** Slow away and a quick arrival: something that gathers speed. */
+export const easeIn = (v: number): number => clamp01(v) ** 3;
+/** Past the mark and back: a thing set down, a light that catches. */
+export const settle = (v: number): number => {
+  const t = clamp01(v) - 1;
+  return 1 + 2.70158 * t * t * t + 1.70158 * t * t;
+};
+/**
+ * Seconds held on drawn frames. Figures act on twos or threes (12 or 8 drawings a second) while
+ * the camera and the light stay smooth, as in hand-drawn film.
+ */
+export const stepped = (seconds: number, perSecond = 12): number =>
+  Math.floor(seconds * perSecond + 1e-6) / perSecond;
+/** Cuts to one shot of a panel. A hidden shot is not drawn or even visited, so it costs nothing. */
+export function cutTo(shots: readonly SceneNode[], index: number): void {
+  shots.forEach((shot, i) => {
+    const alpha = i === index ? 255 : 0;
+    if (shot.alpha !== alpha) shot.opacity(alpha);
+  });
+}
+/** Which shot is on screen at `at`, given the second each one starts. */
+export const shotAt = (starts: readonly number[], at: number): number => {
+  let index = 0;
+  while (index + 1 < starts.length && at >= starts[index + 1]) index++;
+  return index;
+};
 export const alphaOf = (v: number): number => Math.round(clamp01(v) * 255);
 
 /** A backdrop larger than the board, so a drifting camera never shows its edge. */
@@ -67,6 +100,17 @@ export const scatter = (i: number, salt = 0): number => {
   const v = Math.sin(i * 127.1 + salt * 311.7) * 43758.5453;
   return v - Math.floor(v);
 };
+/** A still field of stars above `bottom`. */
+export function stars(count: number, bottom: number): SceneNode {
+  const scene = new SceneNode();
+  for (let i = 0; i < count; i++)
+    scene.add(
+      new ShapeNode()
+        .appendCircle(sagaWidth * scatter(i, 4), bottom * scatter(i, 5), 1.2 + 1.6 * scatter(i, 6))
+        .fill(226, 226, 240, 90 + Math.round(120 * scatter(i, 7))),
+    );
+  return scene;
+}
 /** A long low bank with a gently lobed top: mist, cloud, far hills. */
 export function bank(x: number, y: number, w: number, h: number, lobes: number, depth = h): Form {
   return [
@@ -77,6 +121,81 @@ export function bank(x: number, y: number, w: number, h: number, lobes: number, 
       .close(),
   ];
 }
+/**
+ * A bank of driven snow tall enough to hide the whole board, for cutting between two panels:
+ * at `rise` 0 it waits under the frame, at 0.5 it covers everything, at 1 it has gone over the
+ * top. One panel ends as it covers and the next begins as it lifts, so the snow never stops.
+ */
+export function snowVeil(): { scene: SceneNode; rise(v: number): void } {
+  const scene = new SceneNode(),
+    body: Form = [
+      pen(-200, 60)
+        .lobes(sagaWidth + 200, 60, 6, 70)
+        .line(sagaWidth + 200, 1500)
+        .lobes(-200, 1500, 6, 70)
+        .close(),
+    ],
+    crest: Form = [pen(-200, 60).lobes(sagaWidth + 200, 60, 6, 70).line(sagaWidth + 200, 150).lobes(-200, 150, 5, 40).close()];
+  scene
+    .add(flat(body, [216, 230, 246]))
+    .add(flat(crest, [240, 250, 255]))
+    .add(flat([pen(-200, 1380).lobes(sagaWidth + 200, 1380, 7, 46).line(sagaWidth + 200, 1500).lobes(-200, 1500, 6, 70).close()], [176, 196, 226]));
+  return {
+    scene,
+    rise(v) {
+      scene.translate(0, 960 - 2640 * clamp01(v));
+    },
+  };
+}
+/** A camera stop over a picture: the board point at the centre of the frame and how close it is. */
+export interface Stop {
+  at: number;
+  x: number;
+  y: number;
+  zoom: number;
+}
+/** Where a camera that glides between stops is at `at`: eased between two, held before and after. */
+export function glide(stops: readonly Stop[], at: number): { x: number; y: number; zoom: number } {
+  let i = 0;
+  while (i + 1 < stops.length && at >= stops[i + 1].at) i++;
+  const a = stops[i],
+    b = stops[Math.min(i + 1, stops.length - 1)],
+    t = b.at > a.at ? ease((at - a.at) / (b.at - a.at)) : 0;
+  // Zoom is eased in powers so a pull-out keeps one pace from start to end.
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, zoom: a.zoom * (b.zoom / a.zoom) ** t };
+}
+/** Frames a scene so that board point (x, y) sits at the centre of the board at `zoom`. */
+export function frame(node: SceneNode, x: number, y: number, zoom: number): void {
+  node.transform([zoom, 0, sagaWidth / 2 - x * zoom, 0, zoom, sagaHeight / 2 - y * zoom, 0, 0, 1]);
+}
+/**
+ * A panel's own copy of a picture the saga loads once, fitted over the board. Each panel that
+ * shows the map draws a duplicate, made once the picture has arrived, so no native picture ever
+ * changes hands between panels. Call the returned function every frame; it is false until then.
+ */
+export function boardPicture(source: PictureNode | undefined, into: SceneNode): () => boolean {
+  let copy: PictureNode | undefined;
+  return () => {
+    if (!source || source.width <= 1) return false;
+    if (!copy) {
+      copy = source.duplicate();
+      into.add(copy);
+    }
+    return fitPicture(copy);
+  };
+}
+/** Fits a loaded picture over the whole board; false while it is still the 1 x 1 placeholder. */
+export function fitPicture(picture: PictureNode): boolean {
+  if (picture.width <= 1) {
+    picture.opacity(0);
+    return false;
+  }
+  const k = Math.max(sagaWidth / picture.width, sagaHeight / picture.height);
+  picture
+    .transform([k, 0, (sagaWidth - picture.width * k) / 2, 0, k, (sagaHeight - picture.height * k) / 2, 0, 0, 1])
+    .opacity(255);
+  return true;
+}
 /** A cloud: a lobed crown over a soft, curved belly. */
 export function cloud(x: number, y: number, w: number, h: number, lobes = 4): Form {
   return [
@@ -85,6 +204,18 @@ export function cloud(x: number, y: number, w: number, h: number, lobes = 4): Fo
       .curve([x + w * 1.04, y + h * 0.3], [x + w * 0.8, y + h * 0.5])
       .curve([x + w * 0.5, y + h * 0.62], [x + w * 0.2, y + h * 0.5])
       .curve([x - w * 0.04, y + h * 0.3], [x, y])
+      .close(),
+  ];
+}
+/** A mass of leaves: a few broad lobes over a rounded underside. */
+export function leafMass(x: number, y: number, w: number, h: number): Form {
+  const lobes = Math.max(2, Math.round(w / (h * 1.1)));
+  return [
+    pen(x, y)
+      .lobes(x + w, y, lobes, h * 0.36)
+      .curve([x + w * 1.03, y + h * 0.34], [x + w * 0.82, y + h * 0.56])
+      .curve([x + w * 0.5, y + h * 0.66], [x + w * 0.18, y + h * 0.56])
+      .curve([x - w * 0.03, y + h * 0.34], [x, y])
       .close(),
   ];
 }

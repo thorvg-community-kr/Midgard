@@ -163,7 +163,7 @@ async function leadStrip(folder, out) {
   // The finished panel with its narration, music and effects: cut from the opening video, which carries the game's sound.
   const opening = resolve(root, 'public/docs/opening.mp4');
   if (existsSync(opening)) {
-    run(['-ss', '9.7', '-i', opening, '-t', '7.2', '-c:v', 'libx264', '-preset', 'slow', '-crf', '24', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', resolve(out, 'slaying-panel.mp4')]);
+    run(['-ss', '9', '-i', opening, '-t', '7.2', '-c:v', 'libx264', '-preset', 'slow', '-crf', '24', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', resolve(out, 'slaying-panel.mp4')]);
     cards.push(`<figure class="step sound"><div class="step-n">5</div><p>The finished panel in the game: the slaying, at its real pace with its sound.</p><video src="docs/story/saga/slaying-panel.mp4" muted autoplay loop playsinline controls preload="metadata"></video><span class="src">saga-creation-panels.ts (slayingPanel) · intro-saga.ts</span></figure>`);
   }
   return `\n    <h3 style="color:var(--bright);margin:.6em 0 .4em">From sheet to screen: the saga’s fighters</h3>\n    <div class="steps lead">\n      ${cards.join('\n      ')}\n    </div>\n    <h3 style="color:var(--bright);margin:1em 0 .4em">The rest of the saga</h3>`;

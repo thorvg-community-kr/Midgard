@@ -12,10 +12,9 @@ export async function captureOpeningVideo(session) {
   try {
     const plan = await page.evaluate(
       async ({ width, height }) => {
-        const [{ initializeWebCanvas }, { IntroSaga, sagaBeats }, { PictureNode }] = await Promise.all([
+        const [{ initializeWebCanvas }, { IntroSaga, sagaSeconds, sagaSounds }] = await Promise.all([
           import('/apps/web/src/native/startup-canvas.ts'),
           import('/apps/web/src/native/intro-saga.ts'),
-          import('/packages/native-renderer/src/paint.ts'),
         ]);
         const tvg = await initializeWebCanvas('gl'),
           element = document.createElement('canvas');
@@ -51,19 +50,11 @@ export async function captureOpeningVideo(session) {
             return ended;
           },
         };
-        // When each sound starts: narration after the lead-in, panel effects at their share of the panel.
-        const leadIn = 0.7,
-          leadOut = 1.5,
-          sounds = [{ path: 'music/dawn/saga_world_tree.ogg', at: 0, volume: 0.3 }];
-        let start = 0;
-        sagaBeats.forEach((beat, i) => {
-          const length = leadIn + beat.spoken + leadOut,
-            panel = beat.panel({ world: new PictureNode(new Uint8Array(4), 1, 1) });
-          sounds.push({ path: `narration/en/intro_${i + 1}.ogg`, at: start + leadIn, volume: 1 });
-          for (const cue of panel.cues ?? []) sounds.push({ path: `${cue.sound}.ogg`, at: start + cue.at * length, volume: cue.volume });
-          start += length;
-        });
-        return { sounds, seconds: start };
+        // The saga's own timetable: narration takes, panel effects and the music bed.
+        return {
+          sounds: sagaSounds().map((sound) => ({ path: `${sound.path}.ogg`, at: sound.at, volume: sound.volume, bed: !!sound.bed })),
+          seconds: sagaSeconds(),
+        };
       },
       { width, height },
     );
@@ -72,11 +63,11 @@ export async function captureOpeningVideo(session) {
       step: ([i, dt]) => window.saga.advance(i === 0 ? 0.001 : dt),
       arg: 1 / fps,
     });
-    // The bed fades out over the last panel's final three seconds, as the saga does.
-    const inputs = plan.sounds.flatMap((s) => ['-i', resolve(root, 'public/assets/audio', s.path)]),
+    // The bed loops under the whole saga and fades out over its last three seconds, as in the game.
+    const inputs = plan.sounds.flatMap((s) => [...(s.bed ? ['-stream_loop', '-1'] : []), '-i', resolve(root, 'public/assets/audio', s.path)]),
       chains = plan.sounds.map((s, k) => {
-        const fade = k === 0 ? `,afade=t=out:st=${(plan.seconds - 3).toFixed(2)}:d=3` : '';
-        return `[${k}:a]aresample=44100,aformat=channel_layouts=stereo,volume=${s.volume}${fade},adelay=${Math.round(s.at * 1000)}:all=1[a${k}]`;
+        const shape = s.bed ? `,atrim=0:${plan.seconds.toFixed(2)},afade=t=out:st=${(plan.seconds - 3).toFixed(2)}:d=3` : '';
+        return `[${k}:a]aresample=44100,aformat=channel_layouts=stereo,volume=${s.volume}${shape},adelay=${Math.round(s.at * 1000)}:all=1[a${k}]`;
       }),
       mix = `${chains.join(';')};${plan.sounds.map((_, k) => `[a${k}]`).join('')}amix=inputs=${plan.sounds.length}:normalize=0:duration=longest,atrim=0:${(frames.frames / fps).toFixed(2)}[out]`,
       wav = resolve(docsWork, 'opening.wav');

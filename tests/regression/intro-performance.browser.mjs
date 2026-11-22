@@ -131,7 +131,7 @@ try {
   await page.screenshot({ path: `${output}/saga.png` });
   report.sagaPanels = await page.evaluate(() => {
     const app = goldfantasy.app, captions = [app.saga.caption().text];
-    for (let panel = 1; panel < 6; ++panel) {
+    for (let panel = 1; panel < 7; ++panel) {
       app.saga.next();
       for (let frame = 0; frame < 12; ++frame) goldfantasy.host.render(frameClock += 0.1);
       captions.push(app.saga.caption().text);
@@ -184,7 +184,7 @@ try {
   }
   assert.deepEqual(report.errors, []);
   assert.equal(report.startup.renderer, 'gl', 'Performance measurements must use the shipping WebGL backend');
-  assert.equal(new Set(report.sagaPanels).size, 6, 'Every story panel must render before the game handoff');
+  assert.equal(new Set(report.sagaPanels).size, 7, 'Every story beat must render before the game handoff');
   await page.evaluate(() => goldfantasy.dispose());
   report.passed = true;
 } finally {

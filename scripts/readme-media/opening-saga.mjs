@@ -1,4 +1,4 @@
-// The first panel of the opening saga only: the giant wakes and opens his eyes. No caption, no later panel.
+// The first beat of the opening saga only: the giant wakes and opens his eyes. No caption, no later beat.
 import { recordGif } from './capture-session.mjs';
 
 export async function captureOpening(session) {
@@ -23,7 +23,7 @@ export async function captureOpening(session) {
         await new Promise((done) => setTimeout(done, 500));
         window.saga = {
           advance(dt) {
-            if (!saga.advance(dt, width, height)) throw new Error('The first panel ended early');
+            if (!saga.advance(dt, width, height)) throw new Error('The first beat ended early');
             canvas.update().render();
           },
         };
@@ -40,10 +40,11 @@ export async function captureOpening(session) {
       },
       { width, height },
     );
-    // The panel lasts 9.7 s from black to black; shown at 1.5 times its pace so the GIF stays short and loops on black.
+    // The beat lasts 9 s and ends on a cut; the GIF stops just short of it, shown at 1.5 times its pace, and loops
+    // back to the black it rose from.
     return {
       opening: await recordGif(page, 'opening', {
-        count: 65,
+        count: 60,
         fps: 10,
         width: 720,
         colors: 192,

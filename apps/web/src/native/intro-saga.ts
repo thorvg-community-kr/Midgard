@@ -1,9 +1,8 @@
-// The opening saga shown before a new game: six narrated storybook panels.
+// The opening saga shown before a new game: seven narrated beats cut together like a short film.
 import type { Paint, ThorVGNamespace } from '@thorvg/webcanvas';
 import { PictureNode, SceneNode, ShapeNode } from '../../../../packages/native-renderer/src/paint';
 import { WebCanvasAdapter } from '../../../../packages/native-renderer/src/webcanvas-adapter';
 import { sharedAudioContext } from '../../../../packages/native-audio/src/browser-audio';
-import { wakingPanel } from '../../../../packages/native-renderer/src/saga-waking-panel';
 import {
   sagaHeight,
   sagaWidth,
@@ -15,62 +14,140 @@ import {
   slayingPanel,
   voidPanel,
 } from '../../../../packages/native-renderer/src/saga-creation-panels';
-import { remainsPanel, risingPanel } from '../../../../packages/native-renderer/src/saga-descent-panels';
+import { treePanel } from '../../../../packages/native-renderer/src/saga-tree-panel';
+import { gatesPanel } from '../../../../packages/native-renderer/src/saga-gates-panel';
+import { breathPanel } from '../../../../packages/native-renderer/src/saga-breath-panel';
+import { chargePanel } from '../../../../packages/native-renderer/src/saga-charge-panel';
 
-interface Beat {
-  panel: (art: SagaArt) => SagaPanel;
-  /** Caption phrases, shown one at a time in step with the narration. */
-  lines: string[];
-  /** Length of the narration take, in seconds. */
-  spoken: number;
+/** One caption phrase and the seconds of its beat it is on screen. */
+export interface SagaLine {
+  text: string;
+  from: number;
+  to: number;
 }
-export const sagaBeats: Beat[] = [
+export interface SagaBeat {
+  panel: (art: SagaArt) => SagaPanel;
+  lines: SagaLine[];
+  /** Narration takes under `assets/audio/narration/en`, and the second of the beat each starts. */
+  takes: { clip: string; at: number }[];
+  /** Seconds the beat holds the screen; the next one is cut to, never faded. */
+  length: number;
+}
+const line = (text: string, from: number, to: number): SagaLine => ({ text, from, to });
+/**
+ * Caption times follow the pauses measured in each take, so a phrase appears as it is spoken and
+ * the panels can cut on the same words.
+ */
+export const sagaBeats: SagaBeat[] = [
   {
     panel: voidPanel,
-    lines: ['Before the world, there was only the void...', 'and in the void, Ymir, the first giant.'],
-    spoken: 7.5,
+    lines: [
+      line('Before the world, there was only the void...', 1, 4.4),
+      line('and in the void, Ymir, the first giant.', 4.65, 8.6),
+    ],
+    takes: [{ clip: 'intro_1', at: 0.7 }],
+    length: 9,
   },
   {
     panel: slayingPanel,
-    lines: ['Odin and his brothers rose against him...', 'and the giant fell.'],
-    spoken: 5,
+    lines: [line('Odin and his brothers rose against him...', 1.05, 3.95), line('and the giant fell.', 4.1, 6.4)],
+    takes: [{ clip: 'intro_2', at: 0.7 }],
+    length: 7.2,
   },
   {
     panel: shapingPanel,
     lines: [
-      'From his body, they shaped the land.',
-      'His flesh became the earth. His blood, the sea.',
-      'His bones, the mountains.',
-      'They named it... Midgard.',
+      line('From his body, they shaped the land.', 1.2, 3.75),
+      line('His flesh became the earth. His blood, the sea.', 3.95, 7.9),
+      line('His bones, the mountains.', 8.05, 10.4),
+      line('They named it... Midgard.', 10.6, 13.5),
     ],
-    spoken: 12.3,
+    takes: [{ clip: 'intro_3', at: 0.7 }],
+    length: 13.9,
   },
   {
-    panel: remainsPanel,
+    panel: treePanel,
     lines: [
-      'But not all of the giant was laid to rest.',
-      'Deep beneath the land, what remains of him still festers.',
+      line('But Midgard is only one of nine worlds,', 0.75, 3.45),
+      line('all hung upon one great tree.', 3.8, 6.6),
     ],
-    spoken: 8.3,
+    takes: [{ clip: 'saga_tree', at: 0.45 }],
+    length: 7.4,
   },
   {
-    panel: risingPanel,
-    lines: ['And from those depths, foul things climb toward the light.'],
-    spoken: 4.8,
+    panel: gatesPanel,
+    lines: [
+      line('Where its roots break the earth, gates stand open...', 0.65, 4.4),
+      line('and through them pour the hungry things', 5.05, 6.85),
+      line('of frost, of fire, and of the grave.', 6.85, 11.3),
+    ],
+    takes: [
+      { clip: 'saga_gates_a', at: 0.35 },
+      { clip: 'saga_gates_b', at: 4.75 },
+    ],
+    length: 12.8,
   },
   {
-    panel: wakingPanel,
-    lines: ['Now, you wake upon the shore.', 'Seal the gates. Drive them back into the dark.'],
-    spoken: 7.2,
+    panel: breathPanel,
+    lines: [
+      line('So Odin walked the shore,', 1.2, 3.05),
+      line('and to an ash and an elm, he gave breath.', 3.15, 7.1),
+      line('Askr and Embla: the first of your people.', 8.1, 12),
+    ],
+    takes: [
+      { clip: 'saga_people_a', at: 0.9 },
+      { clip: 'saga_people_b', at: 7.8 },
+    ],
+    length: 12.6,
+  },
+  {
+    panel: chargePanel,
+    lines: [
+      line('They are few. Guard every one.', 0.9, 3.9),
+      line('Build them a home. Make them strong.', 4.75, 8.1),
+      line('And seal the gates.', 9.05, 11.6),
+    ],
+    takes: [
+      { clip: 'saga_charge_a', at: 0.6 },
+      { clip: 'saga_charge_b', at: 4.45 },
+      { clip: 'saga_charge_c', at: 8.75 },
+    ],
+    length: 14.2,
   },
 ];
-const leadIn = 0.7;
-const leadOut = 1.5;
 const fadeIn = 0.9;
-const fadeOut = 0.7;
+const fadeOut = 1.2;
 const bedVolume = 0.3;
+const bedPath = 'music/dawn/saga_world_tree';
+/** Seconds over which the music leaves at the end. */
+const bedLeaves = 3;
 
-/** One narration take or the music bed, played on the game's own audio context. */
+export interface SagaSound {
+  /** Under `assets/audio`, without the extension. */
+  path: string;
+  /** Seconds from the start of the saga. */
+  at: number;
+  volume: number;
+  /** The music bed: it loops under everything and fades out at the end. */
+  bed?: boolean;
+}
+export const sagaSeconds = (): number => sagaBeats.reduce((sum, beat) => sum + beat.length, 0);
+/** Every sound the saga plays and when: the game follows it live, the presentation video mixes it offline. */
+export function sagaSounds(): SagaSound[] {
+  const sounds: SagaSound[] = [{ path: bedPath, at: 0, volume: bedVolume, bed: true }],
+    art: SagaArt = { world: new PictureNode(new Uint8Array(4), 1, 1) };
+  let start = 0;
+  for (const beat of sagaBeats) {
+    for (const take of beat.takes)
+      sounds.push({ path: `narration/en/${take.clip}`, at: start + take.at, volume: 1 });
+    for (const cue of beat.panel(art).cues ?? [])
+      sounds.push({ path: cue.sound, at: start + cue.at * beat.length, volume: cue.volume });
+    start += beat.length;
+  }
+  return sounds;
+}
+
+/** One narration take, effect or the music bed, played on the game's own audio context. */
 class SagaClip {
   private buffer: AudioBuffer | undefined;
   private source: AudioBufferSourceNode | undefined;
@@ -81,8 +158,9 @@ class SagaClip {
     private readonly context: AudioContext,
     path: string,
     private volume: number,
+    private readonly loop = false,
   ) {
-    void fetch(`${import.meta.env?.BASE_URL ?? '/'}assets/audio/${path}`)
+    void fetch(`${import.meta.env?.BASE_URL ?? '/'}assets/audio/${path}.ogg`)
       .then((response) => response.arrayBuffer())
       .then((bytes) => context.decodeAudioData(bytes))
       .then((buffer) => {
@@ -101,6 +179,7 @@ class SagaClip {
     this.gain.connect(this.context.destination);
     this.source = this.context.createBufferSource();
     this.source.buffer = this.buffer;
+    this.source.loop = this.loop;
     this.source.connect(this.gain);
     this.source.start();
   }
@@ -118,9 +197,9 @@ class SagaClip {
     this.gain?.disconnect();
   }
 }
-const clip = (path: string, volume: number): SagaClip | undefined => {
+const clip = (path: string, volume: number, loop = false): SagaClip | undefined => {
   const context = sharedAudioContext();
-  return context && typeof fetch === 'function' ? new SagaClip(context, path, volume) : undefined;
+  return context && typeof fetch === 'function' ? new SagaClip(context, path, volume, loop) : undefined;
 };
 
 /** Decodes an image under `assets/` into a picture node; the node stays 1 x 1 if that fails. */
@@ -146,13 +225,13 @@ export class IntroSaga {
   private readonly frame = new SceneNode();
   private readonly window = new SceneNode();
   private readonly border = new ShapeNode();
-  private readonly takes: (SagaClip | undefined)[];
+  private readonly takes: (SagaClip | undefined)[][];
   private readonly bed: SagaClip | undefined;
   private panel: SagaPanel | undefined;
   private index = -1;
   private time = 0;
   private clock = 0;
-  private spoke = false;
+  private spoken = 0;
   private effects: SagaClip[] = [];
   private fired = 0;
   private ringing: SagaClip[] = [];
@@ -178,25 +257,25 @@ export class IntroSaga {
       .strokeJoin('miter');
     this.frame.add(this.window).add(this.border);
     this.root.add(this.ground).add(this.frame);
-    this.takes = sagaBeats.map((_, i) => clip(`narration/en/intro_${i + 1}.ogg`, 1));
-    this.bed = clip('music/dawn/saga_world_tree.ogg', bedVolume);
+    this.takes = sagaBeats.map((beat) => beat.takes.map((take) => clip(`narration/en/${take.clip}`, 1)));
+    this.bed = clip(bedPath, bedVolume, true);
     this.bed?.play();
     void loadPicture('saga/midgard.jpg', this.art.world);
     this.turnTo(0);
     this.paint = this.adapter.sync(this.root);
   }
   private length(): number {
-    return leadIn + sagaBeats[this.index].spoken + leadOut;
+    return sagaBeats[this.index].length;
   }
   private turnTo(index: number): void {
-    this.takes[this.index]?.stop();
+    for (const take of this.takes[this.index] ?? []) take?.stop();
     if (index >= sagaBeats.length) {
       this.done = true;
       return;
     }
     this.index = index;
     this.time = 0;
-    this.spoke = false;
+    this.spoken = 0;
     this.fired = 0;
     this.posed = false;
     this.collectPending = true;
@@ -205,7 +284,7 @@ export class IntroSaga {
     this.ringing.push(...this.effects);
     this.panel = sagaBeats[index].panel(this.art);
     // Loaded with the panel so each is ready by its moment.
-    this.effects = (this.panel.cues ?? []).flatMap((cue) => clip(`${cue.sound}.ogg`, cue.volume) ?? []);
+    this.effects = (this.panel.cues ?? []).flatMap((cue) => clip(cue.sound, cue.volume) ?? []);
     this.window.add(this.panel.scene);
   }
   /** Returns false once the last panel has faded out. */
@@ -215,20 +294,20 @@ export class IntroSaga {
     this.clock += dt;
     if (this.time >= this.length()) this.turnTo(this.index + 1);
     if (this.done) return false;
-    if (!this.spoke && this.time >= leadIn) {
-      this.spoke = true;
-      this.takes[this.index]?.play();
-    }
+    const beat = sagaBeats[this.index],
+      length = beat.length,
+      last = this.index === sagaBeats.length - 1;
+    while (this.spoken < beat.takes.length && this.time >= beat.takes[this.spoken].at)
+      this.takes[this.index][this.spoken++]?.play();
     const cues = this.panel?.cues ?? [];
-    while (this.fired < cues.length && this.time / this.length() >= cues[this.fired].at)
+    while (this.fired < cues.length && this.time / length >= cues[this.fired].at)
       this.effects[this.fired++]?.play();
-    const length = this.length(),
-      shown = Math.min(1, this.time / fadeIn, (length - this.time) / fadeOut),
+    // Only the first beat rises out of black and only the last sinks into it: the rest are cuts.
+    const shown = Math.min(1, this.index === 0 ? this.time / fadeIn : 1, last ? (length - this.time) / fadeOut : 1),
       band = Math.max(64, Math.min(128, height * 0.17)),
       pad = Math.min(36, width * 0.03),
       k = Math.max(0.01, Math.min((width - pad * 2) / sagaWidth, (height - band - pad) / sagaHeight));
-    if (this.bed && this.index === sagaBeats.length - 1)
-      this.bed.level(bedVolume * Math.max(0, Math.min(1, (length - this.time) / 3)));
+    if (this.bed && last) this.bed.level(bedVolume * Math.max(0, Math.min(1, (length - this.time) / bedLeaves)));
     if (width !== this.width || height !== this.height) {
       this.width = width;
       this.height = height;
@@ -248,7 +327,9 @@ export class IntroSaga {
     const opacity = Math.round(255 * Math.max(0, shown));
     if (this.frame.alpha !== opacity) this.frame.opacity(opacity);
     if (!this.still || !this.posed || this.posedArt !== this.art.world.dataVersion) {
-      this.panel?.pose(this.still ? 0.8 : this.time / length, this.still ? 0 : this.clock);
+      // Without motion each beat shows one drawing: the moment most of its story is on screen.
+      if (this.still) this.panel?.pose(0.8, 0, 0.8 * length);
+      else this.panel?.pose(this.time / length, this.clock, this.time);
       this.posed = true;
       this.posedArt = this.art.world.dataVersion;
     }
@@ -262,20 +343,9 @@ export class IntroSaga {
   /** The phrase being spoken and how visible it is, 0..1. */
   caption(): { text: string; shown: number } {
     if (this.done || this.index < 0) return { text: '', shown: 0 };
-    const beat = sagaBeats[this.index],
-      total = beat.lines.reduce((sum, line) => sum + line.length, 0),
-      spoken = beat.spoken;
-    let from = leadIn;
-    for (const [i, line] of beat.lines.entries()) {
-      const last = i === beat.lines.length - 1,
-        until = last ? this.length() - fadeOut / 2 : from + (spoken * line.length) / total;
-      if (this.time < until || last)
-        return {
-          text: line,
-          shown: Math.max(0, Math.min(1, (this.time - from) / 0.35, (until - this.time) / 0.3)),
-        };
-      from = until;
-    }
+    for (const { text, from, to } of sagaBeats[this.index].lines)
+      if (this.time >= from && this.time < to)
+        return { text, shown: Math.max(0, Math.min(1, (this.time - from) / 0.35, (to - this.time) / 0.3)) };
     return { text: '', shown: 0 };
   }
   /** Where the panel sits on screen, so captions can be set under it. */
@@ -289,11 +359,11 @@ export class IntroSaga {
     if (!this.done) this.turnTo(this.index + 1);
   }
   skip(): void {
-    this.takes[this.index]?.stop();
+    for (const take of this.takes[this.index] ?? []) take?.stop();
     this.done = true;
   }
   dispose(): void {
-    for (const take of this.takes) take?.stop();
+    for (const take of this.takes.flat()) take?.stop();
     this.bed?.stop();
     for (const effect of [...this.effects, ...this.ringing]) effect.stop();
     this.adapter.dispose();

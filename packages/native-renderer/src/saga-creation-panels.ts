@@ -13,33 +13,31 @@ import {
   clamp01,
   cloud,
   ease,
+  easeIn,
+  boardPicture,
+  easeOut,
   flat,
+  frame,
   frost,
+  glide,
   iceGlint,
   rime,
   lock,
+  ramp,
   raven,
   sagaWidth,
   scatter,
+  snowVeil,
   span,
+  stars,
   turn,
   waves,
   type SagaArt,
   type SagaPanel,
+  type Stop,
 } from './saga-panel';
 
 const night: Rgb = [18, 18, 40];
-
-function stars(count: number, bottom: number): SceneNode {
-  const scene = new SceneNode();
-  for (let i = 0; i < count; i++)
-    scene.add(
-      new ShapeNode()
-        .appendCircle(sagaWidth * scatter(i, 4), bottom * scatter(i, 5), 1.2 + 1.6 * scatter(i, 6))
-        .fill(226, 226, 240, 90 + Math.round(120 * scatter(i, 7))),
-    );
-  return scene;
-}
 
 /** Ymir asleep between the frost and the fire, before anything else was. */
 export function voidPanel(): SagaPanel {
@@ -162,9 +160,9 @@ export function slayingPanel(): SagaPanel {
     birds = [raven(), raven()].map((bird) =>
       new SceneNode().add(bird.transform([1.6, 0, 0, 0, 1.6, 0, 0, 0, 1])),
     );
-  scene.add(backdrop([18, 14, 50], [64, 38, 96])).add(stars(34, 400));
+  const sky = new SceneNode().add(backdrop([18, 14, 50], [64, 38, 96])).add(stars(34, 400));
   // Low plum silhouettes behind the fight, and a few embers far to the right.
-  scene.add(
+  sky.add(
     flat(
       [
         pen(-200, 700)
@@ -182,12 +180,12 @@ export function slayingPanel(): SagaPanel {
     [180, 640, 600, 170],
     [-300, 700, 700, 210],
   ])
-    scene.add(flat(cloud(x, y, w, 130, 5), [96, 58, 112], alpha));
+    sky.add(flat(cloud(x, y, w, 130, 5), [96, 58, 112], alpha));
   const sparks: ShapeNode[] = [];
   for (let i = 0; i < 8; i++) {
     const spark = new ShapeNode().appendCircle(0, 0, 2 + 3 * scatter(i, 61)).fill(238, 150, 84, 200);
     sparks.push(spark);
-    scene.add(spark);
+    sky.add(spark);
   }
   // The same giant, broader and nearer: he fills the right of the frame, arms at his sides.
   const ymir = frostGiant(1.2);
@@ -318,9 +316,13 @@ export function slayingPanel(): SagaPanel {
     const k = across / canvas;
     return new AnimationNode(json).transform([k, 0, 1030 - across / 2, 0, k, 640 - across / 2, 0, 0, 1]);
   };
-  const spark = burst(giantBlow, 4, 1500);
-  scene.add(giant).add(shards).add(blow).add(spark).add(flash).add(dust).add(brothers);
-  for (const bird of birds) scene.add(bird);
+  const spark = burst(giantBlow, 4, 1500),
+    // The snow he throws up closes over the picture; the next panel opens as it lifts.
+    veil = snowVeil(),
+    stage = new SceneNode();
+  stage.add(sky).add(giant).add(shards).add(blow).add(spark).add(flash).add(dust).add(brothers);
+  for (const bird of birds) stage.add(bird);
+  scene.add(stage).add(veil.scene);
   return {
     scene,
     cues: [
@@ -341,7 +343,8 @@ export function slayingPanel(): SagaPanel {
         left = 700 * (1 - 1 / drift) * (1 - near) + 400 * near,
         top = 560 * (1 - 1 / drift) * (1 - near) + 205 * near,
         zoom = sagaWidth / ((sagaWidth / drift) * (1 - near) + 1200 * near);
-      scene.transform([zoom, 0, jolt - left * zoom, 0, zoom, jolt * 0.5 - top * zoom, 0, 0, 1]);
+      stage.transform([zoom, 0, jolt - left * zoom, 0, zoom, jolt * 0.5 - top * zoom, 0, 0, 1]);
+      veil.rise(0.5 * easeIn(ramp(beat, 0.87, 0.995)));
       turn(giant, 1150, 1100, 0.28 * fall, 70 * fall, 30 * fall);
       ymir.sway(seconds, beat > struck ? 2.2 : 1);
       // Odin coils with the spear cocked, and is drawn lunging a moment before the point lands;
@@ -437,16 +440,31 @@ export function slayingPanel(): SagaPanel {
   };
 }
 
+/**
+ * Where the camera rests on the map as each part of him is named: the green heart of the land,
+ * the western sea, the spine of peaks, then all of it at once for its name.
+ */
+const mapStops: readonly Stop[] = [
+  { at: 0, x: 650, y: 372, zoom: 2.1 },
+  { at: 5.85, x: 660, y: 376, zoom: 2.16 },
+  { at: 6.55, x: 428, y: 474, zoom: 2 },
+  { at: 7.85, x: 420, y: 480, zoom: 2.06 },
+  { at: 8.55, x: 792, y: 468, zoom: 2.3 },
+  { at: 10.3, x: 800, y: 462, zoom: 2.38 },
+  { at: 12.1, x: 800, y: 450, zoom: 1 },
+];
 /** The giant lies in the red sea; then the land that was made of him. */
 export function shapingPanel(art?: SagaArt): SagaPanel {
   const scene = new SceneNode(),
     fallen = new SceneNode(),
-    // The real world of the game, photographed in the Map Editor; open sea shows until it has loaded.
-    midgard = new SceneNode().add(backdrop([30, 62, 96], [26, 54, 88])),
-    world = art?.world,
+    // The real world of the game, photographed with its own renderer; open sea shows until it has loaded.
+    picture = new SceneNode(),
+    midgard = new SceneNode().add(backdrop([30, 62, 96], [26, 54, 88])).add(picture),
+    map = boardPicture(art?.world, picture),
     surf = waves(30, 710, 800, [226, 214, 224], 100),
     shards = new SceneNode(),
     shore = new SceneNode(),
+    veil = snowVeil(),
     ymir = giantHead(),
     tilt = -0.5,
     k = 1.75;
@@ -503,25 +521,21 @@ export function shapingPanel(art?: SagaArt): SagaPanel {
     .add(shards)
     .add(surf)
     .add(shore);
-  scene.add(fallen).add(midgard);
-  if (world) midgard.add(world);
+  scene.add(fallen).add(midgard).add(veil.scene);
   return {
     scene,
-    pose(beat, seconds) {
-      const made = span(beat, 0.34, 0.5);
+    pose(beat, seconds, at) {
+      // The snow of his fall lifts off the sea he lies in.
+      veil.rise(0.5 + 0.5 * easeOut(ramp(at, 0, 0.8)));
       about(fallen, 800, 600, 1.02 + 0.08 * beat);
       ymir.sway(seconds, 0.5);
       trio.sway(seconds);
       surf.translate(18 * Math.sin(seconds * 0.5), 0);
-      midgard.opacity(alphaOf(made));
-      about(midgard, 800, 450, 1.28 - 0.26 * span(beat, 0.34, 1));
-      // Fitted to the board whatever size the picture arrives at.
-      if (world && world.width > 1) {
-        const k = Math.max(sagaWidth / world.width, 900 / world.height);
-        world
-          .transform([k, 0, (sagaWidth - world.width * k) / 2, 0, k, (900 - world.height * k) / 2, 0, 0, 1])
-          .opacity(255);
-      } else world?.opacity(0);
+      // His body melts into the land on "his flesh became the earth".
+      midgard.opacity(alphaOf(span(at, 3.75, 4.75)));
+      const view = glide(mapStops, at);
+      frame(midgard, view.x, view.y, view.zoom);
+      map();
     },
   };
 }
