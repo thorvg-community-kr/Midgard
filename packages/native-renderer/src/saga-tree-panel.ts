@@ -143,13 +143,13 @@ export function treePanel(art?: SagaArt): SagaPanel {
   return {
     scene,
     pose(_beat, seconds, at) {
-      const back = ease(ramp(at, 0.45, 4.4)),
+      const back = ease(ramp(at, 0.3, 3.2)),
         // The camera settles a little further after the pull-out, then leans in for the cut.
         zoom =
           closeUp ** (1 - back) *
-          settleBack ** (1 - ramp(at, 0.45, 6.4)) *
-          (1 + 0.22 * easeIn(ramp(at, 6.5, 7.4))),
-        closing = ease(ramp(at, 0.45, 2.7)),
+          settleBack ** (1 - ramp(at, 0.3, 3.9)) *
+          (1 + 0.22 * easeIn(ramp(at, 3.7, 4.4))),
+        closing = ease(ramp(at, 0.3, 1.9)),
         start = 1 / (closeUp * settleBack),
         // The map shrinks inside its lens until the whole continent shows in it.
         pictureScale = start * (0.118 / start) ** closing,
@@ -165,12 +165,12 @@ export function treePanel(art?: SagaArt): SagaPanel {
         .reset()
         .appendCircle(heart[0], heart[1], radius)
         .strokeWidth(Math.max(1.2, 3 / zoom))
-        .strokeFill(214, 230, 244, alphaOf(0.75 * ramp(at, 1.2, 2.6)));
+        .strokeFill(214, 230, 244, alphaOf(0.75 * ramp(at, 0.8, 1.8)));
       map();
       about(picture, heart[0], heart[1], pictureScale);
       const drawn = stepped(at, 12);
       others.forEach(({ entry, holder, halo }, i) => {
-        const lit = 1.75 + order.indexOf(i) * 0.2,
+        const lit = 1.25 + order.indexOf(i) * 0.14,
           grown = settle(ramp(drawn, lit, lit + 0.34)),
           k = 44 * grown;
         // Shown only once it has some size: nothing visible is ever scaled to nothing.

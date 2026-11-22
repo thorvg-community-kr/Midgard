@@ -67,52 +67,44 @@ export const sagaBeats: SagaBeat[] = [
   },
   {
     panel: treePanel,
-    lines: [
-      line('But Midgard is only one of nine worlds,', 0.75, 3.45),
-      line('all hung upon one great tree.', 3.8, 6.6),
-    ],
-    takes: [{ clip: 'saga_tree', at: 0.45 }],
-    length: 7.4,
+    lines: [line('But Midgard is only one of nine worlds.', 0.55, 3.7)],
+    takes: [{ clip: 'saga_worlds', at: 0.3 }],
+    length: 4.4,
   },
   {
     panel: gatesPanel,
     lines: [
-      line('Where its roots break the earth, gates stand open...', 0.65, 4.4),
-      line('and through them pour the hungry things', 5.05, 6.85),
-      line('of frost, of fire, and of the grave.', 6.85, 11.3),
+      line('From each, a gate opens into Midgard...', 0.55, 3.15),
+      line('and through them pour the hungry things', 3.25, 5.1),
+      line('of frost, of fire, and of the grave.', 5.1, 9),
     ],
     takes: [
-      { clip: 'saga_gates_a', at: 0.35 },
-      { clip: 'saga_gates_b', at: 4.75 },
+      { clip: 'saga_gate', at: 0.3 },
+      { clip: 'saga_gates_b', at: 3 },
     ],
-    length: 12.8,
+    length: 9.9,
   },
   {
     panel: breathPanel,
     lines: [
-      line('So Odin walked the shore,', 1.2, 3.05),
-      line('and to an ash and an elm, he gave breath.', 3.15, 7.1),
-      line('Askr and Embla: the first of your people.', 8.1, 12),
+      line('So Odin walked the shore,', 0.85, 2.75),
+      line('and to an ash and an elm, he gave breath.', 2.85, 6.3),
+      line('Askr and Embla.', 7.15, 9.35),
     ],
     takes: [
-      { clip: 'saga_people_a', at: 0.9 },
-      { clip: 'saga_people_b', at: 7.8 },
+      { clip: 'saga_people_a', at: 0.6 },
+      { clip: 'saga_names', at: 6.9 },
     ],
-    length: 12.6,
+    length: 9.6,
   },
   {
     panel: chargePanel,
-    lines: [
-      line('They are few. Guard every one.', 0.9, 3.9),
-      line('Build them a home. Make them strong.', 4.75, 8.1),
-      line('And seal the gates.', 9.05, 11.6),
-    ],
+    lines: [line('They are few. Guard every one.', 0.75, 3.7), line('And seal the gates.', 4.5, 7.1)],
     takes: [
-      { clip: 'saga_charge_a', at: 0.6 },
-      { clip: 'saga_charge_b', at: 4.45 },
-      { clip: 'saga_charge_c', at: 8.75 },
+      { clip: 'saga_charge_a', at: 0.5 },
+      { clip: 'saga_charge_c', at: 4.3 },
     ],
-    length: 14.2,
+    length: 8.2,
   },
 ];
 const fadeIn = 0.9;

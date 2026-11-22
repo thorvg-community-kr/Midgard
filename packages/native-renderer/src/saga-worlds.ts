@@ -1,5 +1,4 @@
-// The opening saga's eight worlds beyond Midgard: one light for each, where it hangs on the tree
-// and where its gate stands on the map of the designed world.
+// The opening saga's eight worlds beyond Midgard: one light for each and where it hangs on the tree.
 import { World } from '../../engine/src/world-types';
 import { SceneNode, ShapeNode, type Rgb } from './paint';
 import { oval, pen, type Form } from './outline-form';
@@ -8,30 +7,22 @@ import { flat, lock } from './saga-panel';
 
 export interface SagaWorld {
   world: World;
-  /** The colour its light shows through a gate, bright enough to read against night. */
+  /** Its light, bright enough to read against the night sky. */
   light: Rgb;
   /** Where it hangs on the great tree, on the board. */
   tree: readonly [number, number];
-  /** Where its gate stands on the map picture fitted to the board. */
-  gate: readonly [number, number];
 }
-/**
- * Board positions of the eight sealable gates in `saga/midgard.jpg`, read from the designed world
- * when the picture was taken: one gate to each world, in the order the lights catch.
- */
+/** The designed world has one sealable gate to each of these. */
 export const sagaWorlds: readonly SagaWorld[] = [
-  { world: World.Jotunheim, light: [128, 184, 232], tree: [1262, 452], gate: [1078, 421] },
-  { world: World.Niflheim, light: [200, 218, 244], tree: [470, 716], gate: [974, 278] },
-  { world: World.Helheim, light: [156, 128, 198], tree: [800, 796], gate: [902, 338] },
-  { world: World.Alfheim, light: [214, 228, 176], tree: [1112, 196], gate: [634, 345] },
-  { world: World.Vanaheim, light: [126, 190, 96], tree: [488, 196], gate: [634, 430] },
-  { world: World.Asgard, light: [240, 188, 86], tree: [800, 112], gate: [774, 554] },
-  { world: World.Muspelheim, light: [248, 116, 50], tree: [1130, 716], gate: [1054, 566] },
-  { world: World.Svartalfheim, light: [66, 190, 176], tree: [338, 452], gate: [1072, 630] },
+  { world: World.Jotunheim, light: [128, 184, 232], tree: [1262, 452] },
+  { world: World.Niflheim, light: [200, 218, 244], tree: [470, 716] },
+  { world: World.Helheim, light: [156, 128, 198], tree: [800, 796] },
+  { world: World.Alfheim, light: [214, 228, 176], tree: [1112, 196] },
+  { world: World.Vanaheim, light: [126, 190, 96], tree: [488, 196] },
+  { world: World.Asgard, light: [240, 188, 86], tree: [800, 112] },
+  { world: World.Muspelheim, light: [248, 116, 50], tree: [1130, 716] },
+  { world: World.Svartalfheim, light: [66, 190, 176], tree: [338, 452] },
 ];
-/** Where the first two wake, and the stone likeness that watches them, on the same map. */
-export const foundingShore: readonly [number, number] = [1090, 375];
-export const statueOnMap: readonly [number, number] = [1078, 329];
 /** The sea round the map picture, so anything laid beside it joins without a seam. */
 export const mapSea: Rgb = [33, 65, 90];
 

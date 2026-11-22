@@ -27,18 +27,18 @@ import {
 } from './saga-panel';
 
 /** Seconds of the beat: the cut to the two faces, the breath reaching them, and each pair of eyes opening. */
-const facesAt = 6.6,
-  wakeFrom = 7.05,
-  wakeTo = 7.75,
-  askrOpens = 8.2,
-  emblaOpens = 8.8;
+const facesAt = 5.9,
+  wakeFrom = 6.2,
+  wakeTo = 6.85,
+  askrOpens = 7.2,
+  emblaOpens = 8.35;
 /** The wide shore, the two trees with Odin before them, then the trees alone as the breath arrives. */
 const shoreStops: readonly Stop[] = [
   { at: 0, x: 800, y: 450, zoom: 1 },
-  { at: 3.1, x: 836, y: 458, zoom: 1.07 },
-  { at: 3.1001, x: 930, y: 596, zoom: 1.72 },
-  { at: 5.4, x: 962, y: 588, zoom: 1.82 },
-  { at: 5.4001, x: 1124, y: 556, zoom: 2.28 },
+  { at: 2.7, x: 836, y: 458, zoom: 1.07 },
+  { at: 2.7001, x: 930, y: 596, zoom: 1.72 },
+  { at: 4.7, x: 962, y: 588, zoom: 1.82 },
+  { at: 4.7001, x: 1124, y: 556, zoom: 2.28 },
   { at: facesAt, x: 1134, y: 548, zoom: 2.42 },
 ];
 const breathPale: Rgb = [250, 244, 226];
@@ -166,7 +166,7 @@ export function breathPanel(): SagaPanel {
   return {
     scene,
     // One sound only: the breath. The waking itself is left to the voice.
-    cues: [{ at: 5.2 / 12.6, sound: 'sfx/saga/breath', volume: 0.85 }],
+    cues: [{ at: 4.6 / 9.6, sound: 'sfx/saga/breath', volume: 0.85 }],
     pose(_beat, seconds, at) {
       cutTo(shots, shotAt([0, facesAt], at));
       // The eye opens in two goes: a first look, a blink, then all the way.
@@ -179,14 +179,14 @@ export function breathPanel(): SagaPanel {
         shore.pose(seconds, ramp(at, 0, facesAt));
         odin.flutter(seconds * 0.6);
         // The breath leaves him as "he gave breath" is spoken and runs to the trees in a second.
-        const gone = ramp(at, 5.2, 6.25);
+        const gone = ramp(at, 4.65, 5.6);
         motes.forEach((mote, i) => {
           const u = gone * 1.25 - i * 0.03,
             [x, y] = along(Math.max(0, Math.min(1, u)));
           mote.translate(x, y + 8 * Math.sin(u * 14 + i)).opacity(u > 0 && u < 1 ? alphaOf(0.9 - i * 0.045) : 0);
         });
         const drawn = stepped(seconds, 12),
-          swirl = ramp(at, 6, facesAt);
+          swirl = ramp(at, 5.35, facesAt);
         leaves.forEach((leaf, i) => {
           const turn = drawn * 3 + i * 0.9,
             reach = 150 - 70 * swirl + 24 * scatter(i, 311),
@@ -194,10 +194,10 @@ export function breathPanel(): SagaPanel {
             y = 520 + Math.sin(turn) * reach * 0.5;
           leaf
             .transform([Math.cos(turn * 2), -Math.sin(turn * 2), x, Math.sin(turn * 2), Math.cos(turn * 2), y, 0, 0, 1])
-            .opacity(at > 5.95 ? alphaOf(1.2 - Math.abs(swirl - 0.5) * 2) : 0);
+            .opacity(at > 5.3 ? alphaOf(1.2 - Math.abs(swirl - 0.5) * 2) : 0);
         });
         // Their leaves pale and shiver as it passes through them.
-        const through = Math.sin(Math.PI * ramp(at, 5.95, facesAt));
+        const through = Math.sin(Math.PI * ramp(at, 5.3, facesAt));
         for (const [i, tree] of [ash, elm].entries()) {
           tree.stir.opacity(alphaOf(0.75 * through));
           about(tree.crown, tree.at[0], tree.at[1], 1 + 0.03 * through * Math.sin(drawn * 22 + i * 2));
@@ -206,11 +206,10 @@ export function breathPanel(): SagaPanel {
         const since = at - facesAt,
           woken = ease(ramp(at, wakeFrom, wakeTo)),
           drawn = stepped(at, 12),
-          // Lids come up in three drawings; later both blink once.
-          blink = 1 - Math.max(0, 1 - Math.abs(drawn - 10.95) / 0.09),
-          lidsOf = (opens: number) => ramp(drawn, opens, opens + 0.17) * blink,
-          toward = 0.06 * ease(ramp(at, 9.9, 10.3));
-        about(faces, 800, 470, 1 + 0.05 * ease(since / 6));
+          // Lids come up in three drawings, each pair on its own name.
+          lidsOf = (opens: number) => ramp(drawn, opens, opens + 0.17),
+          toward = 0.06 * ease(ramp(at, 8.8, 9.15));
+        about(faces, 800, 470, 1 + 0.05 * ease(since / 3.7));
         askr.scene.transform([170, 0, 560, 0, 170, 414 + 2 * Math.sin(seconds * 1.1), 0, 0, 1]);
         embla.scene.transform([162, 0, 1048, 0, 162, 432 + 2 * Math.sin(seconds * 1.1 + 1.6), 0, 0, 1]);
         askr.pose(woken, lidsOf(askrOpens), toward);

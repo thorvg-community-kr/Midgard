@@ -16,9 +16,9 @@ the files; it needs neither Loach nor any model, recording or network service.
 - `sfx/saga/giant_fall` is the giant's fall in the opening saga: Loach's `acc_troll_grumble`, `nif_frost_giant`,
   `wx_thunder_rolling` and `wx_rockfall` (procedural, no recordings), slowed, layered and
   given a long echo with ffmpeg.
-- `sfx/saga/roots`, `sfx/saga/breath` and `sfx/saga/seal` are built by `scripts/audio/saga_effects.py`: the busiest
-  stretch of Loach's `hel_roots`; `wx_wind_gust` softened, with `sfx_bush_rustle` under its tail (all procedural, no
-  recordings); and the end of `sfx/stone_door_01`, where the slab comes to rest.
+- `sfx/saga/breath` and `sfx/saga/seal` are built by `scripts/audio/saga_effects.py`: Loach's `wx_wind_gust`
+  softened, with `sfx_bush_rustle` under its tail (procedural, no recordings); and the end of `sfx/stone_door_01`,
+  where the slab comes to rest.
 - `voice/<kind>/` holds the Norse pack's villager and combat voice banks, one folder per voice: takes
   generated with Qwen3-TTS (Apache-2.0), trimmed and levelled by Loach.
 - Three reference speakers of the weather speech bank (huntress, veteran, young), the voices its lines are

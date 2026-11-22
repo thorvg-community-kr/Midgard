@@ -1,69 +1,38 @@
-// Opening saga, fifth beat: the tree's roots reach Midgard and a gate lights at each one; then
-// three of them side by side, and what comes out of each.
+// Opening saga, fifth beat: a gate of the game fills the frame, then two more slide in beside it,
+// and each lets out the creatures of its world.
 import { MonsterRank } from '../../engine/src/combat-events';
 import { DungeonKind, World } from '../../engine/src/world-types';
 import { SceneNode, ShapeNode, type Rgb } from './paint';
 import { capsule, oval, pen, type Form } from './outline-form';
-import { dusk, paintForm } from './form-paint';
+import { paintForm } from './form-paint';
 import { gateCenter, gateSprite } from './gate-sprites';
 import { monsterBody, poseMonster } from './monster-figures';
-import { mapSea, sagaWorlds } from './saga-worlds';
 import {
   about,
   alphaOf,
   backdrop,
   clamp01,
-  cutTo,
-  ease,
   easeIn,
   easeOut,
-  boardPicture,
   fir,
   flat,
-  frame,
-  glide,
   lock,
   ramp,
   sagaHeight,
   sagaWidth,
   scatter,
-  settle,
-  shotAt,
   stepped,
-  type SagaArt,
   type SagaPanel,
-  type Stop,
 } from './saga-panel';
 
-const rootDark: Rgb = [44, 38, 70];
-const rootLit: Rgb = [104, 92, 132];
-/** What night does to the map: every colour is multiplied by this. */
-const nightTint: Rgb = [112, 126, 196];
 const divider: Rgb = [12, 10, 24];
-/** Where each root comes in from, beyond the frame, in the order of `sagaWorlds`. */
-const rootFrom: readonly (readonly [number, number, number])[] = [
-  [1720, 372, 0.1],
-  [1270, -90, -0.12],
-  [850, -100, 0.08],
-  [350, -90, 0.12],
-  [-120, 404, -0.1],
-  [420, 1000, 0.12],
-  [1310, 1000, -0.1],
-  [1720, 730, 0.1],
-];
-/** The camera over the night map: it holds the whole land, then closes on the gate nearest the founding shore. */
-const mapStops: readonly Stop[] = [
-  { at: 0, x: 800, y: 450, zoom: 1.06 },
-  { at: 4.7, x: 806, y: 448, zoom: 1.16 },
-  { at: 6.85, x: sagaWorlds[0].gate[0], y: sagaWorlds[0].gate[1], zoom: 3.6 },
-];
-/** Seconds of the beat at which the three worlds are cut to and slid in: on "frost", "fire" and "the grave". */
-const frostAt = 6.85,
-  fireAt = 8.2,
-  graveAt = 9.7,
+/** Seconds of the beat at which the second and third worlds slide in: on "fire" and "the grave". */
+const fireAt = 6.2,
+  graveAt = 7.45,
   slide = 0.45,
   /** When the last of them comes up close enough to shut out the picture. */
-  loomAt = 11.55;
+  loomAt = 8.7;
+const length = 9.9;
 
 interface Walker {
   body: SceneNode;
@@ -375,30 +344,9 @@ function loomer(): { scene: SceneNode; eyes: SceneNode } {
   return { scene, eyes };
 }
 
-/** Where the roots break the earth, and what pours through. */
-export function gatesPanel(art?: SagaArt): SagaPanel {
+/** A gate from each world, and what pours through. */
+export function gatesPanel(): SagaPanel {
   const scene = new SceneNode(),
-    mapShot = new SceneNode(),
-    land = new SceneNode().add(new ShapeNode().appendRect(-200, -200, 2000, 1300).fill(...mapSea)),
-    map = boardPicture(art?.world, land),
-    night = new ShapeNode().appendRect(-200, -200, 2000, 1300).fill(255, 255, 255).blend('multiply'),
-    roots = sagaWorlds.map((entry, i) => {
-      const [x, y, bend] = rootFrom[i],
-        root = new SceneNode()
-          .add(flat([lock(x, y, entry.gate[0], entry.gate[1], 96, bend)], rootDark))
-          .add(flat([lock(x - 8, y - 8, entry.gate[0], entry.gate[1], 30, bend * 1.1)], rootLit, 200));
-      return { root, x, y };
-    }),
-    lamps = sagaWorlds.map((entry) => {
-      const lamp = new SceneNode(),
-        halo = new ShapeNode().appendCircle(0, 0, 26).fill(...entry.light, 70),
-        ring = new ShapeNode(),
-        core = new SceneNode()
-          .add(new ShapeNode().appendCircle(0, 0, 11).fill(...dusk(entry.light, 0.4)))
-          .add(new ShapeNode().appendCircle(-1.5, -1.5, 9).fill(...entry.light));
-      lamp.add(halo).add(ring).add(core).translate(entry.gate[0], entry.gate[1]);
-      return { entry, lamp, halo, ring, core };
-    }),
     triptych = new SceneNode(),
     realms = [frostRealm(), fireRealm(), graveRealm()],
     slots = realms.map((made) => {
@@ -411,84 +359,40 @@ export function gatesPanel(art?: SagaArt): SagaPanel {
     bars = [new ShapeNode(), new ShapeNode()],
     last = loomer(),
     dark = new ShapeNode().appendRect(-200, -200, 2000, 1300).fill(8, 8, 14);
-  // The tint lies between the land and what is laid over it, and is not moved by the camera: a
-  // multiply layer stretched far past the frame by a close-up is more than the renderer should be asked for.
-  const over = new SceneNode();
-  mapShot.add(land).add(night).add(over);
-  for (const { root } of roots) over.add(root);
-  for (const { lamp } of lamps) over.add(lamp);
   for (const bar of bars) triptych.add(bar);
-  scene.add(mapShot).add(triptych).add(last.scene).add(dark);
-  const shots = [mapShot, triptych];
+  scene.add(triptych).add(last.scene).add(dark);
   return {
     scene,
-    // The roots work their way in; then each world's brood is heard as its gate is shown.
+    // Each world's brood is heard as its gate is shown.
     cues: [
-      { at: 0.3 / 12.8, sound: 'sfx/saga/roots', volume: 0.75 },
-      { at: (frostAt + 0.1) / 12.8, sound: 'sfx/combat/spawn_01', volume: 0.6 },
-      { at: (fireAt + 0.1) / 12.8, sound: 'sfx/combat/spawn_03', volume: 0.6 },
-      { at: (graveAt + 0.1) / 12.8, sound: 'sfx/combat/spawn_02', volume: 0.6 },
+      { at: 0.15 / length, sound: 'sfx/combat/spawn_01', volume: 0.6 },
+      { at: (fireAt + 0.1) / length, sound: 'sfx/combat/spawn_03', volume: 0.6 },
+      { at: (graveAt + 0.1) / length, sound: 'sfx/combat/spawn_02', volume: 0.6 },
     ],
     pose(_beat, seconds, at) {
-      cutTo(shots, shotAt([0, frostAt], at));
-      if (at < frostAt) {
-        const view = glide(mapStops, at);
-        frame(land, view.x, view.y, view.zoom);
-        frame(over, view.x, view.y, view.zoom);
-        map();
-        // Night comes down over the land as the roots come in. The tint itself darkens: a multiply
-        // layer that is merely faint blackens what lies under it.
-        const fallen = ease(ramp(at, 0, 1.3));
-        night.fill(
-          Math.round(255 + (nightTint[0] - 255) * fallen),
-          Math.round(255 + (nightTint[1] - 255) * fallen),
-          Math.round(255 + (nightTint[2] - 255) * fallen),
-        );
-        const drawn = stepped(at, 12);
-        roots.forEach(({ root, x, y }, i) => {
-          const grown = easeOut(ramp(at, 0.35 + i * 0.13, 1.5 + i * 0.13));
-          about(root, x, y, 0.12 + 0.88 * grown);
-          root.opacity(alphaOf(grown * 4));
-        });
-        lamps.forEach(({ lamp, halo, ring }, i) => {
-          const lit = 2.45 + i * 0.19,
-            caught = settle(ramp(drawn, lit, lit + 0.3)),
-            spread = ramp(at, lit, lit + 0.7);
-          // Shown only once it has some size: nothing visible is ever scaled to nothing.
-          lamp.opacity(caught > 0.02 ? 255 : 0);
-          about(lamp, 0, 0, caught, lamps[i].entry.gate[0], lamps[i].entry.gate[1]);
-          halo.opacity(alphaOf(0.6 + 0.4 * Math.sin(seconds * 2 + i * 1.9)));
-          ring
-            .reset()
-            .appendCircle(0, 0, 12 + 40 * easeOut(spread))
-            .strokeWidth(3)
-            .strokeFill(...lamps[i].entry.light, alphaOf(0.8 * (1 - spread)));
-        });
-      } else {
-        // One world fills the frame, then gives up half and then a third of it as the others slide in.
-        const second = easeOut(ramp(at, fireAt, fireAt + slide)),
-          third = easeOut(ramp(at, graveAt, graveAt + slide)),
-          first = sagaWidth - (sagaWidth / 2) * second - (sagaWidth / 2 - sagaWidth / 3) * third,
-          other = sagaWidth - (sagaWidth / 3) * third,
-          edges = [0, first, at < fireAt ? sagaWidth : other, sagaWidth],
-          opened = [frostAt, fireAt, graveAt];
-        slots.forEach(({ made, window, mask }, i) => {
-          const from = edges[i],
-            to = i === 2 ? sagaWidth : edges[i + 1],
-            shown = at >= opened[i] && to - from > 1;
-          window.opacity(shown ? 255 : 0);
-          if (!shown) return;
-          mask.reset().appendRect(from, 0, to - from, sagaHeight);
-          window.translate((from + to) / 2 - sagaWidth / 2, 0);
-          made.pose(seconds, at - opened[i], to - from);
-        });
-        bars.forEach((bar, i) => {
-          const x = i === 0 ? first : other,
-            shown = at >= opened[i + 1];
-          bar.opacity(shown ? 255 : 0);
-          if (shown) bar.reset().appendRect(x - 4, 0, 8, sagaHeight).fill(...divider);
-        });
-      }
+      // One world fills the frame, then gives up half and then a third of it as the others slide in.
+      const second = easeOut(ramp(at, fireAt, fireAt + slide)),
+        third = easeOut(ramp(at, graveAt, graveAt + slide)),
+        first = sagaWidth - (sagaWidth / 2) * second - (sagaWidth / 2 - sagaWidth / 3) * third,
+        other = sagaWidth - (sagaWidth / 3) * third,
+        edges = [0, first, at < fireAt ? sagaWidth : other, sagaWidth],
+        opened = [0, fireAt, graveAt];
+      slots.forEach(({ made, window, mask }, i) => {
+        const from = edges[i],
+          to = i === 2 ? sagaWidth : edges[i + 1],
+          shown = at >= opened[i] && to - from > 1;
+        window.opacity(shown ? 255 : 0);
+        if (!shown) return;
+        mask.reset().appendRect(from, 0, to - from, sagaHeight);
+        window.translate((from + to) / 2 - sagaWidth / 2, 0);
+        made.pose(seconds, at - opened[i], to - from);
+      });
+      bars.forEach((bar, i) => {
+        const x = i === 0 ? first : other,
+          shown = at >= opened[i + 1];
+        bar.opacity(shown ? 255 : 0);
+        if (shown) bar.reset().appendRect(x - 4, 0, 8, sagaHeight).fill(...divider);
+      });
       // The last one through comes up in front of everything and shuts out the picture.
       const loom = easeIn(ramp(at, loomAt, loomAt + 0.85)),
         size = 2.4 + 5.2 * loom;
