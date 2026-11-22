@@ -10,6 +10,7 @@ import { Sound } from '../../../../packages/native-audio/src/sound-types';
 import type { Strike } from '../../../../packages/engine/src/thunderstorm';
 import type { Building } from '../../../../packages/engine/src/town-models';
 import { CampResourceHud } from './camp-resource-hud';
+import { newestNotice, type Notice } from './notice-toast';
 import { gameTheme } from './game-theme';
 import { CombatHudState } from './game-combat-hud';
 import { ArmyState } from './army-state';
@@ -162,9 +163,23 @@ export class GameAppState {
   last = -1;
   current = new Plan();
   status = '';
-  notice = '';
-  noticeFrom = 0;
-  noticeUntil = 0;
+  /** Notices on screen, oldest first. */
+  noticeFeed: Notice[] = [];
+  /** The newest notice on screen; setting it to '' clears the feed. */
+  get notice(): string {
+    return newestNotice(this);
+  }
+  set notice(value: string) {
+    if (!value) this.noticeFeed = [];
+  }
+  /** When the newest notice leaves; setting 0 puts every notice away. */
+  get noticeUntil(): number {
+    return this.noticeFeed.at(-1)?.until ?? 0;
+  }
+  set noticeUntil(value: number) {
+    if (value <= 0) this.noticeFeed = [];
+    else if (this.noticeFeed.length) this.noticeFeed.at(-1)!.until = value;
+  }
   objectivesCollapsed = false;
   questBranch = GoalBranch.Trade;
   sagaDismissed = false;
@@ -177,13 +192,15 @@ export class GameAppState {
   questsAnimating = false;
   questsSeen = 0;
   questPulseAt = -1;
+  /** The goal the quest panel showed last, when a new one took its place, and the title just completed. */
+  questShown = -1;
+  questNewAt = -1;
+  questDone = '';
   /** Build-menu unlocks: the town last read, tools already announced, tools marked new, new tools on the open page. */
   unlockTown: Town | null = null;
   unlockKnown = new Set<Tool>();
   unlockFresh = new Set<Tool>();
   unlockViewed = new Set<Tool>();
-  /** A locked build card whose requirements stay listed after a tap. */
-  buildHint: Tool | null = null;
   skyArtwork: Paint | null = null;
   skyBounds = new Rect();
   timeToggleBounds = new Rect();

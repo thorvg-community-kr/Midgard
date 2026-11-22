@@ -81,11 +81,22 @@ export function actionButton(
   active = false,
   enabled = true,
   tooltip = true,
+  /** With room to spare the label is written beside the glyph instead of waiting for the pointer. */
+  captioned = false,
 ): void {
   const s = button(c, id, r, '', run, active ? ButtonStyle.Primary : ButtonStyle.Quiet, enabled),
     t = c.theme();
-  const color = !enabled ? t.muted : active ? t.accentText : s.hovered ? t.accent : t.text;
-  hudGlyph(c, glyph, r.x + r.w / 2, r.y + r.h / 2 + (s.lift ?? 0), color, Math.min(1, (r.h - 6) / 22));
+  const color = !enabled ? t.muted : active ? t.accentText : s.hovered ? t.accent : t.text,
+    scale = Math.min(1, (r.h - 6) / 22),
+    middle = r.y + r.h / 2 + (s.lift ?? 0);
+  if (captioned) {
+    const width = Math.min(r.w - 52, c.textWidth(label, 12, true)),
+      left = r.x + (r.w - width - 30) / 2;
+    hudGlyph(c, glyph, left + 11, middle, color, scale);
+    c.text(new Rect(left + 30, r.y + (s.lift ?? 0), width + 2, r.h), c.elideText(label, width + 2, 12, true), color, 12, true);
+    return;
+  }
+  hudGlyph(c, glyph, r.x + r.w / 2, middle, color, scale);
   if (tooltip && (s.hovered || s.focused)) {
     c.deferOverlay(
       (area, controls) => {

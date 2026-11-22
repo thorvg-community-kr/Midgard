@@ -141,16 +141,22 @@ export function hunt(ctx: TitleContext): boolean {
   const { town } = ctx,
     seat = town.camp();
   if (!seat || town.raiding() || living(town).some((p) => p.hunting)) return false;
-  const target = town
+  const game = town
     .wildlife()
     .filter((a) => a.health > 0 && a.animal !== null && prey.includes(a.animal) && town.map().revealed(a.position))
     .filter((a) => distance(a.position, seat.center) < 22)
-    .sort((a, b) => distance(a.position, seat.center) - distance(b.position, seat.center))[0];
-  if (!target) return false;
-  const hunter = ctx.free
-    .filter((p) => p.health > 0.7 && !ctx.party.has(p.id) && p.job < 0)
-    .sort((a, b) => distance(a.position, target.position) - distance(b.position, target.position))[0];
-  return !!hunter && order(ctx, `hunt:${hunter.id}:${target.id}`, [hunter], () => town.orderAttack([hunter.id], target.id));
+    .sort((a, b) => distance(a.position, seat.center) - distance(b.position, seat.center));
+  const hunters = ctx.free.filter((p) => p.health > 0.7 && !ctx.party.has(p.id) && p.job < 0);
+  // Prey across water or behind rock cannot be walked to: a hunter sent after it would stand and wait for ever.
+  for (const target of game.slice(0, 4)) {
+    const hunter = hunters
+      .slice()
+      .sort((a, b) => distance(a.position, target.position) - distance(b.position, target.position))[0];
+    if (!hunter) return false;
+    if (!town.grid.path(hunter.position, target.position).length) continue;
+    return order(ctx, `hunt:${hunter.id}:${target.id}`, [hunter], () => town.orderAttack([hunter.id], target.id));
+  }
+  return false;
 }
 /** Free hands fell trees or break rock, as many as the plan is short of. */
 export function gatherShortfall(ctx: TitleContext, wood: number, stone: number): void {

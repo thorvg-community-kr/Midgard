@@ -12,7 +12,8 @@ import {
 } from '../../../../packages/native-ui/src';
 import { Tool, Order, toolStructure } from '../../../../packages/engine/src/game-tools';
 import { noticeToast } from './notice-toast';
-import { toolInfo, buildMenuGroups, toolRequirements, type BuildGroup } from './build-menu-tools';
+import { toolInfo, buildMenuGroups, type BuildGroup } from './build-menu-tools';
+import { toolAvailable } from '../../../../packages/engine/src/settlement-progression';
 import {
   Structure,
   Product,
@@ -47,8 +48,6 @@ import {
   noteBuildPage,
   freshGroup,
   freshMark,
-  lockMark,
-  requirementTip,
   progressInspector,
   type InspectorRows,
 } from './game-progress-hud';
@@ -61,9 +60,29 @@ import { groupTabs } from './control-groups';
 import { aimPrompt, currentAim } from './skill-commands';
 import { gateKindName, gateLock, openExpedition } from './expedition-window';
 const tools = toolInfo;
-/** Every group with every building: locked ones stay in the menu, greyed, with what they need. */
+/** Every group, in page order: a group's page number never changes while the settlement grows. */
 export function buildGroups(_town: Town): BuildGroup[] {
   return [...buildMenuGroups];
+}
+/** The tools of a group the settlement can use now. What is still locked stays out of the menu. */
+export const openTools = (town: Town, group: BuildGroup): Tool[] =>
+  group.tools.filter((tool) => toolAvailable(town, tool));
+/** A few groups are wide enough to carry their names; many stand as pictograms. */
+const groupCell = (count: number): number => (count <= 4 ? 152 : 78);
+/**
+ * The page the menu shows for the page asked for. A group with nothing to build falls back to the list of
+ * groups, and with a single group open its buildings are shown at once: there is nothing to choose between.
+ */
+export function shownPage(town: Town, page: number): number {
+  const shown = openGroups(town),
+    at = page > 0 && !shown.some((entry) => entry.page === page) ? 0 : page;
+  return at === 0 && shown.length === 1 ? shown[0].page : at;
+}
+/** The groups that have something to build, each with its page number. */
+export function openGroups(town: Town): { group: BuildGroup; page: number }[] {
+  return buildMenuGroups
+    .map((group, index) => ({ group, page: index + 1 }))
+    .filter(({ group }) => openTools(town, group).length > 0);
 }
 const dungeonKind = gateKindName;
 const wrap = wrapText;
@@ -94,9 +113,15 @@ export function hud(this: GameHudApp, width: number, height: number): void {
       t.inkDanger,
       12,
     );
-  if ((this.status || this.current.problem) && !(this.touchMode && this.toolStructure() !== undefined))
-    strip(c, this.status || this.current.problem, new Rect(16, f32(this.dockBounds.y - 30), f32(width - 32), 22), t.inkDanger, 13);
-  if (this.pending !== Order.None)
+  // One line of guidance stands right above the dock; the notice feed stacks above it.
+  const warning =
+      (this.status || this.current.problem) && !(this.touchMode && this.toolStructure() !== undefined)
+        ? this.status || this.current.problem
+        : '',
+    guided = !!warning || this.pending !== Order.None || !!currentAim(this),
+    line = new Rect(12, f32(this.dockBounds.y - 32), f32(width - 24), 22);
+  if (warning) strip(c, warning, line, t.inkDanger, 13);
+  else if (this.pending !== Order.None)
     strip(
       c,
       this.touchMode
@@ -110,11 +135,11 @@ export function hud(this: GameHudApp, width: number, height: number): void {
           : this.pending === Order.Work
             ? 'Work: choose a resource, building or road'
             : 'Attack: choose an enemy, resource or destination',
-      new Rect(12, f32(this.dockBounds.y - 36), f32(width - 24), 22),
+      line,
       t.ink,
       13,
     );
-  else if (currentAim(this)) strip(c, aimPrompt(this), new Rect(12, f32(this.dockBounds.y - 36), f32(width - 24), 22), t.ink, 13);
+  else if (currentAim(this)) strip(c, aimPrompt(this), line, t.ink, 13);
   if (!this.touchMode && width > 640 && !this.town.camp() && this.town.map().dungeons().length) {
     const lair = this.town.map().dungeons()[0].origin,
       start = this.town.map().camp(),
@@ -131,7 +156,7 @@ export function hud(this: GameHudApp, width: number, height: number): void {
       y = f32(y + 24);
     }
   }
-  noticeToast(this, width, height);
+  noticeToast(this, width, height, guided ? 28 : 0);
   this.objectives(width, height, this.touchMode ? (this.timeExpanded ? 116 : 64) : width < 900 ? 104 : 64);
   this.realmPanel(width, height);
   this.timeControls(width);
@@ -481,9 +506,9 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
 }
 export function buildMenuBounds(this: GameHudApp, width: number, height: number, global: boolean): Rect {
   const groups = buildGroups(this.town),
-    page = clamp(global ? this.globalCard : this.card, 0, groups.length),
-    count = page === 0 ? groups.length : groups[f32(page - 1)].tools.length,
-    cell = page === 0 ? 78 : 86,
+    page = shownPage(this.town, clamp(global ? this.globalCard : this.card, 0, groups.length)),
+    count = Math.max(1, page === 0 ? openGroups(this.town).length : openTools(this.town, groups[f32(page - 1)]).length),
+    cell = page === 0 ? groupCell(count) : 86,
     available = Math.max(160, f32(width - 24)),
     columns = Math.max(1, Math.min(count, Math.trunc(f32(f32(available - 18) / f32(cell + 6))))),
     w = Math.min(available, Math.max(244, f32(f32(f32(columns * cell) + f32(f32(columns - 1) * 6)) + 24))),
@@ -513,7 +538,7 @@ export function commandCard(
       activate: () => void,
       style = ButtonStyle.Default,
       enabled = true,
-      look: { fill?: Color } = {},
+      look: { fill?: Color; border?: Color; borderWidth?: number } = {},
     ) => {
       button(
         c,
@@ -533,15 +558,17 @@ export function commandCard(
     return;
   }
   const groups = buildGroups(this.town),
-    page = clamp(global ? this.globalCard : this.card, 0, groups.length),
+    chosen = clamp(global ? this.globalCard : this.card, 0, groups.length),
+    page = shownPage(this.town, chosen),
     setPage = (next: number) => {
       const d = this.dockBounds;
       this.drawerBridge = new Rect(d.x, d.y, d.w, d.h);
       if (global) this.globalCard = next;
       else this.card = next;
-      this.buildHint = null;
-    };
-  noteBuildPage(this, page === 0 ? [] : groups[f32(page - 1)].tools);
+    },
+    shown = openGroups(this.town),
+    open = page === 0 ? [] : openTools(this.town, groups[f32(page - 1)]);
+  noteBuildPage(this, open);
   actionButton(
     c,
     `${global ? 'global/' : 'unit/'}card-back`,
@@ -549,7 +576,8 @@ export function commandCard(
     'back',
     'Back',
     () => {
-      if (page > 0) setPage(0);
+      // Back leads to the groups, or out of the menu when this page stands in for them.
+      if (page > 0 && chosen > 0 && shown.length > 1) setPage(0);
       else this.dismissBuildDrawer();
     },
     false,
@@ -568,8 +596,8 @@ export function commandCard(
     13,
     true,
   );
-  const count = page === 0 ? groups.length : groups[f32(page - 1)].tools.length,
-    preferred = page === 0 ? 78 : 86,
+  const count = page === 0 ? shown.length : open.length,
+    preferred = page === 0 ? groupCell(count) : 86,
     columns = Math.max(1, Math.min(count, Math.trunc(f32(f32(area.w - 18) / f32(preferred + 6))))),
     w = f32(f32(f32(area.w - 24) - f32(f32(columns - 1) * 6)) / columns),
     h = page === 0 ? (this.touchMode ? 44 : 32) : 64,
@@ -582,80 +610,64 @@ export function commandCard(
       );
   if (page === 0) {
     for (let i = 0; i < count; i++) {
-      const { name, glyph, tools: members } = groups[i];
-      actionButton(c, `${global ? 'global/' : 'unit/'}card-group-${name}`, cell(i), glyph, name, () =>
-        setPage(f32(i + 1)),
-      );
+      const { name, glyph, tools: members } = shown[i].group,
+        to = shown[i].page;
+      actionButton(c, `${global ? 'global/' : 'unit/'}card-group-${name}`, cell(i), glyph, name, () => setPage(to), false, true, true, w >= 150);
       if (freshGroup(this, members)) freshMark(this, cell(i), false);
     }
     return;
   }
-  let detail = 'Choose a building',
-    detailColor = t.muted;
-  const group = groups[f32(page - 1)];
+  let detail = 'Choose a building';
+  // A building just opened is ringed in ochre until the player has looked at it.
+  const beat = t.reducedMotion ? 1 : f32(0.6 + 0.4 * Math.sin(c.time() * 5));
   for (let i = 0; i < count; i++) {
-    const id = group.tools[i],
+    const id = open[i],
       bounds = cell(i),
       kind = toolStructure(id),
-      hasIcon = kind !== undefined || id === Tool.Road || id === Tool.Pave || id === Tool.Field;
-    // Locked cards stay in the menu: a press lists what they need instead of picking them.
-    const needs = toolRequirements(this.town, id),
-      missing = needs.filter((need) => !need.done),
-      why = missing.length ? 'Locked: ' + missing.map((need) => need.text).join(' · ') : '',
-      cardId = `${global ? 'global/' : 'unit/'}card-pick-${tools[id].label}`;
+      hasIcon = kind !== undefined || id === Tool.Road || id === Tool.Pave || id === Tool.Field,
+      fresh = this.unlockFresh.has(id);
     drawButton(
       'card-pick-' + tools[id].label,
       bounds,
       hasIcon ? '' : tools[id].label,
-      () => {
-        if (!missing.length) this.selectTool(id, !global);
-        else this.buildHint = this.buildHint === id ? null : id;
-      },
+      () => this.selectTool(id, !global),
       this.tool === id ? ButtonStyle.Primary : ButtonStyle.Default,
       true,
-      missing.length ? { fill: t.surface } : {},
+      fresh ? { border: { ...t.accent, a: Math.round(255 * beat) }, borderWidth: 2 } : {},
     );
     if (hasIcon) {
-      const dim = !!why,
-        art = new Rect(f32(bounds.x + 6), f32(bounds.y + 3), f32(bounds.w - 12), f32(bounds.h - 23));
+      const art = new Rect(f32(bounds.x + 6), f32(bounds.y + 3), f32(bounds.w - 12), f32(bounds.h - 23));
       c.paint(
-        `card-icon-${kind === undefined ? 0n : buildingAppearanceRevision(kind)}${JSON.stringify([id, art, dim])}`,
+        `card-icon-${kind === undefined ? 0n : buildingAppearanceRevision(kind)}${JSON.stringify([id, art])}`,
         () => {
           const holder = new c.tvg.Scene(),
             icon = hudPaint(c, constructionIcon(id, art.w, art.h));
           holder.add(icon);
           icon.dispose();
           holder.translate(art.x, art.y);
-          if (dim) holder.opacity(90);
           return holder;
         },
       );
       c.text(
-        new Rect(f32(bounds.x + 3), f32(f32(bounds.y + bounds.h) - 20), f32(bounds.w - 6), 18),
+        new Rect(f32(bounds.x + 3), f32(f32(bounds.y + bounds.h) - 21), f32(bounds.w - 6), 18),
         tools[id].label,
-        dim ? t.muted : t.text,
+        t.text,
         11,
         false,
         Align.Center,
       );
     }
-    if (missing.length) {
-      lockMark(this, bounds);
-      if (this.buildHint === id || bounds.contains(this.mouse.x, this.mouse.y) || c.focused() === cardId)
-        requirementTip(this, cardId, id, needs);
+    if (fresh) {
+      freshMark(this, bounds, true);
+      if (!t.reducedMotion) c.requestAnimationFrame();
     }
-    if (this.unlockFresh.has(id)) freshMark(this, bounds, true);
-    if (bounds.contains(this.mouse.x, this.mouse.y) || this.buildHint === id) {
-      detail =
-        why ||
-        (kind !== undefined ? `${describe(structureSpec(kind).cost)} · ${tools[id].key}` : tools[id].hint);
-      detailColor = why ? t.accent : t.muted;
-    }
+    if (bounds.contains(this.mouse.x, this.mouse.y))
+      detail = kind !== undefined ? `${describe(structureSpec(kind).cost)} · ${tools[id].key}` : tools[id].hint;
   }
   c.text(
     new Rect(f32(area.x + 12), f32(f32(area.y + area.h) - 26), f32(area.w - 24), 18),
     c.elideText(detail, f32(area.w - 24), 11),
-    detailColor,
+    t.muted,
     11,
   );
 }

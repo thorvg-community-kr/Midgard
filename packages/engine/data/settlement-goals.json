@@ -16,24 +16,14 @@
     "branch": "Core"
   },
   {
-    "title": "Craft a wooden axe",
-    "description": "A wooden axe fells trees faster than bare hands, straight from the pack. Craft one at the workbench from 3 wood.",
+    "title": "Craft a wooden tool",
+    "description": "A tool in the pack makes its work faster: an axe fells, a pick mines, a mallet builds, a hoe farms and a shovel tills and lays roads. Craft any one at the workbench.",
     "kind": "Craft",
     "building": "Count",
     "residents": 1,
     "branch": "Core",
     "items": [
-      "wooden-axe"
-    ]
-  },
-  {
-    "title": "Craft wooden tools",
-    "description": "A pick, mallet or hoe makes mining, building or farming faster; a shovel tills and lays roads faster still. Craft two at the workbench.",
-    "kind": "Craft",
-    "building": "Count",
-    "residents": 2,
-    "branch": "Core",
-    "items": [
+      "wooden-axe",
       "wooden-pick",
       "wooden-mallet",
       "wooden-hoe",
@@ -42,15 +32,15 @@
   },
   {
     "title": "Build a smithy",
-    "description": "Gather 12 wood and 8 stone with your new tools. The smithy makes weapons, shields and armor.",
+    "description": "Gather 12 wood and 8 stone. The smithy makes weapons, shields and armor.",
     "kind": "Building",
     "building": "Weaponsmith",
     "residents": 0,
     "branch": "Core"
   },
   {
-    "title": "Make a first weapon",
-    "description": "A wooden sword, club, spear, bow or staff hits harder than fists. Make one at the smithy.",
+    "title": "Make a weapon or a shield",
+    "description": "A wooden sword, club, spear, bow or staff hits harder than fists, and a shield in the free hand turns some blows aside. Make one at the smithy.",
     "kind": "Craft",
     "building": "Count",
     "residents": 1,
@@ -60,27 +50,9 @@
       "wooden-club",
       "wooden-spear",
       "short-bow",
-      "wooden-staff"
-    ]
-  },
-  {
-    "title": "Make a shield",
-    "description": "A wooden shield in the free hand turns some blows aside. Make one at the smithy from 5 wood.",
-    "kind": "Craft",
-    "building": "Count",
-    "residents": 1,
-    "branch": "Core",
-    "items": [
+      "wooden-staff",
       "shield"
     ]
-  },
-  {
-    "title": "Equip both founders",
-    "description": "Tools work straight from the pack; a weapon goes in the hand. Give each founder a tool or a weapon of their own.",
-    "kind": "Equip",
-    "building": "Count",
-    "residents": 2,
-    "branch": "Core"
   },
   {
     "title": "Build a tent",
@@ -220,7 +192,7 @@
   },
   {
     "title": "Build a market",
-    "description": "Let trade support the settlement.",
+    "description": "Needs a tavern and 6 residents. Let trade support the settlement.",
     "kind": "Building",
     "building": "MarketStalls",
     "residents": 0,
@@ -316,7 +288,7 @@
   },
   {
     "title": "Build an apothecary",
-    "description": "Needs the altar of Odin and 6 residents. Its healer treats the hurt and closes lasting wounds sooner.",
+    "description": "Needs the altar of Odin and 8 residents. Its healer treats the hurt and closes lasting wounds sooner.",
     "kind": "Building",
     "building": "Apothecary",
     "residents": 0,
@@ -375,7 +347,7 @@
   },
   {
     "title": "Raise a runestone",
-    "description": "Carve the names of the fallen in stone. While it stands, the settlement grieves less.",
+    "description": "Opens once a guardian is slain or a resident has fallen. Carve the names of the fallen in stone: while it stands, the settlement grieves less.",
     "kind": "Building",
     "building": "Runestone",
     "residents": 0,

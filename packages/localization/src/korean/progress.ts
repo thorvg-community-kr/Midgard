@@ -101,7 +101,10 @@ export const progressPhrases: Phrases = {
 
   // Quests and building notices
   New: '신규',
-  'Show requirements': '조건 보기',
+  'Quest complete: {0}': '퀘스트 완료: {0}',
+  'New quest': '새 퀘스트',
+  'Quests complete': '모든 퀘스트 완료',
+  'Locked: {0}': '잠김: {0}',
   'Open the guild': '길드 열기',
   'Open the weaponsmith': '무기 대장간 열기',
   'Builders cannot reach its door': '건설자가 문까지 갈 수 없습니다',

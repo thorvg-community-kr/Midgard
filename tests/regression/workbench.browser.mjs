@@ -249,7 +249,7 @@ try {
     probe.game.selectPeople([]);
   }, bench);
   await frames(30);
-  assert.equal((await quest()).title, 'Craft a wooden axe');
+  assert.equal((await quest()).title, 'Craft a wooden tool');
   await shot('02-bench-built');
 
   // 3. Fell wood by hand.

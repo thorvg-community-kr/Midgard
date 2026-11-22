@@ -248,9 +248,6 @@ describe('wooden gear from the workbench', () => {
     ];
     // Costs ("from 3 wood") and counts ("Craft two") may stay; rates, times and shares may not.
     for (const text of texts) expect(text).not.toMatch(/\d+ ?(s|%|kg)\b|\d+(\.\d+)? (seconds|tiles|paces)|by hand \d/);
-    expect(settlementGoals().find((goal) => goal.items.includes('wooden-axe'))!.description).toContain(
-      'fells trees faster',
-    );
     expect(gearEffect(itemSpec('wooden-axe')!)).toBe('Fells trees faster');
     expect(gearEffect(itemSpec('stone-axe')!)).toBe('Fells trees faster than a wooden axe');
     expect(gearEffect(itemSpec('axe')!)).toBe('Fells trees faster than a stone axe');

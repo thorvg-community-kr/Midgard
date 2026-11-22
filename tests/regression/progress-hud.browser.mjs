@@ -50,6 +50,7 @@ try {
           { freehandRoad },
           { sealable },
           { GoalBranch },
+          { Tool },
         ] = await Promise.all([
           import('/apps/web/src/native/startup-canvas.ts'),
           import('/packages/native-ui/src/index.ts'),
@@ -62,6 +63,7 @@ try {
           import('/packages/engine/src/road-network.ts'),
           import('/packages/engine/src/gate-seals.ts'),
           import('/packages/engine/src/settlement-progression.ts'),
+          import('/packages/engine/src/game-tools.ts'),
         ]);
         const tvg = await initializeWebCanvas('gl'),
           element = document.createElement('canvas');
@@ -162,6 +164,7 @@ try {
           placed,
           gate,
           road,
+          yard: Tool.TrainingYard,
           now: 0,
           frame(dt = 0.05) {
             this.now += dt;
@@ -232,7 +235,8 @@ try {
   }));
   assert.deepEqual(setup.missing, [], 'every building found a spot');
 
-  // Locked buildings stay in the menu with their requirements.
+  // A locked building is not in the menu: the page lists only what can be placed.
+  const shown = async (id) => (await controls()).some((c) => c.id === id);
   await page.mouse.move(5, 300);
   await page.evaluate(() => {
     probe.clear();
@@ -240,24 +244,35 @@ try {
     probe.game.drawerPinned = true;
   });
   await frames(10);
-  const tower = await center('global/card-pick-Tower');
-  await page.mouse.move(tower.x, tower.y);
-  await frames(4);
-  await shot('build-menu-locked');
+  assert(await shown('global/card-pick-Guild'), 'the guild can be placed and is listed');
+  assert(!(await shown('global/card-pick-Yard')), 'the locked training yard is not listed');
+  assert(!(await shown('global/card-pick-Tower')), 'the locked watchtower is not listed');
+  await shot('build-menu-open-only');
 
-  // Completing the guild unlocks the training yard: a toast and a "new" mark.
+  // Completing the guild opens the training yard: a card of its own and a "new" mark, no line in the feed.
   await page.mouse.move(5, 300);
   await page.evaluate(() => {
     probe.game.globalCard = 0;
     probe.finishGuild();
   });
   await frames(6);
-  const notice = await page.evaluate(() => probe.game.notice);
-  assert.match(notice, /^Unlocked: .*Training yard/);
+  const announced = await page.evaluate(() => {
+    const guide = probe.game.guide;
+    return {
+      cards: [guide.card?.entry.key ?? '', ...guide.queue.map((entry) => entry.key)],
+      yard: 'unlock:' + probe.yard,
+      fresh: probe.game.unlockFresh.has(probe.yard),
+      notice: probe.game.notice,
+    };
+  });
+  assert(announced.cards.includes(announced.yard), 'the training yard has a card waiting: ' + announced.cards.join(', '));
+  assert(announced.fresh, 'the training yard is marked new');
+  assert.doesNotMatch(announced.notice, /^Unlocked/);
   await shot('build-menu-new');
   await click('global/card-group-Arms & defence');
   await page.mouse.move(5, 300);
   await frames(4);
+  assert(await shown('global/card-pick-Yard'), 'the training yard is now listed');
   await shot('build-menu-new-page');
 
   // The quest panel on a deed goal.
@@ -324,7 +339,7 @@ try {
   await frames(4);
   await shot('winter-stores');
 
-  // A phone in touch mode: the market's narrow layout, and a tapped locked card listing its needs.
+  // A phone in touch mode: the market's narrow layout, and the build menu without what is locked.
   await page.context().close();
   page = await open(390, 844, true);
   await page.evaluate(() => {
@@ -339,13 +354,9 @@ try {
     probe.game.drawerPinned = true;
   });
   await frames(10);
-  await click('global/card-pick-Tower');
-  assert.equal(
-    await page.evaluate(() => probe.game.buildHint),
-    29,
-    'a tapped locked card keeps its requirements open',
-  );
-  await shot('mobile-build-locked');
+  assert(await shown('global/card-pick-Guild'), 'the guild is listed on a phone');
+  assert(!(await shown('global/card-pick-Tower')), 'the locked watchtower is not listed on a phone');
+  await shot('mobile-build-open-only');
   assert.deepEqual(report.errors, []);
   report.passed = true;
 } catch (error) {

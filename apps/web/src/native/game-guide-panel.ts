@@ -1,11 +1,26 @@
 // The guide on screen: one card at a time beside the play area, and the log of every explanation so far.
 import { localeRevision, translate } from '../../../../packages/localization/src/index';
-import { Align, ButtonStyle, EventType, Rect, board, button, groove, tag } from '../../../../packages/native-ui/src';
+import { Align, ButtonStyle, EventType, Rect, board, button, frame, groove, tag } from '../../../../packages/native-ui/src';
 import { clamp, f32 } from '../../../../packages/engine/src/numeric';
+import { toolStructure, type Tool } from '../../../../packages/engine/src/game-tools';
+import { describe, structureSpec } from '../../../../packages/engine/src/building-catalog';
+import { constructionIcon } from '../../../../packages/native-renderer/src/construction-icon';
+import { buildingAppearanceRevision } from '../../../../packages/native-renderer/src/building-assets';
 import type { GameHudApp } from './game-hud-contract';
 import { wrapText } from './game-progress-hud';
 import { tooltip } from './game-combat-hud';
-import { dismissGuideCard, guideLook, guideRules, guideUnread, toggleGuideLog, type GuideEntry } from './game-guide';
+import { hudPaint } from './hud-paint';
+import { toolInfo, toolName } from './build-menu-tools';
+import {
+  dismissGuideCard,
+  guideLook,
+  guideRules,
+  guideUnread,
+  toggleGuideLog,
+  unlockOf,
+  type GuideCard,
+  type GuideEntry,
+} from './game-guide';
 import { fill, guideMoment, line, type Line } from './guide-moments';
 import { guidePreferences, setGuidePreference } from './guide-preferences';
 
@@ -80,11 +95,89 @@ function logButton(app: GameHudApp): void {
   }
   if (!app.touchMode) tooltip(c, 'guide-log-button', state.hovered, ['Guide (F1)', 'Every first-time explanation, to read again.']);
 }
+/**
+ * A building that has just come into the build menu: its picture, what it is for, what it costs, and a button
+ * that goes straight to placing it.
+ */
+function unlockCard(app: GameHudApp, shown: GuideCard, tool: Tool, boxes: readonly Box[], width: number, height: number): void {
+  const c = app.context,
+    t = app.theme,
+    s = app.guide,
+    now = c.time(),
+    touch = app.touchMode,
+    kind = toolStructure(tool),
+    w = Math.min(width < 600 ? f32(width - 24) : 340, f32(width - 24)),
+    art = 68,
+    textW = f32(w - 28 - art - 12),
+    rows = wrapText(c, kind !== undefined ? structureSpec(kind).description : toolInfo[tool].hint, textW, 11, 4),
+    cost = kind !== undefined ? describe(structureSpec(kind).cost) : '',
+    bh = touch ? 44 : 28,
+    body = Math.max(art, 42 + rows.length * 15 + (cost ? 18 : 0)),
+    h = f32(14 + body + 12 + bh + 14),
+    r = place(boxes, w, h, width, height);
+  if (!r) return;
+  s.drawnAt = now;
+  const state = c.control('guide-card', r, undefined, true, false);
+  if (state.hovered) shown.until = Math.max(shown.until, now + 1.5);
+  tag(c, r, { cut: 5, lip: 3 });
+  const picture = new Rect(f32(r.x + 16), f32(r.y + 16), f32(art - 4), f32(art - 6)),
+    left = f32(r.x + 14 + art + 12);
+  frame(c, picture);
+  c.paint(
+    `unlock-art-${kind === undefined ? 0n : buildingAppearanceRevision(kind)}${JSON.stringify([tool, picture.x, picture.y])}`,
+    () => {
+      const holder = new c.tvg.Scene(),
+        icon = hudPaint(c, constructionIcon(tool, picture.w - 8, picture.h - 8));
+      holder.add(icon);
+      icon.dispose();
+      holder.translate(picture.x + 4, picture.y + 4);
+      return holder;
+    },
+  );
+  let y = f32(r.y + 12);
+  c.text(new Rect(left, y, textW, 16), 'New in the build menu', t.inkAccent, 10, true);
+  y = f32(y + 16);
+  c.text(new Rect(left, y, textW, 24), c.elideText(toolName(tool), textW, 15, true), t.ink, 15, true);
+  y = f32(y + 26);
+  for (const row of rows) {
+    c.text(new Rect(left, y, textW, 15), row, t.ink, 11);
+    y = f32(y + 15);
+  }
+  if (cost) c.text(new Rect(left, f32(y + 2), textW, 16), c.elideText(cost, textW, 11, true), t.inkAccent, 11, true);
+  const buttons = f32(r.y + r.h - 14 - bh),
+    wide = touch ? 104 : 88;
+  button(
+    c,
+    'guide-card/build',
+    new Rect(f32(r.x + r.w - 14 - wide), buttons, wide, bh),
+    'Build',
+    () => {
+      dismissGuideCard(app);
+      app.selectTool(tool);
+    },
+    ButtonStyle.Primary,
+    true,
+    undefined,
+    false,
+    { fontSize: 12 },
+  );
+  button(c, 'guide-card/later', new Rect(f32(r.x + r.w - 22 - wide * 2), buttons, wide, bh), 'Later', () => dismissGuideCard(app), ButtonStyle.Default, true, undefined, false, { fontSize: 12 });
+  if (s.queue.length)
+    c.text(new Rect(f32(r.x + 14), buttons, 110, bh), fill(line('{0} more waiting', s.queue.length)), t.inkMuted, 10);
+  const left01 = clamp((shown.until - now) / guideRules.cardSeconds, 0, 1);
+  c.rect(new Rect(f32(r.x + 6), f32(r.y + r.h - 5), f32((r.w - 12) * left01), 2), { ...t.inkAccent, a: 170 }, 0);
+  c.requestFrameAt(Math.min(shown.until, now + 0.5));
+}
 function card(app: GameHudApp, width: number, height: number): void {
   const s = app.guide,
     shown = s.card,
     boxes = blocked.get(app);
   if (!shown || s.logOpen || !boxes) return;
+  const unlocked = unlockOf(shown.entry);
+  if (unlocked !== null) {
+    unlockCard(app, shown, unlocked, boxes, width, height);
+    return;
+  }
   const c = app.context,
     t = app.theme,
     entry = shown.entry,

@@ -222,12 +222,14 @@ export function render(
   for (const id of this.speakers.keys()) if (!this.town.person(id)) this.speakers.delete(id);
   if (simulate && !editing && !this.prayer && !this.expedition && !this.expeditionResult) guideFrame(this);
   if (simulate || this.town.isTitleAutoplay()) {
-    if (noticeDue(this, seconds, this.town.notices.length > 0)) {
+    // The feed is drawn on the interface clock, so it is timed on it: the two clocks start apart.
+    const feedNow = uiSeconds >= 0 ? uiSeconds : seconds;
+    if (noticeDue(this, feedNow, this.town.notices.length > 0)) {
       let text = this.town.takeNotice();
       // A den falling and the brood breaking have their own banner.
       while (text && bannerNotice(text)) text = this.town.takeNotice();
       if (text) {
-        showNotice(this, text, seconds);
+        showNotice(this, text, feedNow);
         this.cue(noticeCue(text));
       }
     }

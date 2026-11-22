@@ -17,10 +17,16 @@ export interface Unlock {
   available: boolean;
   reason: string;
 }
-/** One condition for placing a building, as the build menu lists it. */
+/** One condition for placing a building, in words and as what it asks for. */
 export interface UnlockRequirement {
   text: string;
   done: boolean;
+  /** A building that must stand first. */
+  facility?: Structure;
+  /** A finished road. */
+  road?: boolean;
+  /** Residents the settlement must have. */
+  residents?: number;
 }
 export enum GoalKind {
   Building,
@@ -180,12 +186,14 @@ interface UnlockRule {
   deeds: [DeedKey, number, string][];
   population: number;
   road: boolean;
+  /** Opens with the first slain guardian or the first resident lost. */
+  remembrance: boolean;
 }
 const raidBeaten: [DeedKey, number, string] = ['raidsRepelled', 1, 'Beat off a raid'],
   floorCleared: [DeedKey, number, string] = ['floors', 1, 'Clear a floor beyond a gate'],
   gateSealed: [DeedKey, number, string] = ['seals', 1, 'Seal a gate'];
 function unlockRule(kind: Structure): UnlockRule {
-  const rule: UnlockRule = { after: [Structure.Camp], deeds: [], population: 0, road: false };
+  const rule: UnlockRule = { after: [Structure.Camp], deeds: [], population: 0, road: false, remembrance: false };
   const set = (after: Structure[], population = 0, deeds: [DeedKey, number, string][] = []): UnlockRule => {
     rule.after = after;
     rule.population = population;
@@ -196,27 +204,33 @@ function unlockRule(kind: Structure): UnlockRule {
     case Structure.Camp:
       return set([]);
     // Timber and stone yards haul along a road; shelter, food and water need only the camp.
-    case Structure.Torch:
     case Structure.Lumberyard:
     case Structure.Quarry:
       rule.road = true;
       return rule;
+    // Each step opens one thing. A founding building that finishes brings the next quest's building, so what
+    // is not in the chain waits for a step that brings nothing: the altar, the end of the chain, a headcount.
+    case Structure.Torch:
+      return set([Structure.Shrine]);
     case Structure.Sawmill:
-    case Structure.WoodStore:
       return set([Structure.Lumberyard]);
     case Structure.Stoneworks:
-    case Structure.StoneStore:
       return set([Structure.Quarry]);
+    // The depots follow the last workshop, timber first.
+    case Structure.WoodStore:
+      return set([Structure.Stoneworks]);
+    case Structure.StoneStore:
+      return set([Structure.WoodStore]);
     case Structure.Granary:
-      return set([Structure.Farm]);
+      return set([Structure.Farm], 5);
     case Structure.Hostel:
-      return set([Structure.Tent]);
+      return set([Structure.Tent], 4);
     case Structure.Storehouse:
       return set([Structure.Quarry], 4);
     case Structure.Tavern:
       return set([Structure.Hostel], 4);
     case Structure.MarketStalls:
-      return set([Structure.Hostel]);
+      return set([Structure.Tavern], 6);
     // Arms: each step asks for something the settlement has done.
     case Structure.Guild:
       return set([Structure.Quarry], 6);
@@ -232,13 +246,14 @@ function unlockRule(kind: Structure): UnlockRule {
     // The altar asks for a home and a food supply for the newcomer it shapes.
     case Structure.Shrine:
       return set([Structure.Tent, Structure.Farm]);
+    // A stone for the fallen: it is offered once there is someone, or some deed, to remember.
     case Structure.Runestone:
-      return set([Structure.Camp]);
+      rule.remembrance = true;
+      return rule;
     case Structure.Chapel:
       return set([Structure.Shrine], 10);
-    // Faith: healing comes early, before the first wounds pile up.
     case Structure.Apothecary:
-      return set([Structure.Shrine], 6);
+      return set([Structure.Shrine], 8);
     case Structure.MageTower:
       return set([Structure.Apothecary]);
     case Structure.Portal:
@@ -247,36 +262,73 @@ function unlockRule(kind: Structure): UnlockRule {
       return rule;
   }
 }
+/**
+ * The founding quests bring their buildings and tools into the build menu one at a time: each stays out until
+ * its quest is the current one. What the settlement already has, built or staked out, is known all the same.
+ */
+const introductions = new Map<Structure, number>();
+goals.forEach((goal, index) => {
+  if (goal.branch === GoalBranch.Core && goal.kind === GoalKind.Building && !introductions.has(goal.building))
+    introductions.set(goal.building, index);
+});
+function questReached(town: Town, index: number): boolean {
+  if (index < 0) return true;
+  const current = currentGoal(town, GoalBranch.Core);
+  return current < 0 || current >= index;
+}
+const staked = (town: Town, kind: Structure): boolean =>
+  town.buildings().some((b) => b.kind === kind && belongsToFaction(b, town.controlFaction));
+function introduction(town: Town, kind: Structure): UnlockRequirement | null {
+  const index = introductions.get(kind) ?? -1;
+  if (index < 0 || questReached(town, index) || completedFacility(town, kind) || staked(town, kind)) return null;
+  return { text: `Reach the quest "${goals[index].title}"`, done: false };
+}
 /** Every condition for placing `kind`, in the order `buildingUnlock` checks them. */
 export function unlockRequirements(town: Town, kind: Structure): UnlockRequirement[] {
   const rule = unlockRule(kind),
     out: UnlockRequirement[] = [];
   if (kind === Structure.Camp) return out;
+  const quest = introduction(town, kind);
+  if (quest) out.push(quest);
   const facility = (stage: Structure): void => {
     const text = 'Complete ' + structureSpec(stage).name;
-    if (!out.some((r) => r.text === text)) out.push({ text, done: completedFacility(town, stage) });
+    if (!out.some((r) => r.text === text)) out.push({ text, done: completedFacility(town, stage), facility: stage });
   };
   for (const stage of rule.after) facility(stage);
   for (const [deed, count, text] of rule.deeds) out.push({ text, done: deedCount(town, deed) >= count });
-  if (rule.road) out.push({ text: 'Complete a road', done: roadDone(town) });
+  if (rule.road) out.push({ text: 'Complete a road', done: roadDone(town), road: true });
+  if (rule.remembrance)
+    out.push({ text: 'Slay a floor guardian', done: deedCount(town, 'guardiansSlain') >= 1 || town.fallen.length > 0 });
   const cost = structureSpec(kind).cost;
   if (cost.planks) facility(Structure.Sawmill);
   if (cost.cutStone) facility(Structure.Stoneworks);
   const population = Math.max(rule.population, structureSpec(kind).requiredPopulation);
   if (population)
-    out.push({ text: 'Needs ' + population + ' residents', done: town.population() >= population });
+    out.push({ text: 'Needs ' + population + ' residents', done: town.population() >= population, residents: population });
   return out;
 }
 export function buildingUnlock(town: Town, kind: Structure): Unlock {
   const missing = unlockRequirements(town, kind).find((r) => !r.done);
   return missing ? { available: false, reason: missing.text } : { available: true, reason: '' };
 }
+/** What a tool that is not a building still asks for; empty for a building's tool and for the free ones. */
+export function toolNeeds(town: Town, tool: Tool): UnlockRequirement[] {
+  const facility = (kind: Structure): UnlockRequirement => ({
+    text: 'Complete ' + structureSpec(kind).name,
+    done: completedFacility(town, kind),
+    facility: kind,
+  });
+  // Roads are the settlement's own from the first camp: they are not kept back for their quest.
+  if (tool === Tool.Road) return [facility(Structure.Camp)];
+  // Paving is laid in stone, so it waits for a quarry.
+  if (tool === Tool.Pave) return [facility(Structure.Quarry)];
+  if (tool === Tool.Field) return [facility(Structure.Farm)];
+  return [];
+}
 export function toolAvailable(town: Town, tool: Tool): boolean {
   const kind = toolStructure(tool);
   if (kind !== undefined) return buildingUnlock(town, kind).available;
-  if (tool === Tool.Road || tool === Tool.Pave) return completedFacility(town, Structure.Camp);
-  if (tool === Tool.Field) return completedFacility(town, Structure.Farm);
-  return true;
+  return toolNeeds(town, tool).every((need) => need.done);
 }
 export const settlementGoals = (): readonly SettlementGoal[] => goals;
 export function goalComplete(town: Town, goal: SettlementGoal): boolean {

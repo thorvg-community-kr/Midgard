@@ -11,7 +11,7 @@ import {
 import { TreeWorkKind, Person, Calling, Role, Race, Activity } from '../../packages/engine/src/person';
 import { WorldMap } from '../../packages/engine/src/world-map';
 import { Terrain } from '../../packages/engine/src/world-types';
-import { GoalKind, settlementGoals, buildingUnlock } from '../../packages/engine/src/settlement-progression';
+import { GoalKind, settlementGoals, unlockRequirements } from '../../packages/engine/src/settlement-progression';
 import { levelVariant } from '../../packages/engine/src/craft-stations';
 
 // Small deterministic settlements isolate economic accounting from raids and pathfinding.
@@ -44,7 +44,7 @@ describe('processing and dedicated stores', () => {
     expect(goals.findIndex((g) => g.building === Structure.Sawmill)).toBeLessThan(iron);
     expect(goals.findIndex((g) => g.building === Structure.Stoneworks)).toBeLessThan(iron);
     const town = fixture();
-    expect(buildingUnlock(town, Structure.Weaponsmith).reason).toBe('Complete Workbench');
+    expect(unlockRequirements(town, Structure.Weaponsmith).map((need) => need.text)).toContain('Complete Workbench');
     const smith = facility(town, Structure.Weaponsmith);
     smith.variant = levelVariant(2);
     const needs = town.stationNeeds(smith.id).map((r) => r.text);

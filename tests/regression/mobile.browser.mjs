@@ -221,8 +221,8 @@ try {
         'Build and Units are available without hovering',
         (await button('build-handle')).h >= 44 && (await button('unit-roster')).h >= 44,
       );
+      // A new settlement can place a camp and nothing else, so the menu opens on it at once.
       await tapControl('build-handle');
-      await tapControl('global/card-group-Housing');
       await tapControl('global/card-pick-Camp');
       check(
         'A building starts as a visible preview, with no construction placed',

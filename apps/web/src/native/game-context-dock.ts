@@ -5,6 +5,7 @@ import { DockView } from './game-app-state';
 import { reducedMotionPreferred } from './game-theme';
 import type { GameHudApp } from './game-hud-contract';
 import { actionButton } from './hud-actions';
+import { freshMark } from './game-progress-hud';
 import { objectClearHeight, objectClearTarget } from './clear-order-hud';
 import { isSeat } from '../../../../packages/engine/src/building-catalog';
 const copy = (r: Rect) => new Rect(r.x, r.y, r.w, r.h);
@@ -211,6 +212,7 @@ export function renderDockContent(this: GameHudApp, panel: Rect): void {
           this.drawerSuppressed = false;
         },
       );
+      if (this.unlockFresh.size) freshMark(this, new Rect(panel.x + 12, panel.y + 7, 100, this.touchMode ? 44 : 38), true);
       actionButton(
         c,
         'unit-roster',
@@ -290,6 +292,8 @@ export function taskbar(this: GameHudApp, width: number, height: number): void {
   if (this.dockView === DockView.Handle && !(this.touchMode && this.pending !== Order.None)) {
     const r = this.dockBounds;
     c.rect(new Rect(r.x + r.w * 0.25, r.y + r.h / 2 - 1, r.w * 0.5, 2), this.theme.accent, 1);
+    // Something new waits in the build menu.
+    if (this.unlockFresh.size) freshMark(this, new Rect(r.x, f(r.y - 9), r.w, r.h), true);
     c.control(
       'dock-handle',
       r,

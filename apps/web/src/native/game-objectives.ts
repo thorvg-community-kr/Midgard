@@ -1,5 +1,5 @@
 import { translate } from '../../../../packages/localization/src/index';
-import { Rect, Align, ButtonStyle, EventType, board, button, meter } from '../../../../packages/native-ui/src';
+import { Rect, Align, ButtonStyle, EventType, board, button, meter, slab } from '../../../../packages/native-ui/src';
 import { lerpFloat } from '../../../../packages/native-ui/src/numeric';
 import {
   settlementGoals,
@@ -24,9 +24,13 @@ import type { Building } from '../../../../packages/engine/src/town-models';
 import { sealProgress } from '../../../../packages/engine/src/gate-seals';
 import { isPlayerBuilding } from '../../../../packages/engine/src/faction';
 import type { GameHudApp } from './game-hud-contract';
-import { questAction, boonTip } from './game-progress-hud';
+import { questAction, boonTip, buildingTool, lockedLine } from './game-progress-hud';
+import { showNotice } from './notice-toast';
+import { Cue, Sound } from '../../../../packages/native-audio/src/sound-types';
 import { hudGlyph } from './hud-glyphs';
 import { craftBars } from './craft-station-hud';
+/** Seconds the "Quest complete" ribbon covers the panel's head, and how long the next quest is marked as new. */
+export const questRules = { ribbon: 2.6, fresh: 8 };
 export function objectives(this: GameHudApp, width: number, height: number, top: number): void {
   // Work at a crafting station shows over it in the world.
   craftBars(this, width, height);
@@ -46,15 +50,27 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
   const c = this.context,
     t = this.theme,
     now = c.time();
-  if (this.questsInitialized && completed > this.questsSeen) this.questPulseAt = now;
+  // A quest fulfilled is said three ways at once: a ribbon over the panel, a sound, and a line in the notice feed.
+  if (this.questsInitialized && completed > this.questsSeen) {
+    this.questPulseAt = now;
+    const before = goals[this.questShown];
+    this.questDone = before && goalComplete(this.town, before) ? before.title : '';
+    if (this.questDone) showNotice(this, `Quest complete: ${this.questDone}`, now);
+    if (this.cues.length < 32) this.cues.push(new Sound(Cue.Complete, 0.55, 0));
+  }
+  if (current !== this.questShown) {
+    if (this.questsInitialized) this.questNewAt = now;
+    this.questShown = current;
+  }
   this.questsInitialized = true;
   this.questsSeen = completed;
-  const pulse =
-    this.reducedMotion() || this.questPulseAt < 0
-      ? 0
-      : f32(clamp(1 - (now - this.questPulseAt) / 0.45, 0, 1));
-  this.questsAnimating = pulse > 0;
+  const celebrating = !!this.questDone && this.questPulseAt >= 0 && now - this.questPulseAt < questRules.ribbon,
+    // The quest that follows is marked as new for a while, so the change is not missed.
+    fresh = !celebrating && this.questNewAt >= 0 && now - this.questNewAt < questRules.fresh,
+    pulse = fresh ? (this.reducedMotion() ? 1 : f32(0.5 + 0.5 * Math.sin((now - this.questNewAt) * 5))) : 0;
+  this.questsAnimating = celebrating || (fresh && !this.reducedMotion());
   if (this.questsAnimating) c.requestAnimationFrame();
+  else if (fresh) c.requestFrameAt(this.questNewAt + questRules.fresh);
   const collapsed = compact ? !this.mobileQuestsExpanded : this.objectivesCollapsed,
     header = this.touchMode ? 44 : 38,
     w = Math.min(compact && collapsed ? 164 : 292, f32(width - 24)),
@@ -66,8 +82,9 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
     left = f32(bounds.x + 14);
   c.control('objectives-panel', bounds, undefined, true, false);
   let border = t.border;
-  if (pulse > 0) border = { ...t.accent, a: Math.trunc(f32(180 + f32(75 * pulse))) };
-  board(c, bounds, { trim: border, header: h > header + 8 ? 38 : 0 });
+  if (celebrating) border = t.accent;
+  else if (fresh) border = { ...t.accent, a: Math.trunc(f32(110 + f32(145 * pulse))) };
+  board(c, bounds, { trim: border, trimWidth: celebrating || fresh ? 2 : 1, header: h > header + 8 ? 38 : 0 });
   button(
     c,
     'objectives-toggle',
@@ -81,15 +98,54 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
     },
     ButtonStyle.Quiet,
   );
-  hudGlyph(c, 'quest', f32(bounds.x + 22), f32(y + header / 2), t.accent, 0.9, t.surface);
-  c.text(
-    new Rect(f32(bounds.x + 38), f32(y + 7), f32(w - (compact && collapsed ? 50 : 196)), 24),
-    compact && collapsed ? `Quests ${completed}/${goals.length}` : 'Quests',
-    t.text,
-    compact && collapsed ? 11 : 13,
-    true,
+  const goal = current < goals.length ? goals[current] : null,
+    measured = goal ? goalProgress(this.town, goal) : null,
+    folded = collapsed && !compact && h < header + 8;
+  hudGlyph(
+    c,
+    'quest',
+    f32(bounds.x + 22),
+    f32(y + header / 2),
+    fresh ? { ...t.accent, a: Math.trunc(f32(150 + 105 * pulse)) } : t.accent,
+    0.9,
+    t.surface,
   );
-  if (!compact || !collapsed) {
+  if (celebrating) {
+    // The ribbon lies over the head of the panel and names what was done.
+    const ribbon = new Rect(f32(bounds.x + 36), f32(y + 6), f32(w - 36 - 44), f32(header - 12)),
+      said = `Quest complete: ${this.questDone}`;
+    slab(c, ribbon, t.accent, { lip: 2 });
+    c.text(
+      new Rect(f32(ribbon.x + 8), ribbon.y, f32(ribbon.w - 16), f32(ribbon.h - 2)),
+      c.elideText(said, f32(ribbon.w - 16), 12, true),
+      t.accentText,
+      12,
+      true,
+    );
+  } else if (folded && goal && measured) {
+    // Folded away, the panel still says what to do and how far along it is.
+    const count = measured.need > 1 ? `${Math.min(measured.need, Math.floor(measured.have))} / ${measured.need}` : '',
+      countW = count ? f32(c.textWidth(count, 10) + 8) : 0,
+      room = f32(w - 38 - 44 - countW);
+    c.text(
+      new Rect(f32(bounds.x + 38), f32(y + 3), room, 20),
+      c.elideText(goal.title, room, 12, true),
+      fresh ? t.accent : t.text,
+      12,
+      true,
+    );
+    if (count)
+      c.text(new Rect(f32(bounds.x + w - 44 - countW), f32(y + 4), countW, 18), count, t.muted, 10, false, Align.End);
+    meter(c, new Rect(f32(bounds.x + 38), f32(y + 26), f32(w - 38 - 46), 4), measured.have / Math.max(1, measured.need), t.accent);
+  } else
+    c.text(
+      new Rect(f32(bounds.x + 38), f32(y + 7), f32(w - (compact && collapsed ? 50 : 196)), 24),
+      compact && collapsed ? `Quests ${completed}/${goals.length}` : goal || !folded ? 'Quests' : 'Quests complete',
+      t.text,
+      compact && collapsed ? 11 : 13,
+      true,
+    );
+  if (!celebrating && !folded && (!compact || !collapsed)) {
     const counter = new Rect(f32(f32(bounds.x + w) - 172), f32(y + 9), 128, 20);
     c.text(
       counter,
@@ -113,7 +169,7 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
       return;
     }
     const goal = goals[current];
-    if (core >= 0) c.text(new Rect(left, f32(y + 42), f32(w - 28), 16), 'Current quest', t.accent, 9, true);
+    if (core >= 0) c.text(new Rect(left, f32(y + 42), f32(w - 28), 16), fresh ? 'New quest' : 'Current quest', t.accent, 9, true);
     else {
       const tab = f32(f32(w - 28) / branches.length);
       branches.forEach((branch, index) => {
@@ -158,6 +214,7 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
     let progress = f32(measured.have / Math.max(1, measured.need)),
       status = measured.label,
       warn = false,
+      waiting = false,
       site: Building | null = null;
     if (goal.kind === GoalKind.Building && !measured.have) {
       for (const b of this.town.buildings())
@@ -192,6 +249,13 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
           }
         }
       }
+      // A building still locked is not in the build menu: the panel says what it waits for instead.
+      const tool = site ? undefined : buildingTool(goal.building),
+        locked = tool === undefined ? '' : lockedLine(this.town, tool);
+      if (locked) {
+        status = locked;
+        waiting = true;
+      }
     } else if (goal.kind === GoalKind.Population && measured.have < measured.need) {
       const altar = this.town.buildings().find((b) => b.kind === Structure.Shrine && b.built() && isPlayerBuilding(b));
       const reason = altar ? this.town.altarStatus(altar.id).reason : '';
@@ -203,7 +267,7 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
     c.text(
       new Rect(left, f32(y + 127), f32(w - 28), 18),
       c.elideText(status, f32(w - 28), 10),
-      warn ? t.danger : t.text,
+      warn ? t.danger : waiting ? t.accent : t.text,
       10,
     );
     const displayed = c.animate('quests/progress/' + current, clamp(progress, 0, 1), 0.2);

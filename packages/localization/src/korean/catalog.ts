@@ -442,6 +442,7 @@ export const catalogPhrases: Phrases = {
 
   // Unlock reasons
   'Complete {0}': '{0} 완성 필요',
+  'Reach the quest "{0}"': '퀘스트 "{0}"까지 진행하세요',
   'Complete a road': '길 완성 필요',
   'Needs {0} residents': '주민 {0}명 필요',
   'Clear a floor beyond a gate': '관문 너머 한 층 돌파 필요',
@@ -479,14 +480,10 @@ export const catalogPhrases: Phrases = {
   'Found a camp': '캠프 세우기',
   'Mark a camp near a discovered dungeon. Settlers gather and deliver its 12 wood.':
     '발견한 던전 근처에 캠프 자리를 정하세요. 정착민이 목재 12를 모아 나릅니다.',
-  'Craft a wooden axe': '나무 도끼 만들기',
-  'Craft wooden tools': '나무 도구 만들기',
+  'Craft a wooden tool': '나무 도구 만들기',
+  'A tool in the pack makes its work faster: an axe fells, a pick mines, a mallet builds, a hoe farms and a shovel tills and lays roads. Craft any one at the workbench.':
+    '짐에 든 도구는 그 일을 빠르게 합니다. 도끼는 벌목, 곡괭이는 채굴, 망치는 건설, 괭이는 농사, 삽은 밭 일구기와 길 닦기를 돕습니다. 작업대에서 아무거나 하나 만드세요.',
   'Craft a first weapon': '첫 무기 만들기',
-  'Equip both founders': '두 개척자 모두 장비하기',
-  'A wooden axe fells trees faster than bare hands. Craft one at the workbench from 3 wood.':
-    '나무 도끼는 맨손보다 나무를 빨리 벱니다. 작업대에서 목재 3으로 만드세요.',
-  'A pick, mallet or hoe makes mining, building or farming faster; a shovel tills and lays roads faster still. Craft two at the workbench.':
-    '곡괭이, 망치, 괭이는 채굴, 건설, 농사를 빠르게 하고, 삽은 밭 일구기와 길 닦기를 더 빠르게 합니다. 작업대에서 두 개를 만드세요.',
   'A wooden sword, club, spear or short bow hits harder than fists. Craft one at the bench.':
     '나무 검, 몽둥이, 창, 짧은 활은 맨주먹보다 세게 칩니다. 작업대에서 하나를 만드세요.',
   'Build a workbench': '작업대 짓기',
@@ -505,8 +502,8 @@ export const catalogPhrases: Phrases = {
   'Needs a road. Establish a timber supply near trees; its workers fell faster with axes in hand.':
     '길이 필요합니다. 나무 가까이에 목재 공급처를 마련하세요. 일꾼이 도끼를 들면 더 빨리 벱니다.',
   'Needs a road. Establish a supply of stone.': '길이 필요합니다. 석재 공급처를 마련하세요.',
-  'Needs the altar of Odin and 6 residents. Its healer treats the hurt and closes lasting wounds sooner.':
-    '오딘의 제단과 주민 6명이 필요합니다. 치료사가 다친 이를 돌보고 오래가는 상처를 더 빨리 아물게 합니다.',
+  'Needs the altar of Odin and 8 residents. Its healer treats the hurt and closes lasting wounds sooner.':
+    '오딘의 제단과 주민 8명이 필요합니다. 치료사가 다친 이를 돌보고 오래가는 상처를 더 빨리 아물게 합니다.',
   'Lay a road': '길 놓기',
   'Draw and complete a road connected to the camp.': '캠프와 이어지는 길을 그려 완성하세요.',
   'Build an altar': '제단 짓기',
@@ -546,7 +543,7 @@ export const catalogPhrases: Phrases = {
   'Give residents somewhere to relax.': '주민이 쉴 곳을 마련해 주세요.',
   'Expand housing and supplies for growth.': '성장에 대비해 집과 물자를 늘리세요.',
   'Build a market': '시장 짓기',
-  'Let trade support the settlement.': '교역으로 정착지를 뒷받침하세요.',
+  'Needs a tavern and 6 residents. Let trade support the settlement.': '선술집과 주민 6명이 필요합니다. 교역으로 정착지를 뒷받침하세요.',
   'Build a guild': '길드 짓기',
   'Needs a quarry and 6 residents. Choose a resident to take a one-time professional oath at the guild.':
     '채석장과 주민 6명이 필요합니다. 길드에서 단 한 번의 직업 서약을 할 주민을 고르세요.',
@@ -607,8 +604,8 @@ export const catalogPhrases: Phrases = {
   'A resident at 0 health is downed, not dead. Select an ally and right-click the fallen one to revive them before they bleed out.':
     '체력이 0이 된 주민은 죽은 것이 아니라 쓰러진 것입니다. 동료를 선택하고 쓰러진 이를 우클릭해 숨이 끊어지기 전에 일으키세요.',
   'Raise a runestone': '룬석 세우기',
-  'Carve the names of the fallen in stone. While it stands, the settlement grieves less.':
-    '쓰러진 이들의 이름을 돌에 새기세요. 룬석이 서 있는 동안 정착지의 슬픔이 줄어듭니다.',
+  'Opens once a guardian is slain or a resident has fallen. Carve the names of the fallen in stone: while it stands, the settlement grieves less.':
+    '수호자를 처치했거나 주민이 목숨을 잃은 뒤에 열립니다. 쓰러진 이들의 이름을 돌에 새기세요. 룬석이 서 있는 동안 정착지의 슬픔이 줄어듭니다.',
   'Needs a mage tower, a guild and a sealed gate. Draws more visitors, and for 8 mana pulls a party home from beyond a gate, even mid-fight.':
     '마법탑과 길드, 봉인한 관문이 필요합니다. 방문객이 늘어나며, 마나 8로 관문 너머의 파티를 전투 중에도 귀환시킵니다.',
   'Seal every gate': '모든 관문 봉인하기',
@@ -733,13 +730,9 @@ export const catalogPhrases: Phrases = {
   "Takes less damage than {0}": "{0}보다 받는 피해가 줄어듭니다",
   "Build a smithy": "대장간 짓기",
   "An open bench where residents make tools, one at a time. It takes 4 wood.": "주민이 도구를 하나씩 만드는 열린 작업대입니다. 목재 4가 듭니다.",
-  "A wooden axe fells trees faster than bare hands, straight from the pack. Craft one at the workbench from 3 wood.": "나무 도끼는 짐에 들어 있기만 해도 맨손보다 나무를 빨리 벱니다. 작업대에서 목재 3으로 만드세요.",
-  "Gather 12 wood and 8 stone with your new tools. The smithy makes weapons, shields and armor.": "새 도구로 목재 12와 석재 8을 모으세요. 대장간에서 무기, 방패, 갑옷을 만듭니다.",
-  "Make a first weapon": "첫 무기 만들기",
-  "A wooden sword, club, spear, bow or staff hits harder than fists. Make one at the smithy.": "나무 검, 몽둥이, 창, 활, 지팡이는 맨주먹보다 세게 칩니다. 대장간에서 하나 만드세요.",
-  "Make a shield": "방패 만들기",
-  "A wooden shield in the free hand turns some blows aside. Make one at the smithy from 5 wood.": "빈손에 든 나무 방패는 공격을 얼마간 막아 냅니다. 대장간에서 목재 5로 만드세요.",
-  "Tools work straight from the pack; a weapon goes in the hand. Give each founder a tool or a weapon of their own.": "도구는 짐에 있기만 해도 쓰이고, 무기는 손에 들어야 합니다. 개척자마다 도구나 무기를 하나씩 주세요.",
+  "Gather 12 wood and 8 stone. The smithy makes weapons, shields and armor.": "목재 12와 석재 8을 모으세요. 대장간에서 무기, 방패, 갑옷을 만듭니다.",
+  "Make a weapon or a shield": "무기나 방패 만들기",
+  "A wooden sword, club, spear, bow or staff hits harder than fists, and a shield in the free hand turns some blows aside. Make one at the smithy.": "나무 검, 몽둥이, 창, 활, 지팡이는 맨주먹보다 세게 치고, 빈손에 든 방패는 공격을 얼마간 막아 냅니다. 대장간에서 하나 만드세요.",
   "Upgrade the workbench": "작업대 업그레이드",
   "Pay 10 wood and 6 stone at the workbench: a resident works on it, and then it makes stone tools.": "작업대에서 목재 10과 석재 6을 들이세요: 주민이 손보고 나면 돌 도구를 만듭니다.",
   "Upgrade the smithy": "대장간 업그레이드",

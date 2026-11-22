@@ -184,8 +184,8 @@ export const guidePhrases: Phrases = {
   // Buildings
   'One resident works here.': '주민 한 명이 이곳에서 일합니다.',
   'Up to {0} residents work here.': '주민이 {0}명까지 이곳에서 일합니다.',
-  'It opens the way to {0} more kinds of building.': '이 건물로 {0}가지 건물을 더 지을 수 있게 됩니다.',
-  'It opens the way to {0}.': '이 건물로 지을 수 있게 됩니다: {0}.',
+  'New in the build menu': '건설 메뉴에 새로 추가',
+  Later: '나중에',
   'Roads open with it: lay one with the Road tool in the build menu.':
     '이제 길을 낼 수 있습니다. 건설 메뉴의 길 도구로 길을 내세요.',
   'Fields open with it: stake one out with the Field tool in the build menu.':

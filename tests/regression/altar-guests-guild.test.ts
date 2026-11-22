@@ -7,7 +7,7 @@ import { Person, Role, Calling, Race, Activity } from '../../packages/engine/src
 import { Structure, Resources, structureSpec } from '../../packages/engine/src/building-catalog';
 import { point, distance } from '../../packages/engine/src/geometry';
 import { copyNative } from '../../packages/engine/src/native-copy';
-import { buildingUnlock } from '../../packages/engine/src/settlement-progression';
+import { buildingUnlock, unlockRequirements } from '../../packages/engine/src/settlement-progression';
 import { encodeTown, decodeTown } from '../../packages/engine/src/save-game';
 
 let base: Town;
@@ -198,9 +198,14 @@ describe('altar prayer and immediate residents', () => {
     const town = fixture();
     town.placed[0].faction = 1;
     homeAndFarm(town, 1);
-    expect(buildingUnlock(town, Structure.Shrine).available).toBe(false);
+    // The home and the farm the altar asks for count only for the faction that owns them.
+    const stands = () =>
+      unlockRequirements(town, Structure.Shrine)
+        .filter((need) => need.facility !== undefined)
+        .map((need) => need.done);
+    expect(stands()).toEqual([false, false]);
     town.controlFaction = 1;
-    expect(buildingUnlock(town, Structure.Shrine).available).toBe(true);
+    expect(stands()).toEqual([true, true]);
   });
 
   it('opens for the two founders once a tent and a farmhouse stand, without advanced materials', () => {

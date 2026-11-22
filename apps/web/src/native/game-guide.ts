@@ -267,6 +267,25 @@ export function guideFrame(app: GuideApp): void {
 export function dismissGuideCard(app: GuideApp): void {
   app.guide.card = null;
 }
+const unlockPrefix = 'unlock:';
+/** The tool a card announces as new in the build menu, or null for an ordinary first-time moment. */
+export function unlockOf(entry: GuideEntry): Tool | null {
+  return entry.key.startsWith(unlockPrefix) ? Number(entry.key.slice(unlockPrefix.length)) : null;
+}
+/**
+ * A building has just come into the build menu: it gets a card of its own, one at a time behind whatever is
+ * already waiting. It is no record (not logged, not saved). False when cards are switched off.
+ */
+export function announceUnlock(app: Pick<GuideApp, 'guide' | 'town'>, tool: Tool): boolean {
+  if (!guidePreferences().cards) return false;
+  // Roads and fields come with the camp and the farmhouse, whose own cards tell of them.
+  if (tool === Tool.Road || tool === Tool.Field) return true;
+  const s = app.guide,
+    key = unlockPrefix + tool;
+  if (s.card?.entry.key !== key && !s.queue.some((entry) => entry.key === key))
+    s.queue.push({ key, day: app.town.days + 1, at: null, detail: [], seen: true });
+  return true;
+}
 export function toggleGuideLog(app: GuideApp): void {
   const s = app.guide;
   s.logOpen = !s.logOpen;

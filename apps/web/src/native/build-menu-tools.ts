@@ -1,10 +1,10 @@
 import { Tool, toolStructure } from '../../../../packages/engine/src/game-tools';
 import {
-  toolAvailable,
+  toolNeeds,
   unlockRequirements,
   type UnlockRequirement,
 } from '../../../../packages/engine/src/settlement-progression';
-import { Structure, structureSpec } from '../../../../packages/engine/src/building-catalog';
+import { structureSpec } from '../../../../packages/engine/src/building-catalog';
 import type { Town } from '../../../../packages/engine/src/town';
 import type { HudGlyph } from './hud-actions';
 export interface ToolInfo {
@@ -99,9 +99,5 @@ export function toolName(tool: Tool): string {
 /** What placing a tool still needs, in the order the engine checks it; empty when nothing is asked. */
 export function toolRequirements(town: Town, tool: Tool): UnlockRequirement[] {
   const kind = toolStructure(tool);
-  if (kind !== undefined) return unlockRequirements(town, kind);
-  const needs =
-    tool === Tool.Road || tool === Tool.Pave ? Structure.Camp : tool === Tool.Field ? Structure.Farm : undefined;
-  if (needs === undefined) return [];
-  return [{ text: 'Complete ' + structureSpec(needs).name, done: toolAvailable(town, tool) }];
+  return kind !== undefined ? unlockRequirements(town, kind) : toolNeeds(town, tool);
 }

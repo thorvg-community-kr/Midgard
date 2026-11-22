@@ -37,6 +37,8 @@ export interface PartyState {
   realm: number;
   enteredAt: number;
   homeOrderedAt: number;
+  /** When the fighters were last sent out after raiders that hang back. */
+  salliedAt: number;
   /** Why no party went out at the last look, for the log. */
   note: string;
 }
@@ -55,6 +57,7 @@ export const partyState = (): PartyState => ({
   realm: -1,
   enteredAt: 0,
   homeOrderedAt: -1e9,
+  salliedAt: -1e9,
   note: '',
 });
 const centre = (items: readonly { position: Point }[]): Point =>
@@ -88,6 +91,30 @@ export function defend(ctx: TitleContext, state: PartyState): boolean {
   if (away.length) order(ctx, `rally:${town.clock() | 0}`, [], () => (town.orderAttackMove(away.map((p) => p.id), rally), true));
   if (near && ready.length)
     order(ctx, `defend:${near.id}:${town.clock() | 0}`, [], () => (town.orderAttackMove(ready.map((p) => p.id), near.position), true));
+  return true;
+}
+/**
+ * Raiders that hang back far from home keep the raid alive, and with it everything that waits for the raid to
+ * end. By day the fit fighters go out together and finish them, as a player would.
+ */
+export function sally(ctx: TitleContext, state: PartyState): boolean {
+  const { town } = ctx,
+    seat = town.camp(),
+    day = town.dayFraction();
+  if (!seat || !town.raiding() || town.realmActive() || day < 0.3 || day > 0.7) return false;
+  const raiders = town.monsters().filter((m) => m.health > 0 && m.raider && !m.insideLair && !town.inRealm(m.position));
+  if (!raiders.length) return false;
+  const fighters = fitFighters(town).filter((p) => !ctx.party.has(p.id));
+  if (fighters.length < 2) return false;
+  for (const p of fighters) take(ctx, p);
+  if (town.clock() - state.salliedAt < 15) return true;
+  const target = raiders
+    .filter((m) => town.grid.path(seat.door(), m.position).length > 0)
+    .sort((a, b) => distance(a.position, seat.center) - distance(b.position, seat.center))[0];
+  if (!target) return false;
+  state.salliedAt = town.clock();
+  state.note = 'out after the last raiders';
+  order(ctx, `sally:${target.id}:${town.clock() | 0}`, [], () => (town.orderAttackMove(fighters.map((p) => p.id), target.position), true));
   return true;
 }
 /** The nearest free helper kneels by each downed resident no monster stands over. */

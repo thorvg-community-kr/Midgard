@@ -4,7 +4,7 @@ import ThorVG, { type ThorVGNamespace } from '@thorvg/webcanvas';
 import { parseFontMetrics } from '../../packages/native-ui/src/fonts';
 import { Context, Rect } from '../../packages/native-ui/src';
 import { Structure, Resources, Product, structureSpec } from '../../packages/engine/src/building-catalog';
-import { Building } from '../../packages/engine/src/town-models';
+import { Building, Field } from '../../packages/engine/src/town-models';
 import { Town } from '../../packages/engine/src/town';
 import { Calling, Role, type Person } from '../../packages/engine/src/person';
 import { point } from '../../packages/engine/src/geometry';
@@ -17,12 +17,15 @@ import { DungeonKind } from '../../packages/engine/src/world-types';
 import { economyRules } from '../../packages/engine/src/economy-rules';
 import { GameAppState, DockView } from '../../apps/web/src/native/game-app-state';
 import type { GameHudApp } from '../../apps/web/src/native/game-hud-contract';
-import { commandCard, inspector, buildMenuBounds, buildGroups } from '../../apps/web/src/native/game-hud';
+import { commandCard, inspector, buildMenuBounds, buildGroups, openGroups } from '../../apps/web/src/native/game-hud';
 import { objectives } from '../../apps/web/src/native/game-objectives';
 import { calendarDetails } from '../../apps/web/src/native/game-sky-hud';
 import { winterOutlookLine } from '../../apps/web/src/native/camp-resource-hud';
 import { trackUnlocks, trackGearUse, freshGroup } from '../../apps/web/src/native/game-progress-hud';
 import { stationCrafter } from '../../apps/web/src/native/craft-station-hud';
+import { setGuidePreference } from '../../apps/web/src/native/guide-preferences';
+import { unlockOf } from '../../apps/web/src/native/game-guide';
+import { questRules } from '../../apps/web/src/native/game-objectives';
 import { Activity } from '../../packages/engine/src/person';
 import { addInventory } from '../../packages/engine/src/equipment';
 
@@ -95,6 +98,11 @@ function resident(town: Town, calling = Calling.Settler, level = 1): Person {
   p.level = level;
   town.folk.push(p);
   return p;
+}
+/** Stands what the founding quests ask for before the altar: bench, smithy, tent, farmhouse and a planted field. */
+function settled(town: Town): void {
+  for (const kind of [Structure.Workbench, Structure.Weaponsmith, Structure.Tent, Structure.Farm]) facility(town, kind);
+  town.farmland.push(new Field(77, [point(1, 1), point(5, 1), point(5, 5), point(1, 5)], 0));
 }
 /** A found, sealable gate (synthetic when the small map has none) and its index. */
 function gate(town: Town): number {
@@ -193,18 +201,19 @@ describe('quest panel', () => {
     try {
       resident(town);
       resident(town);
+      settled(town);
       goalPick.branch = (branch) => (branch === GoalBranch.Core ? goal : -1);
       questPanel(ui);
-      // Beds are free in the camp, so the altar is the way to grow; it is still locked here.
-      expect(ui.words()).toEqual(expect.arrayContaining(['Reach 4 residents', '2 / 4 residents', 'Show requirements']));
+      // Beds are free, so the altar is the way to grow: with none standing the quest leads to placing one.
+      expect(ui.words()).toEqual(expect.arrayContaining(['Reach 4 residents', '2 / 4 residents', 'Place Altar of Odin']));
       ui.click(`quest-action/${goal}`);
-      expect(ui.app.buildHint).toBe(Tool.Shrine);
+      expect(ui.app.selectTool).toHaveBeenCalledWith(Tool.Shrine);
       const altar = facility(town, Structure.Shrine);
       questPanel(ui);
       expect(ui.words()).toContain("Open Odin's altar");
       ui.click(`quest-action/${goal}`);
       expect(ui.app.selectBuilding).toHaveBeenCalledWith(altar.id);
-      // With every bed taken the answer is housing; a tent needs only the camp.
+      // With every bed taken the answer is housing.
       while (town.population() < town.housing()) resident(town);
       questPanel(ui);
       expect(ui.words()).toContain('Build housing');
@@ -218,7 +227,7 @@ describe('quest panel', () => {
   it('leads a crafting goal to a workbench, then to its list with the resident who can start it', () => {
     const town = settlement(),
       ui = fixture(town),
-      goal = goalIndex('Craft a wooden axe');
+      goal = goalIndex('Craft a wooden tool');
     try {
       const near = resident(town),
         carrier = resident(town);
@@ -226,7 +235,7 @@ describe('quest panel', () => {
       goalPick.branch = (branch) => (branch === GoalBranch.Core ? goal : -1);
       questPanel(ui);
       // No bench yet: the quest offers to place one.
-      expect(ui.words()).toEqual(expect.arrayContaining(['Craft a wooden axe', 'Wood 0 / 3 for Wooden axe', 'Place Workbench']));
+      expect(ui.words()).toEqual(expect.arrayContaining(['Craft a wooden tool', 'Wood 0 / 3 for Wooden axe', 'Place Workbench']));
       ui.click(`quest-action/${goal}`);
       expect(ui.app.selectTool).toHaveBeenCalledWith(Tool.Workbench);
       const bench = facility(town, Structure.Workbench);
@@ -367,8 +376,10 @@ describe('quest panel', () => {
       goalPick.branch = (branch) => (branch === GoalBranch.Arms ? goal : -1);
       questPanel(ui);
       expect(ui.words()).toEqual(
-        expect.arrayContaining(['Arms', 'Swear a fighter', '0 / 1 residents sworn to a calling', 'Show requirements']),
+        expect.arrayContaining(['Arms', 'Swear a fighter', '0 / 1 residents sworn to a calling']),
       );
+      // The guild is still locked, so it is not in the build menu: no button rather than one that leads nowhere.
+      expect(ui.control(`quest-action/${goal}`)).toBeUndefined();
       const guild = facility(town, Structure.Guild);
       guild.progress = 1;
       questPanel(ui);
@@ -405,59 +416,84 @@ describe('build menu unlocks', () => {
     ui.app.dockView = DockView.Build;
     ui.draw(() => commandCard.call(ui.app, buildMenuBounds.call(ui.app, 1024, 768, true), 1, true, true));
   };
-  it('shows locked buildings greyed with their requirements and never places them', () => {
+  it('lists only what can be built: locked buildings and empty groups stay out of the menu', () => {
     const town = settlement(),
       ui = fixture(town);
     try {
-      page(ui, 'Arms & defence');
-      // The smithy moved beside the workbench and the armorer folded into it.
-      for (const label of ['Guild', 'Yard', 'Tower'])
-        expect(ui.control('global/card-pick-' + label)?.[3], label).toBe(true);
-      ui.click('global/card-pick-Tower');
-      expect(ui.app.selectTool).not.toHaveBeenCalled();
-      expect(ui.app.buildHint).toBe(Tool.Watchtower);
-      page(ui, 'Arms & defence');
-      expect(ui.words()).toEqual(
-        expect.arrayContaining([
-          'Watchtower',
-          'Complete Training yard',
-          'Beat off a raid',
-          'Locked: Complete Training yard · Beat off a raid',
-        ]),
-      );
-      // An open building is picked as before.
+      // A founded camp: roads, the camp itself and the workbench its quest asks for.
+      expect(openGroups(town).map(({ group }) => group.name)).toEqual(['Roads', 'Housing']);
+      page(ui, 'Housing');
+      for (const label of ['Camp', 'Workbench']) expect(ui.control('global/card-pick-' + label)?.[3], label).toBe(true);
+      for (const label of ['Tent', 'Smithy']) expect(ui.control('global/card-pick-' + label), label).toBeUndefined();
+      ui.click('global/card-pick-Workbench');
+      expect(ui.app.selectTool).toHaveBeenCalledWith(Tool.Workbench, false);
+      // A group with nothing to build is not offered.
+      page(ui, '');
+      expect(ui.control('global/card-group-Housing')).toBeDefined();
+      expect(ui.control('global/card-group-Food & materials')).toBeUndefined();
+      expect(ui.words()).not.toContain('Locked');
+      // A group keeps its page number while others open around it.
+      const before = buildGroups(town).findIndex((g) => g.name === 'Faith & arcane');
+      settled(town);
+      expect(openGroups(town).map(({ group }) => group.name)).toEqual(['Roads', 'Housing', 'Food & materials', 'Faith & arcane']);
+      expect(openGroups(town).find(({ group }) => group.name === 'Faith & arcane')!.page).toBe(before + 1);
+      // The list of groups shows only those with something to build, each by name while there is room.
+      page(ui, '');
+      expect(ui.control('global/card-group-Faith & arcane')).toBeDefined();
+      expect(ui.control('global/card-group-Arms & defence')).toBeUndefined();
+      expect(ui.words()).toContain('Housing');
       page(ui, 'Faith & arcane');
-      ui.click('global/card-pick-Runestone');
-      expect(ui.app.selectTool).toHaveBeenCalledWith(Tool.Runestone, false);
-      // Every group stays in the menu, even when nothing in it can be built yet.
-      expect(buildGroups(town).map((g) => g.name)).toContain('Arms & defence');
+      expect(ui.control('global/card-pick-Altar')?.[3]).toBe(true);
+      expect(ui.control('global/card-pick-Chapel')).toBeUndefined();
     } finally {
       ui.dispose();
     }
   });
-  it('announces a new building once, marks it new until seen, and stays silent on load', () => {
+  it('opens on the buildings at once while a single group has something to build', () => {
+    // Nothing is founded yet: the camp is all there is to place.
+    const town = new Town(5, 32, false),
+      ui = fixture(town);
+    try {
+      expect(openGroups(town).map(({ group }) => group.name)).toEqual(['Housing']);
+      page(ui, '');
+      expect(ui.control('global/card-pick-Camp')).toBeDefined();
+      expect(ui.control('global/card-group-Housing')).toBeUndefined();
+    } finally {
+      ui.dispose();
+    }
+  });
+  it('gives each new building a card of its own, marks it new until seen, and stays silent on load', () => {
     const town = settlement(),
       camp = town.placed[0],
-      ui = fixture(town);
+      ui = fixture(town),
+      waiting = () => [ui.app.guide.card?.entry, ...ui.app.guide.queue].flatMap((entry) => (entry ? [unlockOf(entry)] : []));
     try {
       camp.progress = 0.5;
       trackUnlocks(ui.app);
-      expect(town.notices).toEqual([]);
+      expect(waiting()).toEqual([]);
       camp.progress = 1;
       trackUnlocks(ui.app);
-      expect(town.notices).toHaveLength(1);
-      expect(town.notices[0]).toMatch(/^Unlocked: /);
-      expect(town.notices[0]).toContain(structureSpec(Structure.Runestone).name);
+      // The finished camp opens one building: the workbench its quest asks for.
+      expect(waiting()).toEqual([Tool.Workbench]);
+      expect(town.notices).toEqual([]);
       trackUnlocks(ui.app);
-      expect(town.notices).toHaveLength(1);
-      const faith = buildGroups(town).find((g) => g.name === 'Faith & arcane')!;
-      expect(freshGroup(ui.app, faith.tools)).toBe(true);
-      page(ui, 'Faith & arcane');
+      expect(waiting()).toEqual([Tool.Workbench]);
+      const housing = buildGroups(town).find((g) => g.name === 'Housing')!;
+      expect(freshGroup(ui.app, housing.tools)).toBe(true);
+      page(ui, 'Housing');
       expect(ui.words()).toContain('New');
-      page(ui, '');
-      expect(freshGroup(ui.app, faith.tools)).toBe(false);
-      page(ui, 'Faith & arcane');
+      // Seen once and left: the mark is gone.
+      ui.app.dockView = DockView.Handle;
+      trackUnlocks(ui.app);
+      expect(freshGroup(ui.app, housing.tools)).toBe(false);
+      page(ui, 'Housing');
       expect(ui.words()).not.toContain('New');
+      // With cards switched off, a notice names what opened instead.
+      setGuidePreference('cards', false);
+      facility(town, Structure.Workbench);
+      addInventory(resident(town), 'wooden-axe');
+      trackUnlocks(ui.app);
+      expect(town.notices).toEqual(['Unlocked: Smithy']);
       // A loaded game is read silently.
       const loaded = settlement();
       ui.app.town = loaded;
@@ -465,6 +501,7 @@ describe('build menu unlocks', () => {
       expect(loaded.notices).toEqual([]);
       expect(ui.app.unlockFresh.size).toBe(0);
     } finally {
+      setGuidePreference('cards', true);
       ui.dispose();
     }
   });
@@ -483,24 +520,24 @@ describe('new mark clearing', () => {
   it('keeps a truly new kind marked', () => {
     const { ui } = unlocked();
     try {
-      expect(ui.app.unlockFresh.has(Tool.Runestone)).toBe(true);
+      expect(ui.app.unlockFresh.has(Tool.Workbench)).toBe(true);
     } finally {
       ui.dispose();
     }
   });
   it('clears the mark when a quest button picks the tool, leaving other new kinds marked', () => {
     const { ui } = unlocked(),
-      goal = goalIndex('Craft a wooden axe');
+      goal = goalIndex('Craft a wooden tool');
     try {
       ui.app.cue = vi.fn();
       ui.app.selectTool = selectTool;
-      ui.app.unlockFresh.add(Tool.Workbench);
+      ui.app.unlockFresh.add(Tool.Tent);
       goalPick.branch = (branch) => (branch === GoalBranch.Core ? goal : -1);
       questPanel(ui);
       ui.click(`quest-action/${goal}`);
       expect(ui.app.tool).toBe(Tool.Workbench);
       expect(ui.app.unlockFresh.has(Tool.Workbench)).toBe(false);
-      expect(ui.app.unlockFresh.has(Tool.Runestone)).toBe(true);
+      expect(ui.app.unlockFresh.has(Tool.Tent)).toBe(true);
     } finally {
       goalPick.branch = () => -1;
       ui.dispose();
@@ -509,9 +546,77 @@ describe('new mark clearing', () => {
   it('clears the mark once a building of that kind exists, however it got there', () => {
     const { town, ui } = unlocked();
     try {
-      facility(town, Structure.Runestone);
+      facility(town, Structure.Workbench);
       trackUnlocks(ui.app);
-      expect(ui.app.unlockFresh.has(Tool.Runestone)).toBe(false);
+      expect(ui.app.unlockFresh.has(Tool.Workbench)).toBe(false);
+    } finally {
+      ui.dispose();
+    }
+  });
+});
+
+describe('quest changes are hard to miss', () => {
+  it('says what a locked building waits for, and leads to it once the way is open', () => {
+    const town = settlement(),
+      ui = fixture(town),
+      goal = goalIndex('Build a training yard');
+    try {
+      goalPick.branch = (branch) => (branch === GoalBranch.Arms ? goal : -1);
+      ui.app.questBranch = GoalBranch.Arms;
+      questPanel(ui);
+      expect(ui.words()).toContain('Locked: Complete Guild');
+      // The guild cannot be placed either, so there is nothing to click yet.
+      expect(ui.control(`quest-action/${goal}`)).toBeUndefined();
+      const site = facility(town, Structure.Guild);
+      site.progress = 0.3;
+      questPanel(ui);
+      expect(ui.words()).toContain('Find construction site');
+      ui.click(`quest-action/${goal}`);
+      expect(ui.app.selectBuilding).toHaveBeenCalledWith(site.id);
+      site.progress = 1;
+      questPanel(ui);
+      expect(ui.words()).toContain('Place Training yard');
+    } finally {
+      ui.dispose();
+    }
+  });
+  it('lays a ribbon over the panel when a quest is fulfilled, then marks the next one as new', () => {
+    const town = settlement(),
+      ui = fixture(town),
+      at = (seconds: number) => {
+        ui.app.dockBounds = new Rect(200, 640, 600, 100);
+        ui.context.begin(ui.app.theme, new Rect(0, 0, 1024, 768), seconds);
+        ui.controls.mockClear();
+        objectives.call(ui.app, 1024, 768, 64);
+        ui.context.end();
+      };
+    try {
+      at(1);
+      expect(ui.app.questDone).toBe('');
+      facility(town, Structure.Workbench);
+      at(2);
+      expect(ui.app.questDone).toBe('Build a workbench');
+      expect(ui.app.noticeFeed.map((notice) => notice.text)).toEqual(['Quest complete: Build a workbench']);
+      expect(ui.app.cues).toHaveLength(1);
+      // The ribbon shows for a moment; the quest that follows is then marked as new for a while.
+      expect(ui.app.questsAnimating).toBe(true);
+      at(2 + questRules.ribbon + 0.1);
+      expect(ui.app.questNewAt).toBe(2);
+      expect(ui.app.questShown).toBe(goalIndex('Craft a wooden tool'));
+      at(2 + questRules.fresh + 0.1);
+      expect(ui.app.questsAnimating).toBe(false);
+    } finally {
+      ui.dispose();
+    }
+  });
+  it('still names the quest and its progress when folded away', () => {
+    const town = settlement(),
+      ui = fixture(town);
+    try {
+      ui.app.objectivesCollapsed = true;
+      questPanel(ui);
+      expect(ui.words()).toContain('Build a workbench');
+      expect(ui.words()).not.toContain('Quests');
     } finally {
       ui.dispose();
     }

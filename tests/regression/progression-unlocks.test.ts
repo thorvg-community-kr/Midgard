@@ -262,13 +262,18 @@ describe('unlocks by deeds', () => {
     facility(town, Structure.Guild);
     expect(buildingUnlock(town, Structure.TrainingYard).available).toBe(true);
     expect(buildingUnlock(town, Structure.Watchtower).reason).toBe('Complete Training yard');
-    // The smithy comes early: it follows the workbench, not the guild.
-    expect(buildingUnlock(town, Structure.Weaponsmith).reason).toBe('Complete Workbench');
+    // The smithy comes early: it follows the workbench and its first tool, not the guild.
+    expect(unlockRequirements(town, Structure.Weaponsmith).map((r) => r.text)).toEqual([
+      'Reach the quest "Build a smithy"',
+      'Complete Workbench',
+    ]);
     facility(town, Structure.TrainingYard);
     expect(buildingUnlock(town, Structure.Watchtower)).toEqual({ available: false, reason: 'Beat off a raid' });
     town.chronicle.raidsRepelled = 1;
     expect(buildingUnlock(town, Structure.Watchtower).available).toBe(true);
     facility(town, Structure.Workbench);
+    expect(buildingUnlock(town, Structure.Weaponsmith).reason).toBe('Reach the quest "Build a smithy"');
+    addInventory(town.people()[0], 'wooden-mallet');
     expect(buildingUnlock(town, Structure.Weaponsmith).available).toBe(true);
     // Iron is the smithy's top level: it asks for a cleared floor, as the armorer did.
     for (const kind of [Structure.Sawmill, Structure.Stoneworks]) facility(town, kind);
@@ -280,34 +285,73 @@ describe('unlocks by deeds', () => {
     // The armorer is no longer built.
     expect(structureSpec(Structure.Armorer).buildable).toBe(false);
   });
-  it('puts the runestone and the apothecary early on the faith branch', () => {
+  it('offers the runestone once there is a deed or a loss to remember, and the apothecary after the altar', () => {
     const { town } = settlement();
-    expect(buildingUnlock(town, Structure.Runestone).available).toBe(true);
+    expect(buildingUnlock(town, Structure.Runestone).reason).toBe('Slay a floor guardian');
+    town.chronicle.guardiansSlain = 1;
     expect(toolAvailable(town, Tool.Runestone)).toBe(true);
-    residents(town, 5);
+    town.chronicle.guardiansSlain = 0;
+    expect(toolAvailable(town, Tool.Runestone)).toBe(false);
+    // SAFETY: the unlock only counts the fallen; the record's fields are not read.
+    town.fallen.push({} as (typeof town.fallen)[number]);
+    expect(toolAvailable(town, Tool.Runestone)).toBe(true);
+    residents(town, 7);
     expect(buildingUnlock(town, Structure.Apothecary).reason).toBe('Complete Altar of Odin');
     facility(town, Structure.Shrine);
-    expect(buildingUnlock(town, Structure.Apothecary).reason).toBe('Needs 6 residents');
-    residents(town, 6);
+    expect(buildingUnlock(town, Structure.Apothecary).reason).toBe('Needs 8 residents');
+    residents(town, 8);
     expect(buildingUnlock(town, Structure.Apothecary).available).toBe(true);
     expect(buildingUnlock(town, Structure.Chapel).reason).toBe('Needs 10 residents');
     expect(structureSpec(Structure.Apothecary).cost.mana).toBe(0);
     expect(buildingUnlock(town, Structure.MageTower).reason).toBe('Complete Apothecary');
   });
-  it('opens shelter, food and water with the camp, yards along a road and the altar after a home and a farm', () => {
+  it('brings each founding building into the menu with its quest, one at a time', () => {
     const { town } = settlement();
-    for (const kind of [Structure.Tent, Structure.Farm, Structure.Well])
-      expect(buildingUnlock(town, kind), structureSpec(kind).name).toEqual({ available: true, reason: '' });
-    for (const kind of [Structure.Lumberyard, Structure.Quarry])
-      expect(buildingUnlock(town, kind).reason, structureSpec(kind).name).toBe('Complete a road');
+    // A founded camp asks for a workbench: nothing else of the chain is offered yet.
+    expect(buildingUnlock(town, Structure.Workbench)).toEqual({ available: true, reason: '' });
+    expect(buildingUnlock(town, Structure.Tent).reason).toBe('Reach the quest "Build a tent"');
+    expect(buildingUnlock(town, Structure.Farm).reason).toBe('Reach the quest "Build a farmhouse"');
+    expect(buildingUnlock(town, Structure.Well).reason).toBe('Reach the quest "Build a well"');
+    // Roads are not kept back: they are the settlement's own from the first camp.
+    expect(toolAvailable(town, Tool.Road)).toBe(true);
     expect(unlockRequirements(town, Structure.Shrine)).toEqual([
-      { text: 'Complete Tent', done: false },
-      { text: 'Complete Farmhouse', done: false },
+      { text: 'Reach the quest "Build an altar"', done: false },
+      { text: 'Complete Tent', done: false, facility: Structure.Tent },
+      { text: 'Complete Farmhouse', done: false, facility: Structure.Farm },
     ]);
+    // What the settlement already has is known, whatever the quest; a later one still waits its turn.
     facility(town, Structure.Tent);
-    expect(buildingUnlock(town, Structure.Shrine).reason).toBe('Complete Farmhouse');
+    expect(buildingUnlock(town, Structure.Tent).available).toBe(true);
+    expect(buildingUnlock(town, Structure.Farm).reason).toBe('Reach the quest "Build a farmhouse"');
+    // Each finished step opens exactly the next building of the chain.
+    const chain = settlementGoals().filter((goal) => goal.branch === GoalBranch.Core),
+      staged = chain.filter((goal) => goal.kind === GoalKind.Building && goal.building !== Structure.Camp),
+      open = () => staged.filter((goal) => buildingUnlock(town, goal.building).available).map((goal) => goal.title);
+    expect(open()).toEqual(['Build a workbench', 'Build a tent']);
+    facility(town, Structure.Workbench);
+    residents(town, 1);
+    addInventory(town.people()[0], 'wooden-axe');
+    expect(open()).toEqual(['Build a workbench', 'Build a smithy', 'Build a tent']);
+  });
+  it('keeps the depots, the granary, lodging and paving back until their own step', () => {
+    const { town } = settlement();
+    for (const [kind, needs] of [
+      [Structure.Torch, 'Complete Altar of Odin'],
+      [Structure.WoodStore, 'Complete Stoneworks'],
+      [Structure.StoneStore, 'Complete Timber store'],
+      [Structure.Granary, 'Complete Farmhouse'],
+      [Structure.Hostel, 'Complete Tent'],
+      [Structure.MarketStalls, 'Complete Tavern'],
+    ] as const)
+      expect(buildingUnlock(town, kind).reason, structureSpec(kind).name).toBe(needs);
     facility(town, Structure.Farm);
-    expect(buildingUnlock(town, Structure.Shrine).available).toBe(true);
+    facility(town, Structure.Tent);
+    expect(buildingUnlock(town, Structure.Granary).reason).toBe('Needs 5 residents');
+    expect(buildingUnlock(town, Structure.Hostel).reason).toBe('Needs 4 residents');
+    // Paving is laid in stone.
+    expect(toolAvailable(town, Tool.Pave)).toBe(false);
+    facility(town, Structure.Quarry);
+    expect(toolAvailable(town, Tool.Pave)).toBe(true);
   });
   it('opens the portal only after a gate is sealed', () => {
     const { town, gate } = settlement();
@@ -330,14 +374,13 @@ describe('unlocks by deeds', () => {
       }
     };
     check();
-    expect(unlockRequirements(town, Structure.Weaponsmith).map((r) => r.text)).toEqual(['Complete Workbench']);
     residents(town, 12);
     facility(town, Structure.Guild);
     facility(town, Structure.TrainingYard);
     town.chronicle.raidsRepelled = 2;
     check();
     expect(unlockRequirements(town, Structure.Watchtower)).toEqual([
-      { text: 'Complete Training yard', done: true },
+      { text: 'Complete Training yard', done: true, facility: Structure.TrainingYard },
       { text: 'Beat off a raid', done: true },
     ]);
     expect(unlockRequirements(town, Structure.Camp)).toEqual([]);
@@ -422,14 +465,11 @@ describe('quests that follow the combat loop', () => {
   it('opens every founding step with the steps before it, crafting before shelter and the altar after homes and food', () => {
     const { town } = settlement(),
       chain = goals.filter((goal) => goal.branch === GoalBranch.Core && goal.building !== Structure.Camp);
-    expect(chain.map((goal) => goal.title).slice(0, 20)).toEqual([
+    expect(chain.map((goal) => goal.title)).toEqual([
       'Build a workbench',
-      'Craft a wooden axe',
-      'Craft wooden tools',
+      'Craft a wooden tool',
       'Build a smithy',
-      'Make a first weapon',
-      'Make a shield',
-      'Equip both founders',
+      'Make a weapon or a shield',
       'Build a tent',
       'Build a farmhouse',
       'Plant a field',
@@ -443,6 +483,7 @@ describe('quests that follow the combat loop', () => {
       'Upgrade the smithy',
       'Build a storehouse',
       'Build a sawmill',
+      'Build stoneworks',
     ]);
     for (const goal of chain) {
       if (goal.kind === GoalKind.Building)
@@ -472,21 +513,81 @@ describe('quests that follow the combat loop', () => {
       fulfil(town, goal);
     }
   });
+  it('opens one thing in the build menu at each founding step', () => {
+    const { town } = settlement(),
+      chain = goals.filter((goal) => goal.branch === GoalBranch.Core && goal.building !== Structure.Camp),
+      placing: Tool[] = [];
+    for (let tool = 0; tool < Tool.Count; ++tool)
+      if (toolStructure(tool) !== undefined || tool === Tool.Road || tool === Tool.Pave || tool === Tool.Field)
+        placing.push(tool);
+    const known = new Set(placing.filter((tool) => toolAvailable(town, tool)));
+    expect([...known].map((tool) => Tool[tool])).toEqual(['Road', 'Camp', 'Workbench']);
+    const steps: string[] = [];
+    for (const goal of chain) {
+      fulfil(town, goal);
+      const opened = placing.filter((tool) => !known.has(tool) && toolAvailable(town, tool));
+      for (const tool of opened) known.add(tool);
+      steps.push(`${goal.title}: ${opened.map((tool) => Tool[tool]).join(' + ')}`);
+    }
+    // Never two at once: what is not in the chain waits for a step that brings nothing else.
+    expect(steps).toEqual([
+      'Build a workbench: ',
+      'Craft a wooden tool: Weaponsmith',
+      'Build a smithy: ',
+      'Make a weapon or a shield: Tent',
+      'Build a tent: Farm',
+      'Build a farmhouse: Field',
+      'Plant a field: Shrine',
+      'Build an altar: Torch',
+      'Reach 4 residents: Inn',
+      'Upgrade the workbench: ',
+      'Lay a road: Lumberyard',
+      'Build a lumberyard: Well',
+      'Build a well: Quarry',
+      'Build a quarry: Pave',
+      'Upgrade the smithy: Storehouse',
+      'Build a storehouse: Sawmill',
+      'Build a sawmill: Stoneworks',
+      'Build stoneworks: WoodStore',
+    ]);
+  });
+  it('passes the tool quest with any one wooden tool, and the arms quest with one weapon or a shield', () => {
+    const tool = goals.find((goal) => goal.title === 'Craft a wooden tool')!,
+      arm = goals.find((goal) => goal.title === 'Make a weapon or a shield')!;
+    for (const [goal, items] of [
+      [tool, ['wooden-axe', 'wooden-pick', 'wooden-mallet', 'wooden-hoe', 'wooden-shovel']],
+      [arm, ['wooden-sword', 'wooden-club', 'wooden-spear', 'short-bow', 'wooden-staff', 'shield']],
+    ] as const)
+      for (const id of items) {
+        const { town } = settlement();
+        residents(town, 1);
+        expect(goalComplete(town, goal), id).toBe(false);
+        addInventory(town.people()[0], id);
+        expect(goalComplete(town, goal), id).toBe(true);
+        expect(goalProgress(town, goal)).toEqual({ have: 1, need: 1, label: 'Crafted' });
+      }
+    // The founding chain asks for no other piece of gear.
+    expect(goals.filter((goal) => goal.branch === GoalBranch.Core && goal.kind !== GoalKind.Building).map((goal) => goal.title)).toEqual([
+      'Craft a wooden tool',
+      'Make a weapon or a shield',
+      'Plant a field',
+      'Reach 4 residents',
+      'Upgrade the workbench',
+      'Lay a road',
+      'Upgrade the smithy',
+    ]);
+  });
   it('keeps a passed crafting lesson when its maker is lost, and reports it done', () => {
     const { town } = settlement(),
-      axe = goals.find((goal) => goal.title === 'Craft a wooden axe')!,
-      equip = goals.find((goal) => goal.kind === GoalKind.Equip)!;
-    fulfil(town, axe);
-    fulfil(town, equip);
-    expect(goalComplete(town, axe)).toBe(true);
+      tool = goals.find((goal) => goal.title === 'Craft a wooden tool')!;
+    fulfil(town, tool);
+    expect(goalComplete(town, tool)).toBe(true);
     for (const p of town.people()) p.inventory.fill(null);
-    expect(goalComplete(town, axe)).toBe(false);
-    expect(goalProgress(town, axe).label).toBe('Wood 0 / 3 for Wooden axe');
+    expect(goalComplete(town, tool)).toBe(false);
+    expect(goalProgress(town, tool).label).toBe('Wood 0 / 3 for Wooden axe');
     facility(town, Structure.Tent);
-    expect(goalComplete(town, axe)).toBe(true);
-    expect(goalComplete(town, equip)).toBe(true);
-    expect(goalProgress(town, axe)).toEqual({ have: 1, need: 1, label: 'Crafted' });
-    expect(goalProgress(town, equip).have).toBe(2);
+    expect(goalComplete(town, tool)).toBe(true);
+    expect(goalProgress(town, tool)).toEqual({ have: 1, need: 1, label: 'Crafted' });
   });
   it('teaches the arms and saga loop with deeds', () => {
     const titles = (branch: GoalBranch) => goals.filter((g) => g.branch === branch).map((g) => g.title);

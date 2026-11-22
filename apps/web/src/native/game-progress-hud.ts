@@ -8,7 +8,6 @@ import {
   scoutPoint,
   unsourcedMaterial,
   type SettlementGoal,
-  type UnlockRequirement,
 } from '../../../../packages/engine/src/settlement-progression';
 import { Structure, Product, structureSpec } from '../../../../packages/engine/src/building-catalog';
 import type { Building } from '../../../../packages/engine/src/town-models';
@@ -36,8 +35,10 @@ import { drillRules } from '../../../../packages/engine/src/progression-rules';
 import { DungeonKind } from '../../../../packages/engine/src/world-types';
 import { DockView } from './game-app-state';
 import type { GameHudApp } from './game-hud-contract';
-import { buildMenuGroups, toolName } from './build-menu-tools';
+import { buildMenuGroups, toolName, toolRequirements } from './build-menu-tools';
 import { nearestStation, openStation, stationRows } from './craft-station-hud';
+import { announceUnlock } from './game-guide';
+import { Cue, Sound } from '../../../../packages/native-audio/src/sound-types';
 
 /** Breaks translated text into at most `lines` rows that fit `width`. */
 export function wrapText(context: Context, text: string, width: number, size: number, lines = 3): string[] {
@@ -74,17 +75,20 @@ export function trackUnlocks(app: GameHudApp): void {
     app.unlockKnown = new Set(menuTools().filter((tool) => toolAvailable(town, tool)));
     app.unlockFresh.clear();
     app.unlockViewed.clear();
-    app.buildHint = null;
     return;
   }
-  const opened: string[] = [];
+  // Each new building is announced by a card of its own; with cards switched off, one notice names them all.
+  const told: string[] = [];
+  let opened = 0;
   for (const tool of menuTools())
     if (!app.unlockKnown.has(tool) && toolAvailable(town, tool)) {
       app.unlockKnown.add(tool);
       app.unlockFresh.add(tool);
-      opened.push(toolName(tool));
+      ++opened;
+      if (!announceUnlock(app, tool)) told.push(toolName(tool));
     }
-  if (opened.length) town.notify('Unlocked: ' + opened.join(', '));
+  if (told.length) town.notify('Unlocked: ' + told.join(', '));
+  if (opened && app.cues.length < 32) app.cues.push(new Sound(Cue.Discover, 0.5, 0));
   // A kind the settlement already has a site or building of is no longer new, however it got there.
   if (app.unlockFresh.size) {
     const owned = new Set(town.buildings().filter(isPlayerBuilding).map((b) => b.kind));
@@ -96,10 +100,7 @@ export function trackUnlocks(app: GameHudApp): void {
       }
     }
   }
-  if (app.dockView !== DockView.Build) {
-    noteBuildPage(app, []);
-    app.buildHint = null;
-  }
+  if (app.dockView !== DockView.Build) noteBuildPage(app, []);
 }
 /** The build menu shows `shown` now: new tools seen on a page the player has left lose their mark. */
 export function noteBuildPage(app: GameHudApp, shown: readonly Tool[]): void {
@@ -125,55 +126,6 @@ export function freshMark(app: GameHudApp, bounds: Rect, tag: boolean): void {
   c.rect(r, t.danger, 6);
   c.text(r, 'New', t.accentText, 8, true, Align.Center);
 }
-/** A small padlock in a locked build card's corner. */
-export function lockMark(app: GameHudApp, bounds: Rect): void {
-  const c = app.context,
-    ink = app.theme.muted,
-    x = f32(bounds.x + 6),
-    y = f32(bounds.y + 5);
-  c.line(f32(x + 2), f32(y + 5), f32(x + 2), f32(y + 2), ink, 1.2);
-  c.line(f32(x + 2), f32(y + 2), f32(x + 7), f32(y + 2), ink, 1.2);
-  c.line(f32(x + 7), f32(y + 2), f32(x + 7), f32(y + 5), ink, 1.2);
-  c.rect(new Rect(x, f32(y + 5), 9, 7), ink, 1);
-}
-/** Lists every requirement of a locked card, ticked or open, beside the card with control `id`. */
-export function requirementTip(app: GameHudApp, id: string, tool: Tool, needs: readonly UnlockRequirement[]): void {
-  const c = app.context,
-    t = app.theme,
-    title = toolName(tool);
-  c.deferOverlay(
-    (area, controls) => {
-      const anchor = controls.find((control) => control.id === id)?.bounds;
-      if (!anchor || anchor.w <= 0 || anchor.h <= 0) return;
-      const widest = Math.max(c.textWidth(title, 11, true), ...needs.map((need) => c.textWidth(need.text, 11))),
-        w = Math.min(f32(area.w - 8), f32(widest + 40)),
-        h = f32(30 + 18 * needs.length),
-        x = Math.max(f32(area.x + 4), Math.min(f32(f32(area.x + area.w) - w - 4), f32(anchor.x + f32(anchor.w / 2) - w / 2))),
-        above = f32(anchor.y - h - 6),
-        y = above >= area.y + 4 ? above : Math.min(f32(anchor.y + anchor.h + 6), f32(area.y + area.h - h - 4)),
-        box = new Rect(x, y, w, h);
-      paperTag(c, box);
-      c.text(new Rect(f32(x + 10), f32(y + 6), f32(w - 20), 16), c.elideText(title, f32(w - 20), 11, true), t.ink, 11, true);
-      needs.forEach((need, i) => {
-        const row = f32(y + 26 + 18 * i),
-          mark = new Rect(f32(x + 10), f32(row + 4), 9, 9);
-        if (need.done) {
-          c.line(mark.x, f32(mark.y + 4), f32(mark.x + 3), f32(mark.y + 8), t.inkMuted, 1.8);
-          c.line(f32(mark.x + 3), f32(mark.y + 8), f32(mark.x + 9), mark.y, t.inkMuted, 1.8);
-        } else c.rect(mark, { ...t.surface, a: 0 }, 2, t.inkAccent, 1.4);
-        c.text(
-          new Rect(f32(x + 26), row, f32(w - 36), 17),
-          c.elideText(need.text, f32(w - 36), 11),
-          need.done ? t.inkMuted : t.ink,
-          11,
-        );
-      });
-    },
-    'build-requirements',
-    1,
-  );
-}
-
 // The first time a piece of gear does its work, say what it changed.
 const gearSeen = new WeakMap<Town, Set<string>>();
 function gearAtWork(p: Person): ItemSpec | null {
@@ -218,34 +170,57 @@ const toolOf = (kind: Structure): Tool | undefined => {
   for (let tool = 0; tool < Tool.Count; tool++) if (toolStructure(tool) === kind) return tool;
   return undefined;
 };
-/** Opens the build menu on the group holding `tool`, with its requirements listed when it is locked. */
-export function openBuildFor(app: GameHudApp, tool: Tool): void {
-  const page = buildMenuGroups.findIndex((group) => group.tools.includes(tool)) + 1;
-  app.selectTool(Tool.Select, true);
-  app.selected =
-    app.selectedDungeon =
-    app.selectedTree =
-    app.selectedTreeInstance =
-    app.selectedRock =
-    app.selectedAnimal =
-      -1;
-  app.selectedObjects = [];
-  app.card = app.chosen.length ? page : -1;
-  app.globalCard = app.chosen.length ? -1 : page;
-  app.drawerPinned = true;
-  app.drawerSuppressed = false;
-  app.buildHint = toolAvailable(app.town, tool) ? null : tool;
-}
-function placeAction(app: GameHudApp, tool: Tool): QuestAction {
-  return toolAvailable(app.town, tool)
-    ? { label: 'Place ' + toolName(tool), run: () => app.selectTool(tool) }
-    : { label: 'Show requirements', run: () => openBuildFor(app, tool) };
-}
 function look(app: GameHudApp, x: number, y: number): void {
   const p = project(x, y);
   app.camera.x = p.x;
   app.camera.y = p.y;
 }
+function siteAction(app: GameHudApp, site: Building): QuestAction {
+  return {
+    label: 'Find construction site',
+    run: () => {
+      app.selectBuilding(site.id);
+      look(app, site.center.x, site.center.y);
+    },
+  };
+}
+/** New residents come from the altar while a bed is free; otherwise the answer is housing. */
+function populationAction(app: GameHudApp): QuestAction | null {
+  const town = app.town;
+  if (town.housing() > town.population()) {
+    const altar = visitAction(app, Structure.Shrine, "Open Odin's altar");
+    if (altar) return altar;
+  }
+  return toolAvailable(town, Tool.Tent) ? { label: 'Build housing', run: () => app.selectTool(Tool.Tent) } : null;
+}
+/**
+ * Places `tool`, or, while it is still locked, leads to the first thing it waits for: the building that must
+ * stand first (and what that one waits for in turn), a road, or more residents. A locked building is not in
+ * the build menu, so this is how the player gets to it.
+ */
+function placeAction(app: GameHudApp, tool: Tool, depth = 0): QuestAction | null {
+  const town = app.town,
+    missing = toolRequirements(town, tool).find((need) => !need.done);
+  if (!missing) return { label: 'Place ' + toolName(tool), run: () => app.selectTool(tool) };
+  if (depth > 4) return null;
+  if (missing.facility !== undefined) {
+    const kind = missing.facility,
+      site = town.buildings().find((b) => b.kind === kind && !b.built() && isPlayerBuilding(b)),
+      next = toolOf(kind);
+    return site ? siteAction(app, site) : next === undefined ? null : placeAction(app, next, depth + 1);
+  }
+  if (missing.road)
+    return toolAvailable(town, Tool.Road) ? { label: 'Draw a road', run: () => app.selectTool(Tool.Road) } : null;
+  if (missing.residents) return populationAction(app);
+  return null;
+}
+/** What a building or tool still waits for, as one line for the quest panel; '' when it can be placed. */
+export function lockedLine(town: Town, tool: Tool): string {
+  const missing = toolRequirements(town, tool).filter((need) => !need.done);
+  return missing.length ? 'Locked: ' + missing.map((need) => need.text).join(' · ') : '';
+}
+/** The tool that places `kind`, if the build menu has one. */
+export const buildingTool = (kind: Structure): Tool | undefined => toolOf(kind);
 /** Selects a finished building of `kind`, or offers to place one. */
 function visitAction(app: GameHudApp, kind: Structure, label: string): QuestAction | null {
   const site = app.town.buildings().find((b) => b.kind === kind && b.built() && isPlayerBuilding(b));
@@ -330,14 +305,7 @@ function craftAction(app: GameHudApp, goal: SettlementGoal): QuestAction | null 
     const site = app.town
       .buildings()
       .find((b) => b.kind === kind && !b.built() && isPlayerBuilding(b));
-    if (site)
-      return {
-        label: 'Find construction site',
-        run: () => {
-          app.selectBuilding(site.id);
-          look(app, site.center.x, site.center.y);
-        },
-      };
+    if (site) return siteAction(app, site);
     const tool = toolOf(kind);
     return app.town.camp() && tool !== undefined ? placeAction(app, tool) : placeAction(app, Tool.Camp);
   }
@@ -389,14 +357,7 @@ export function questAction(app: GameHudApp, goal: SettlementGoal): QuestAction 
       const lacking = site ? unsourcedMaterial(town, site) : null;
       if (site && lacking !== null)
         return { label: lacking === Product.Stone ? 'Scout for stone' : 'Scout for trees', run: () => scout(app) };
-      if (site)
-        return {
-          label: 'Find construction site',
-          run: () => {
-            app.selectBuilding(site.id);
-            look(app, site.center.x, site.center.y);
-          },
-        };
+      if (site) return siteAction(app, site);
       const tool = toolOf(goal.building);
       return tool === undefined ? null : placeAction(app, tool);
     }
@@ -408,16 +369,8 @@ export function questAction(app: GameHudApp, goal: SettlementGoal): QuestAction 
       return toolAvailable(town, Tool.Field)
         ? { label: 'Plant a field', run: () => app.selectTool(Tool.Field) }
         : placeAction(app, Tool.Field);
-    case GoalKind.Population: {
-      // New residents come from the altar while a bed is free; otherwise the answer is housing.
-      if (town.housing() > town.population()) {
-        const altar = visitAction(app, Structure.Shrine, "Open Odin's altar");
-        if (altar) return altar;
-      }
-      return toolAvailable(town, Tool.Tent)
-        ? { label: 'Build housing', run: () => app.selectTool(Tool.Tent) }
-        : { label: 'Build housing', run: () => openBuildFor(app, Tool.Tent) };
-    }
+    case GoalKind.Population:
+      return populationAction(app);
     case GoalKind.Floor:
     case GoalKind.Seal:
       return { label: 'Plan an expedition', run: () => jumpToGate(app) };

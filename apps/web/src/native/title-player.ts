@@ -3,7 +3,7 @@
 import type { Town } from '../../../../packages/engine/src/town';
 import { OrderLedger } from './title-orders';
 import { available, living, type TitleContext } from './title-roster';
-import { commandRealm, defend, partyState, sendParty } from './title-party';
+import { commandRealm, defend, partyState, sally, sendParty } from './title-party';
 import { equipFree, planSettlement, type Shortfall } from './title-settlement-plan';
 import { callResidents } from './title-altar';
 import { keepWell } from './title-wellbeing';
@@ -49,7 +49,7 @@ export class TitlePlayer {
       staffed: this.staffed,
     };
     if (town.realmActive() || this.party.members.length) commandRealm(ctx, this.party);
-    const raided = defend(ctx, this.party);
+    const raided = defend(ctx, this.party) || sally(ctx, this.party);
     if (!raided) sendParty(ctx, this.party);
     keepWell(ctx);
     const plan = planSettlement(ctx);

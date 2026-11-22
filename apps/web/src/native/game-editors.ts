@@ -80,7 +80,8 @@ export function mapKey(this: GameEditorsApp, key: Key, shift = false): void {
 export function startMap(this: GameEditorsApp, map: WorldMap): void {
   this.campResources.reset();
   this.questsInitialized = this.questsAnimating = false;
-  this.questPulseAt = -1;
+  this.questPulseAt = this.questNewAt = -1;
+  this.questDone = '';
   const seed = map.seed();
   this.town = new Town(map);
   this.traffic = new Traffic(seed);

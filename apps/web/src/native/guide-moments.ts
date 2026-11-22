@@ -13,7 +13,7 @@ import { isPlayerBuilding, isPlayerResident } from '../../../../packages/engine/
 import { burdenStart, carriedWeight } from '../../../../packages/engine/src/carried-resources';
 import { carriedTools, equipmentSlots, equippedItem } from '../../../../packages/engine/src/equipment';
 import { gateSealed, sealFloors, sealProgress, sealable } from '../../../../packages/engine/src/gate-seals';
-import { completedFacility, deedCount, unlockRequirements } from '../../../../packages/engine/src/settlement-progression';
+import { completedFacility, deedCount } from '../../../../packages/engine/src/settlement-progression';
 import { secondSkillLevel } from '../../../../packages/engine/src/skill-catalog';
 import { playing } from '../../../../packages/engine/src/bard-phrases';
 import type { DevotionEvent } from '../../../../packages/engine/src/town-devotion';
@@ -632,22 +632,12 @@ function fallenOf(town: Town, id: number) {
   return town.fallen.find((f) => f.id === id) ?? null;
 }
 
-// One entry for the first finished building of each kind, from the catalog and the unlock rules.
-const unlockedBy = (town: Town, kind: Structure): Structure[] => {
-  const needed = 'Complete ' + structureSpec(kind).name,
-    out: Structure[] = [];
-  for (let other = 0; other < Structure.Count; ++other)
-    if (other !== kind && structureSpec(other).buildable && unlockRequirements(town, other).some((r) => r.text === needed))
-      out.push(other);
-  return out;
-};
-function buildingText(town: Town, kind: Structure): Line[] {
+// One entry for the first finished building of each kind, from the catalog. What it opens is told by the
+// card each new building gets when it comes into the build menu.
+function buildingText(_town: Town, kind: Structure): Line[] {
   const spec = structureSpec(kind),
     out: Line[] = [spec.description];
   if (spec.jobs > 0) out.push(spec.jobs === 1 ? 'One resident works here.' : line('Up to {0} residents work here.', spec.jobs));
-  const opens = unlockedBy(town, kind);
-  if (opens.length > 5) out.push(line('It opens the way to {0} more kinds of building.', opens.length));
-  else if (opens.length) out.push(line('It opens the way to {0}.', opens.map((k) => structureSpec(k).name).join(', ')));
   if (kind === Structure.Camp) out.push('Roads open with it: lay one with the Road tool in the build menu.');
   if (kind === Structure.Farm) out.push('Fields open with it: stake one out with the Field tool in the build menu.');
   return out;

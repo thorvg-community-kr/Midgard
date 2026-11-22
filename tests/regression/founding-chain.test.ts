@@ -300,14 +300,13 @@ describe('the founding chain in a real new game', () => {
   });
   it('makes and uses items before the altar, and grows the party before the first raid night', () => {
     const at = (title: string) => run.done.get(goals.findIndex((g) => g.title === title))!;
-    expect(at('Craft a wooden axe')).toBeLessThan(at('Build a smithy'));
-    expect(at('Build a smithy')).toBeLessThan(at('Make a shield'));
-    expect(at('Make a shield')).toBeLessThan(at('Build a tent'));
+    expect(at('Craft a wooden tool')).toBeLessThan(at('Build a smithy'));
+    expect(at('Build a smithy')).toBeLessThan(at('Make a weapon or a shield'));
+    expect(at('Make a weapon or a shield')).toBeLessThan(at('Build a tent'));
     expect(at('Upgrade the workbench')).toBeLessThan(at('Upgrade the smithy'));
-    expect(at('Equip both founders')).toBeLessThan(at('Build an altar'));
     expect(at('Build a farmhouse')).toBeLessThan(at('Build an altar'));
     // Raids start on the night of day 2; the smithy and the first arms come before it.
-    expect(at('Make a shield')).toBeLessThan(2);
+    expect(at('Make a weapon or a shield')).toBeLessThan(2);
     expect(run.firstNewcomer).toBeGreaterThan(0);
     expect(run.firstNewcomer).toBeLessThan(3.5);
     expect(at('Reach 4 residents')).toBeLessThan(days);
@@ -319,10 +318,11 @@ describe('the founding chain in a real new game', () => {
     expect(town.chronicle.weaponsForged).toBe(0);
     const founders = town.people().filter((q) => foundingPeople.some((f) => f.name === q.name));
     expect(founders).toHaveLength(2);
-    for (const p of founders)
+    // The chain asks for one tool and one piece of arms; both are really in a founder's pack or hand.
+    for (const workshop of [Structure.Workbench, Structure.Weaponsmith])
       expect(
-        p.inventory.some((stack) => stack && itemSpec(stack.item)?.workshop === Structure.Workbench),
-        p.name,
+        founders.some((p) => p.inventory.some((stack) => stack && itemSpec(stack.item)?.workshop === workshop)),
+        Structure[workshop],
       ).toBe(true);
   });
 });
