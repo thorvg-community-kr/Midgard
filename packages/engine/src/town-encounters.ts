@@ -160,7 +160,18 @@ export function stir(this: EncounterTown, dt: number): void {
             : add(beast.position, scale(sub(beast.path[0], beast.position), f(step / gap)));
       if ((!beast.raider && !steps(this.world, next)) ||
         (beast.raider && this.grid.walkable(beast.position) && !this.grid.clear(beast.position, next, Infinity))) {
-        beast.path = [];
+        // A leg can pass the coarse check and still clip the corner of a blocked cell. Refused outright, the
+        // same step is planned again for ever and the raid never ends: the raider slides along the corner.
+        const along = point(next.x, beast.position.y),
+          aside = point(beast.position.x, next.y),
+          wider = Math.abs(next.x - beast.position.x) >= Math.abs(next.y - beast.position.y),
+          slide = !beast.raider
+            ? undefined
+            : (wider ? [along, aside] : [aside, along]).find(
+                (to) => distance(to, beast.position) > f(1e-4) && this.grid.clear(beast.position, to, Infinity),
+              );
+        if (slide) beast.position = slide;
+        else beast.path = [];
         break;
       }
       beast.position = next;
