@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { Town } from '../../packages/engine/src/town';
@@ -45,6 +45,15 @@ function settlement() {
   return { town, mouth, members, ids: members.map(p => p.id) };
 }
 const resume = (town: Town) => decodeTown(encodeTown(town), map => new Town(map, 64, false, true));
+function hitDungeon(town: Town, resident: number, damage: number, gate = 0) {
+  const first = town.nextMonster, before = dungeonStatus(town, gate).health, p = town.person(resident)!;
+  p.ready = town.time;
+  const strength = vi.spyOn(town, 'blowStrength').mockReturnValueOnce(damage);
+  town.fight(p, 0);
+  strength.mockRestore();
+  expect(dungeonStatus(town, gate).health).toBe(Math.max(0, before - damage));
+  return town.beasts.filter(m => m.id >= first && m.lair === gate);
+}
 function breach() {
   const game = settlement(), { town, ids, members } = game;
   expect(town.orderAttackDungeon(ids, 0)).toBe(true);
@@ -85,6 +94,93 @@ describe('sieges in Midgard', () => {
     const savedAgain = resume(loaded);
     expect(dungeonStatus(savedAgain, 1)).toEqual(damaged);
     expect(savedAgain.creature(guardian.id)?.health).toBe(guardian.health);
+    const entrance = monsterEntrance(savedAgain.world.sites[1]);
+    const p = savedAgain.makePerson(Role.Resident, Calling.Warrior, entrance);
+    savedAgain.folk.push(p);
+    expect(savedAgain.orderAttackDungeon([p.id], 1)).toBe(true);
+    p.position = { ...p.goal };
+    expect(hitDungeon(savedAgain, p.id, 1, 1)).toHaveLength(0);
+    expect(hitDungeon(savedAgain, p.id, damaged.maxHealth / 4 - 1, 1).length).toBeGreaterThan(0);
+  });
+  it('releases a larger, stronger wave at each quarter, including across saves and hits from different settlers', () => {
+    const game = settlement(), { ids, mouth } = game;
+    let town = game.town;
+    expect(town.orderAttackDungeon(ids, 0)).toBe(true);
+    const full = dungeonStatus(town, 0).maxHealth;
+    const waves: Monster[][] = [];
+    for (const quarter of [3, 2, 1]) {
+      const threshold = full * quarter / 4;
+      expect(hitDungeon(town, ids[0], dungeonStatus(town, 0).health - threshold - 1)).toHaveLength(0);
+      const wave = hitDungeon(town, ids[1], 1);
+      expect(wave.length).toBeGreaterThan(0);
+      expect(wave.every(m => m.rank !== MonsterRank.Guardian && m.angry && town.grid.walkable(m.position))).toBe(true);
+      for (const m of wave) expect(distance(m.position, mouth)).toBeLessThan(4);
+      waves.push(wave);
+      town = resume(town);
+      for (const m of wave)
+        expect(town.creature(m.id)).toMatchObject({ rank: m.rank, level: m.level, health: m.health, strength: m.strength });
+      expect(hitDungeon(town, ids[0], 1)).toHaveLength(0);
+    }
+    expect(hitDungeon(town, ids[0], dungeonStatus(town, 0).health)).toHaveLength(0);
+    expect(dungeonStatus(town, 0).phase).toBe('summoning');
+    const next = town.nextMonster;
+    emerge(town);
+    const final = town.beasts.filter(m => m.id >= next && m.lair === 0);
+    expect(final.filter(m => m.rank === MonsterRank.Guardian)).toHaveLength(1);
+    waves.push(final);
+    for (let i = 1; i < waves.length; ++i) {
+      expect(waves[i].length).toBeGreaterThan(waves[i - 1].length);
+      for (const stat of ['vigor', 'strength', 'level'] as const)
+        expect(Math.min(...waves[i].map(m => m[stat]))).toBeGreaterThan(Math.min(...waves[i - 1].map(m => m[stat])));
+    }
+  });
+  it('releases every crossed wave on a single lethal strike and summons the guardian only after the collapse', () => {
+    const slow = settlement(), fast = settlement();
+    const full = dungeonStatus(slow.town, 0).maxHealth;
+    expect(slow.town.orderAttackDungeon(slow.ids, 0)).toBe(true);
+    expect(fast.town.orderAttackDungeon(fast.ids, 0)).toBe(true);
+    const expected = [];
+    for (let quarter = 0; quarter < 4; ++quarter) expected.push(...hitDungeon(slow.town, slow.ids[0], full / 4));
+    expect(expected.length).toBeGreaterThan(0);
+    const waves = hitDungeon(fast.town, fast.ids[0], full + 1);
+    const stats = (m: Monster) => [m.rank, m.level, m.vigor, m.strength];
+    expect(waves.map(stats)).toEqual(expected.map(stats));
+    expect(waves.some(m => m.rank === MonsterRank.Guardian)).toBe(false);
+    const loaded = resume(fast.town);
+    emerge(loaded);
+    loaded.stir(0);
+    expect(loaded.beasts.filter(m => m.rank === MonsterRank.Guardian)).toHaveLength(1);
+  });
+  it.each(['seal', 'revive'])('requires survivors of the first wave to fall, with %s as the outcome', outcome => {
+    const game = settlement(), { ids, mouth } = game;
+    let town = game.town;
+    const full = dungeonStatus(town, 0).maxHealth;
+    expect(town.orderAttackDungeon(ids, 0)).toBe(true);
+    const firstWave = hitDungeon(town, ids[0], full / 4);
+    expect(firstWave.length).toBeGreaterThan(0);
+    const survivor = firstWave[0].id;
+    hitDungeon(town, ids[1], full);
+    emerge(town);
+    for (const m of town.beasts) if (m.id !== survivor) m.health = 0;
+    const raider = new Monster(town.nextMonster++, 0, mouth);
+    raider.raider = true;
+    town.beasts.push(raider);
+    town.stir(0);
+    town = resume(town);
+    expect(dungeonStatus(town, 0)).toMatchObject({ phase: 'defending', creatures: 1 });
+    if (outcome === 'seal') town.creature(survivor)!.health = 0;
+    town.time = town.sieges[0]!.reviveAt;
+    town.stir(0);
+    expect(town.creature(raider.id)?.health).toBeGreaterThan(0);
+    expect(town.creature(survivor)).toBeNull();
+    expect(gateSealed(town, 0)).toBe(outcome === 'seal');
+    if (outcome === 'revive') {
+      expect(dungeonStatus(town, 0)).toMatchObject({ phase: 'standing', health: full });
+      expect(town.orderAttackDungeon(ids, 0)).toBe(true);
+      const p = town.person(ids[0])!;
+      p.position = { ...p.goal };
+      expect(hitDungeon(town, p.id, full / 4)).toHaveLength(firstWave.length);
+    }
   });
   it('walks and strikes in the open, and a new Move cancels an attack before arrival', () => {
     const { town, members, ids } = settlement();

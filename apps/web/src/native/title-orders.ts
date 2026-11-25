@@ -28,6 +28,7 @@ export const titleOrders = [
 ] as const;
 /** Town methods the title player reads; none changes the game. */
 export const titleReadings = [
+  'bleedOutLeft',
   'people',
   'person',
   'buildings',

@@ -18,7 +18,7 @@ export class Monster {
   health = 3; strength = 1; raider = false; angry = false; ready = 0; home = point(); prey = -1; race: Race | null = null; insideLair = false; provokedBy = -1; animal: AnimalKind | null = null;
   /** What kind of fighter this is; decides its size and manner. */
   rank = MonsterRank.Grunt;
-  /** Full health, for health bars; 0 when unknown (older saves). */
+  /** Full health, or zero when an older save has no record of it. */
   vigor = 0;
   /** Clock time a telegraphed area blow lands, or -1. */
   windupUntil = -1;
@@ -26,7 +26,7 @@ export class Monster {
   swingAt = -1;
   /** Clock time it climbed out of a den, or -1; not saved. */
   bornAt = -1;
-  /** Id of the den it came from or belongs to, or -1. */
+  /** Its den or guardian, its own id when defending a standing dungeon, or -1 if unaffiliated. */
   brood = -1;
   /** Ranch this animal belongs to. */
   pen = -1;

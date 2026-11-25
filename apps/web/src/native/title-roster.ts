@@ -39,6 +39,7 @@ const committed = [
   Activity.Praying,
   Activity.Training,
   Activity.Fighting,
+  Activity.Tending,
   Activity.Expedition,
 ];
 /** Moments the engine gives a resident for their own needs. */

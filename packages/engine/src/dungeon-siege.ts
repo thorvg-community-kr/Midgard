@@ -25,6 +25,7 @@ export const siegeRules = {
   summonSeconds: 3, reviveSeconds: 120, blastRadius: 4, knockback: 2.4,
   firstSlam: 3, slamPower: 0.9,
 };
+const finalWave = 4;
 interface AttackTown extends TownState {
   setOrder(p: Person, task: Activity, target?: number): void;
   walkTo(p: Person, to: Point): boolean;
@@ -47,18 +48,22 @@ export function dungeonWeaponTier(tier: number): 'stone' | 'iron' | 'regional' {
   return tier <= 2 ? 'stone' : tier <= 4 ? 'iron' : 'regional';
 }
 type DungeonChallenge = ReturnType<typeof dungeonChallenge>;
-function gateHealth(town: TownState, gate: number): number {
-  const { partySize, level } = dungeonChallenge(town, gate);
+function gateHealth({ partySize, level }: DungeonChallenge): number {
   return Math.round(partySize * (48 + 2.4 * level));
 }
+/** Early defenders lead themselves until they join the guardian's brood. Raiders have no brood. */
+export function siegeDefender(beast: Monster, gate: number, guardian: number): boolean {
+  if (beast.lair !== gate) return false;
+  return guardian >= 0 ? beast.brood === guardian : beast.brood === beast.id && beast.rank !== MonsterRank.Guardian;
+}
 export function dungeonStatus(town: TownState, gate: number) {
-  const siege = town.sieges[gate], maxHealth = gateHealth(town, gate);
+  const siege = town.sieges[gate], maxHealth = gateHealth(dungeonChallenge(town, gate));
   const phase = gateSealed(town, gate) ? 'sealed' : !siege || siege.health > 0 ? 'standing'
     : siege.guardian < 0 ? 'summoning' : 'defending';
   return {
     phase, health: phase === 'sealed' ? 0 : siege?.health ?? maxHealth, maxHealth,
     remaining: siege && siege.health === 0 ? Math.max(0, (phase === 'summoning' ? siege.summonAt : siege.reviveAt) - town.time) : 0,
-    creatures: phase === 'defending' && siege ? town.beasts.filter(b => b.health > 0 && b.lair === gate && b.brood === siege.guardian).length : 0,
+    creatures: phase === 'defending' && siege ? town.beasts.filter(b => b.health > 0 && siegeDefender(b, gate, siege.guardian)).length : 0,
   } as const;
 }
 export function dungeonAttackProblem(town: TownState, gate: number): string {
@@ -147,59 +152,75 @@ export function attackDungeon(town: AttackTown, p: Person, gate: number, dt: num
   }
   p.path = [];
   if (town.time < p.ready) return;
-  const siege = town.sieges[gate] ??= { health: gateHealth(town, gate), summonAt: -1, reviveAt: -1, guardian: -1, village: town.settlementOf(p) };
+  const challenge = dungeonChallenge(town, gate), maxHealth = gateHealth(challenge);
+  const siege = town.sieges[gate] ??= { health: maxHealth, summonAt: -1, reviveAt: -1, guardian: -1, village: town.settlementOf(p) };
   if (!town.opened(gate)) town.open[gate] = 1;
-  const damage = town.blowStrength(p);
-  siege.health = Math.max(0, f32(siege.health - damage));
+  const damage = town.blowStrength(p), before = siege.health;
+  siege.health = Math.max(0, f32(before - damage));
   p.ready = town.time + 1;
   p.swingAt = town.time;
   town.blows.push({ serial: town.nextBlow++, from: { ...p.position }, to: mouth, damage: Math.round(damage * 10),
     ranged: shoots(p), onPerson: false, person: p.id, attacker: p.id, at: town.time, strike: StrikeKind.Single, primary: true });
+  for (let wave = 1; wave < finalWave; ++wave) {
+    const threshold = maxHealth * (finalWave - wave) / finalWave;
+    if (before > threshold && siege.health <= threshold) summon(town, gate, siege, challenge, wave);
+  }
   if (siege.health === 0) collapse(town, gate, siege);
 }
 /** The guardian can weather the opening volley. Most of its brood fall to a single armed blow. */
-function prepareDefender(town: TownState, monster: Monster, rank: MonsterRank, challenge: DungeonChallenge) {
+function prepareDefender(town: TownState, monster: Monster, rank: MonsterRank, challenge: DungeonChallenge, wave: number) {
   const { tier, level, partySize } = challenge;
   const guardian = rank === MonsterRank.Guardian, brute = rank === MonsterRank.Brute;
-  monster.level = guardian || brute ? level : level - 2;
+  const power = wave / finalWave;
+  monster.level = Math.max(1, Math.round((guardian || brute ? level : level - 2) * power));
   const bite = guardian ? 0.035 + level * 0.013 : (brute ? 0.026 : 0.010) * (1 + level * 0.08);
   const guardianHealth = partySize * (64 + level * 3.2) * (1 + (tier - 1) * 0.08);
-  monster.health = f32(guardian ? Math.round(guardianHealth) : brute ? 8 + 1.3 * level : 1.8 + 0.07 * level);
-  monster.strength = f32(bite / breedOf(town.world.dungeons()[monster.lair].kind).bite);
+  monster.health = f32(power * (guardian ? Math.round(guardianHealth) : brute ? 8 + 1.3 * level : 1.8 + 0.07 * level));
+  monster.strength = f32(power * bite / breedOf(town.world.dungeons()[monster.lair].kind).bite);
   return rankMonster(monster, rank, false);
 }
 /** Earlier outdoor sieges used distance alone. Carry damage already dealt into the fixed campaign tiers. */
 export function migrateSiegeStrength(town: TownState, gate: number, siege: DungeonSiege, version: number) {
   const far = distance(gateCenter(town.world.dungeons()[gate]), town.world.camp());
   const oldHealth = (32 + Math.min(96, Math.round(far))) * (version === 25 ? 1 : 5);
-  siege.health = f32(gateHealth(town, gate) * Math.min(1, siege.health / oldHealth));
-  if (siege.guardian < 0) return;
   const challenge = dungeonChallenge(town, gate);
+  siege.health = f32(gateHealth(challenge) * Math.min(1, siege.health / oldHealth));
+  if (siege.guardian < 0) return;
   for (const monster of town.beasts) {
     if (monster.lair !== gate || monster.brood !== siege.guardian || monster.health <= 0) continue;
     const fraction = monster.vigor > 0 ? Math.min(1, monster.health / monster.vigor) : 1;
-    prepareDefender(town, monster, monster.rank, challenge);
+    prepareDefender(town, monster, monster.rank, challenge, finalWave);
     monster.health = f32(monster.vigor * fraction);
   }
 }
-function summon(town: TownState, gate: number, siege: DungeonSiege) {
+function summon(town: TownState, gate: number, siege: DungeonSiege, challenge: DungeonChallenge, wave: number) {
   const site = town.world.dungeons()[gate], at = town.grid.nearestWalkable(monsterEntrance(site));
-  const challenge = dungeonChallenge(town, gate);
-  const count = challenge.partySize * 2 + 2 * challenge.tier;
-  siege.guardian = town.nextMonster;
-  for (let i = 0; i <= count; ++i) {
-    const slot = add(at, rotated(point(0.65 + (i % 4) * 0.34, 0), i * 2.39996));
+  const last = wave === finalWave;
+  const hordeSize = Math.ceil((challenge.partySize + challenge.tier) * 2 * wave / finalWave);
+  const count = last ? hordeSize + 1 : hordeSize;
+  if (last) {
+    siege.guardian = town.nextMonster;
+    for (const beast of town.beasts)
+      if (siegeDefender(beast, gate, -1)) beast.brood = siege.guardian;
+  }
+  for (let i = 0; i < count; ++i) {
+    const slot = add(at, rotated(point(0.65 + (i % 4) * 0.34, 0), (i + wave) * 2.39996));
     const position = i && town.grid.walkable(slot) && town.grid.clear(at, slot, Infinity) ? slot : { ...at };
     const monster = new Monster(town.nextMonster++, gate, position);
-    const rank = i === 0 ? MonsterRank.Guardian : i % 10 === 0 ? MonsterRank.Brute : MonsterRank.Swarmer;
-    monster.brood = siege.guardian;
+    const brute = wave >= finalWave - 1 && i > 0 && i % (last ? 10 : 15) === 0;
+    const rank = last && i === 0 ? MonsterRank.Guardian : brute ? MonsterRank.Brute : MonsterRank.Swarmer;
+    monster.brood = last ? siege.guardian : monster.id;
     monster.home = { ...at };
     monster.bornAt = town.time;
     monster.angry = true;
-    town.beasts.push(prepareDefender(town, monster, rank, challenge));
+    town.beasts.push(prepareDefender(town, monster, rank, challenge, wave));
   }
-  town.emit(CombatCue.SiegeHorde, at, { gate, creature: siege.guardian, amount: count + 1 });
-  town.notify(`Defeat the guardian and every defender before ${site.name} rises again.`);
+  if (last) {
+    town.emit(CombatCue.SiegeHorde, at, { gate, creature: siege.guardian, amount: count });
+    town.notify(`Defeat the guardian and every defender before ${site.name} rises again.`);
+  } else {
+    town.notify(`Defenders pour out of ${site.name}.`);
+  }
   ++town.changes;
 }
 function seal(town: RewardTown, gate: number, siege: DungeonSiege) {
@@ -227,10 +248,10 @@ export function advanceSieges(town: RewardTown) {
     const siege = town.sieges[gate];
     if (!siege || siege.health > 0) continue;
     if (siege.guardian < 0) {
-      if (town.time >= siege.summonAt) summon(town, gate, siege);
+      if (town.time >= siege.summonAt) summon(town, gate, siege, dungeonChallenge(town, gate), finalWave);
       continue;
     }
-    const defender = (b: Monster) => b.lair === gate && b.brood === siege.guardian;
+    const defender = (b: Monster) => siegeDefender(b, gate, siege.guardian);
     if (!town.beasts.some(b => b.health > 0 && defender(b))) seal(town, gate, siege);
     else if (town.time < siege.reviveAt) continue;
     else {

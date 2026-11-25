@@ -54,7 +54,7 @@ function assault(map: WorldMap, tier: number, gear: Gear, size?: number, level?:
   town.reveal(mouth.x, mouth.y, 14);
   expect(town.orderAttackDungeon(members.map(p => p.id), gate)).toBe(true);
   const structureHealth = dungeonStatus(town, gate).maxHealth;
-  let seconds = 0, breachAt = -1, largestWave = 0, guardianHealth = 0, summonedAt = -1, warned = false;
+  let seconds = 0, breachAt = -1, finalWave = 0, guardianHealth = 0, summonedAt = -1, warned = false;
   for (; seconds < 290; seconds += 0.2) {
     town.advance(0.2);
     const status = dungeonStatus(town, gate);
@@ -62,7 +62,7 @@ function assault(map: WorldMap, tier: number, gear: Gear, size?: number, level?:
     const guardian = town.sieges[gate]?.guardian;
     for (const cue of town.events) {
       if (cue.cue === CombatCue.SiegeHorde && cue.gate === gate && summonedAt < 0) {
-        largestWave = cue.amount;
+        finalWave = cue.amount;
         guardianHealth = town.creature(cue.creature)!.vigor;
         expect(town.creature(cue.creature)!.level).toBe(challenge.level);
         summonedAt = seconds;
@@ -71,7 +71,8 @@ function assault(map: WorldMap, tier: number, gear: Gear, size?: number, level?:
     }
     if (status.phase === 'sealed' || (breachAt >= 0 && status.phase === 'standing')) break;
   }
-  return { town, gate, challenge, seconds, breachAt, largestWave, members, structureHealth, guardianHealth, summonedAt, warned };
+  const defenderWaves = town.notices.filter(line => line === `Defenders pour out of ${site.name}.`).length;
+  return { town, gate, challenge, seconds, breachAt, defenderWaves, finalWave, members, structureHealth, guardianHealth, summonedAt, warned };
 }
 
 describe('outdoor dungeon campaign difficulty', () => {
@@ -86,13 +87,20 @@ describe('outdoor dungeon campaign difficulty', () => {
       expect(r.challenge).toEqual({ tier, level: 10 * tier, partySize: 9 + tier });
       expect(dungeonWeaponTier(tier)).toBe(gear);
       expect(r.breachAt).toBeGreaterThan(8);
-      expect(r.largestWave).toBeGreaterThan(2 * r.members.length);
+      expect(r.defenderWaves).toBe(3);
+      expect(r.finalWave).toBeGreaterThan(2 * r.members.length);
       expect(r.guardianHealth).toBeGreaterThan(r.structureHealth);
       expect(r.warned).toBe(true);
       expect(r.seconds - r.summonedAt).toBeGreaterThan(8);
       expect(dungeonStatus(r.town, r.gate).phase).toBe('sealed');
     }, 120000,
   );
+
+  it('lets the recommended final party clear the defenders on another approach', () => {
+    const r = assault(WorldMap.generate(3), 8, 'regional');
+    expect(r.defenderWaves).toBe(3);
+    expect(dungeonStatus(r.town, r.gate).phase).toBe('sealed');
+  }, 120000);
 
   it.each([[1, 4, 4, 'wood'], [8, 40, 13, 'iron']] as const)(
     'lets tier %i revive against an understrength party of level %i', (tier, level, size, gear) => {

@@ -1,15 +1,17 @@
-import { describe, expect, it } from 'vitest';
-import { Calling, Person, Race, Role } from '../../packages/engine/src/person';
+import { describe, expect, it, vi } from 'vitest';
+import { Activity, Calling, Monster, Person, Race, Role } from '../../packages/engine/src/person';
 import { addInventory } from '../../packages/engine/src/equipment';
 import { point } from '../../packages/engine/src/geometry';
 import { partyLevel, partyVerdict, Verdict } from '../../apps/web/src/native/swarm-hud';
-import { readyParty, sendParty, partyState } from '../../apps/web/src/native/title-party';
+import { commandSiege, defend, readyParty, sendParty, partyState } from '../../apps/web/src/native/title-party';
+import { available } from '../../apps/web/src/native/title-roster';
 import { OrderLedger } from '../../apps/web/src/native/title-orders';
 import { Traffic } from '../../apps/web/src/native/title-traffic';
 import { Town } from '../../packages/engine/src/town';
 import { Building } from '../../packages/engine/src/town-models';
 import { Structure } from '../../packages/engine/src/building-catalog';
-import { dungeonChallenge } from '../../packages/engine/src/dungeon-siege';
+import { dungeonChallenge, dungeonStatus, targetedDungeon } from '../../packages/engine/src/dungeon-siege';
+import { monsterEntrance } from '../../packages/engine/src/town-monsters';
 import { sealable } from '../../packages/engine/src/gate-seals';
 import { WorkEfficiency } from '../../packages/engine/src/work-efficiency';
 
@@ -30,6 +32,10 @@ function expeditionTown() {
   town.open[gate] = 1;
   town.editHour(10);
   return { town, camp };
+}
+function context(town: Town) {
+  return { town, free: [...town.folk], party: new Set<number>(), step: 0, seed: 5, ledger: new OrderLedger(),
+    later: new Map<string, number>(), staffed: new Map<number, number>(), efficiency: new WorkEfficiency(town), traffic: new Traffic() };
 }
 describe('the title party', () => {
   it('weighs endurance and actual weapon damage independently before sending a party', () => {
@@ -78,11 +84,75 @@ describe('the title party', () => {
       town.folk.push(p);
     }
     const state = partyState();
-    const ctx = { town, free: [...town.folk], party: new Set<number>(), step: 0, seed: 5, ledger: new OrderLedger(),
-      later: new Map<string, number>(), staffed: new Map<number, number>(), efficiency: new WorkEfficiency(town), traffic: new Traffic() };
+    const ctx = context(town);
     expect(sendParty(ctx, state)).toBe(true);
     expect(state.members).toHaveLength(10);
     expect(state.members).not.toContain(10);
     expect(state.members).not.toContain(11);
+  });
+  it('sends its only helper to the casualty who will bleed out first', () => {
+    const { town, camp } = expeditionTown();
+    const [first, wounded, helper] = [0, 1, 2].map(id => fighter(id, 10, 'flint-sword'));
+    town.folk.push(first, wounded, helper);
+    for (const p of town.folk) p.position = camp.door();
+    town.strikeDown(first, 'Killed by monsters');
+    ++town.time;
+    wounded.woundDays = 1;
+    town.strikeDown(wounded, 'Killed by monsters');
+    expect(town.bleedOutLeft(wounded)).toBeLessThan(town.bleedOutLeft(first));
+    defend(context(town), partyState());
+    expect(helper).toMatchObject({ task: Activity.Tending, taskSite: wounded.id });
+  });
+  it('keeps an armed helper off the settlement roster and out of a new assault until the casualty is up', () => {
+    const { town, camp } = expeditionTown();
+    for (let i = 0; i < 11; ++i) {
+      const p = fighter(i, 10, 'flint-sword');
+      p.position = camp.door();
+      town.folk.push(p);
+    }
+    const [helper, hurt] = town.folk;
+    town.strikeDown(hurt, 'Killed by monsters');
+    expect(available(town, helper)).toBe(true);
+    expect(readyParty(town)?.members).toContain(helper);
+    expect(town.orderTend([helper.id], hurt.id)).toBe(true);
+    expect(available(town, helper)).toBe(false);
+    expect(readyParty(town)).toBeNull();
+    town.time = helper.until;
+    town.tend(helper);
+    expect(hurt.downedAt).toBe(-1);
+    expect(available(town, helper)).toBe(true);
+    expect(readyParty(town)?.members).toContain(helper);
+  });
+  it('clears the wave guarding the dungeon, keeps a helper tending, then resumes the siege', () => {
+    const { town } = expeditionTown();
+    const mouth = town.grid.nearestWalkable(monsterEntrance(town.map().dungeons()[0]));
+    for (let i = 0; i < 10; ++i) {
+      const p = fighter(i, 10, 'flint-sword');
+      p.position = { ...mouth };
+      town.folk.push(p);
+    }
+    const ctx = context(town), state = partyState();
+    expect(sendParty(ctx, state)).toBe(true);
+    const [hurt, helper, ...fighters] = town.folk;
+    const firstDefender = town.nextMonster;
+    const strength = vi.spyOn(town, 'blowStrength').mockReturnValueOnce(dungeonStatus(town, state.gate).maxHealth / 4);
+    town.fight(fighters[0], 0);
+    strength.mockRestore();
+    const defenders = town.monsters().filter(m => m.lair === state.gate && m.id >= firstDefender);
+    expect(defenders.length).toBeGreaterThan(0);
+    const bystander = new Monster(town.nextMonster++, state.gate, mouth);
+    town.beasts.push(bystander);
+    town.strikeDown(hurt, 'Killed by monsters');
+    expect(town.orderTend([helper.id], hurt.id)).toBe(true);
+    commandSiege(ctx, state);
+    const defenderIds = defenders.map(m => m.id);
+    expect(fighters.every(p => p.task === Activity.Fighting && defenderIds.includes(p.taskSite))).toBe(true);
+    expect(helper).toMatchObject({ task: Activity.Tending, taskSite: hurt.id });
+    for (const m of defenders) m.health = 0;
+    town.time += 3;
+    commandSiege(ctx, state);
+    expect(fighters.every(p => targetedDungeon(p) === state.gate)).toBe(true);
+    expect(bystander.health).toBeGreaterThan(0);
+    expect(helper).toMatchObject({ task: Activity.Tending, taskSite: hurt.id });
   });
 });

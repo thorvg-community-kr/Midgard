@@ -31,7 +31,7 @@ export interface NoticeFeed {
   town?: { days: number; isTitleAutoplay(): boolean };
 }
 const trouble =
-  /(is down and bleeding out|was killed| has died|starved to death|died of the cold|destroyed|wrecked|tore up|No one returned|casts the fallen party|is overwhelmed|no harvest|leaves, unhappy|turned the offering away|will come |will raid Camp #|^Winter:|stores are full|in sight for the|^Raid)/,
+  /(is down and bleeding out|was killed| has died|starved to death|died of the cold|destroyed|wrecked|tore up|No one returned|casts the fallen party|is overwhelmed|no harvest|leaves, unhappy|turned the offering away|will come |will raid Camp #|^Defenders pour out of |^Winter:|stores are full|in sight for the|^Raid)/,
   welcome =
     /( is finished$| is repaired$| crafted |joins the settlement|reached level |beaten off|is slain|has fallen$|^Unlocked|^Quest complete|grew into|merged into|back on their feet|has taken the oath|raised the |upgraded the |is laid$|paved with stone$|is mended$|ready for sowing|feels ready)/;
 export const noticeKind = (text: string): NoticeKind =>

@@ -1,7 +1,8 @@
 import type { Town } from '../../../../packages/engine/src/town';
 import { Activity, Calling, type Person } from '../../../../packages/engine/src/person';
 import { CombatCue } from '../../../../packages/engine/src/combat-events';
-import { dungeonChallenge, dungeonStatus } from '../../../../packages/engine/src/dungeon-siege';
+import { dungeonChallenge, dungeonStatus, siegeDefender, targetedDungeon } from '../../../../packages/engine/src/dungeon-siege';
+import { canControl } from '../../../../packages/engine/src/faction';
 import { add, distance, normalized, point, scale, sub, type Point } from '../../../../packages/engine/src/geometry';
 import { equippedItem } from '../../../../packages/engine/src/equipment';
 import { TownState } from '../../../../packages/engine/src/town-state';
@@ -109,11 +110,11 @@ export function sally(ctx: TitleContext, state: PartyState): boolean {
   order(ctx, `sally:${target.id}:${town.clock() | 0}`, [], () => (town.orderAttackMove(fighters.map((p) => p.id), target.position), true));
   return true;
 }
-/** The nearest free helper kneels by each downed resident no monster stands over. */
+/** Send nearby helpers to safe casualties in order of time left to live. */
 function tendDowned(ctx: TitleContext, helpers: readonly Person[], downed: readonly Person[], threats: readonly Point[], clear = 3): void {
   const { town } = ctx,
     busy = new Set(helpers.filter((p) => p.task === Activity.Tending).map((p) => p.id));
-  for (const d of downed) {
+  for (const d of [...downed].sort((a, b) => town.bleedOutLeft(a) - town.bleedOutLeft(b))) {
     if (d.health <= -0.5 || helpers.some((p) => p.task === Activity.Tending && p.taskSite === d.id)) continue;
     if (threats.some((t) => distance(t, d.position) < clear)) continue;
     const helper = helpers
@@ -128,7 +129,7 @@ function fitFighters(town: Town): Person[] {
     .filter((p) => !beyond(town, p) && p.health >= 0.75 && p.woundDays <= 0 && p.food > 0.3 && p.rest > 0.3)
     // A resting settler with a sound weapon can answer the order and walk out of the house.
     .filter((p) => !!equippedItem(p, 'weapon'))
-    .filter((p) => p.task !== Activity.Praying && p.task !== Activity.Crafting)
+    .filter((p) => p.task !== Activity.Praying && p.task !== Activity.Crafting && p.task !== Activity.Tending)
     .sort((a, b) => b.level - a.level || Number(isFighter(b)) - Number(isFighter(a)) || a.id - b.id);
 }
 export interface PartyChoice {
@@ -208,25 +209,35 @@ export function commandSiege(ctx: TitleContext, state: PartyState): void {
   const required = dungeonChallenge(town, state.gate).partySize;
   const lostGround = standing.length < Math.ceil(required / 2) || (!state.breached && now - state.enteredAt > 240);
   if (siege.phase === 'sealed' || withdrawn || lostGround) {
-    if (standing.length && seat) town.orderMove(standing.map(p => p.id), seat.door());
+    const returning = standing.filter(p => p.task !== Activity.Tending);
+    if (returning.length && seat) town.orderMove(returning.map(p => p.id), seat.door());
     if (siege.phase === 'sealed') ++state.cleared;
     else if (standing.length || hurt.length) ++state.withdrew;
     else ++state.castOut;
     state.members = [];
     return;
   }
-  const guardian = town.sieges[state.gate]?.guardian ?? -1;
-  if (guardian < 0 || siege.phase !== 'defending') return;
-  const foes = town.monsters().filter(m => m.lair === state.gate && m.brood === guardian && m.health > 0);
-  dodge(ctx, state, standing);
+  const assault = town.sieges[state.gate];
+  if (!assault) return;
+  const foes = town.monsters().filter(m => m.health > 0 && siegeDefender(m, state.gate, assault.guardian));
+  if (siege.phase === 'defending') dodge(ctx, state, standing);
   if (now < state.dodgeUntil) return;
   tendDowned(ctx, standing, party.filter(p => p.downedAt >= 0), foes.map(m => m.position));
   handSkills(ctx, standing, foes);
-  if (now - state.orderedAt < regroupSeconds || !foes.length) return;
-  const middle = centre(standing);
-  const foe = foes.reduce((best, m) => distance(m.position, middle) < distance(best.position, middle) ? m : best);
+  if (now - state.orderedAt < regroupSeconds) return;
   const ready = standing.filter(p => p.task !== Activity.Tending);
-  if (ready.length) order(ctx, `siege-foe:${foe.id}:${now | 0}`, [], () => town.orderAttack(ready.map(p => p.id), foe.id));
+  if (!ready.length) return;
+  if (!foes.length) {
+    if (siege.phase === 'standing') {
+      const resume = ready.filter(p => canControl(p, town.controlFaction) && targetedDungeon(p) !== state.gate).map(p => p.id);
+      if (resume.length && order(ctx, `attack-dungeon:${state.gate}:${resume.join(',')}`, [], () => town.orderAttackDungeon(resume, state.gate)))
+        state.orderedAt = now;
+    }
+    return;
+  }
+  const middle = centre(ready);
+  const foe = foes.reduce((best, m) => distance(m.position, middle) < distance(best.position, middle) ? m : best);
+  order(ctx, `siege-foe:${foe.id}:${now | 0}`, [], () => town.orderAttack(ready.map(p => p.id), foe.id));
   state.orderedAt = now;
 }
 /** Everyone inside a freshly marked slam steps out of it, away from its centre. */

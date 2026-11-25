@@ -78,6 +78,7 @@ describe('how long a notice stays', () => {
     expect(noticeKind('Embla is down and bleeding out')).toBe('danger');
     expect(noticeKind('Monsters destroyed the Tent')).toBe('danger');
     expect(noticeKind('A pack from Wargmaw will raid Camp #4 tonight')).toBe('danger');
+    expect(noticeKind('Defenders pour out of Wargmaw.')).toBe('danger');
     expect(noticeKind('Askr has died of their wounds')).toBe('danger');
     expect(noticeKind('Tent is finished')).toBe('good');
     expect(noticeKind('Quest complete: Build a tent')).toBe('good');
