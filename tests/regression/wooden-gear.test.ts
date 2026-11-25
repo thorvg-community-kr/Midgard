@@ -272,7 +272,7 @@ describe('wooden gear from the workbench', () => {
     expect(gearStats(itemSpec('flint-sword')!)).toEqual(['Melee attack +2', 'STR scaling +4', 'DEX scaling +2', 'Cleaves']);
     expect(gearStats(itemSpec('wooden-spear')!)).toEqual(['Melee attack +1', 'STR scaling +2', 'DEX scaling +3', 'Reach +0.5', 'Pierces · Two-handed']);
     expect(gearStats(itemSpec('short-bow')!)).toEqual(['Ranged attack +1', 'DEX scaling +3', 'Reach +1.7', 'Pierces · Two-handed']);
-    expect(gearStats(itemSpec('shield')!)).toEqual(['Block +1.5', 'Off hand']);
+    expect(gearStats(itemSpec('shield')!)).toEqual(['Shield block +1.5', 'Off hand']);
     expect(gearStats(itemSpec('studded-armor')!)).toEqual(['Defence +1.2']);
     expect(gearStats(itemSpec('pack-basket')!)).toEqual(['Carry +15']);
     expect(gearStats(itemSpec('snow-boots')!)).toEqual(['DEX +1', 'Defence +0.5', 'Walking speed +1.8', 'Snow footing +5']);

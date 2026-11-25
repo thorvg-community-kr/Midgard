@@ -13,7 +13,7 @@ import { korean, koreanPhrases } from '../../packages/localization/src/korean';
 import goals from '../../packages/engine/data/settlement-goals.json';
 import { Structure, structureSpec } from '../../packages/engine/src/building-catalog';
 import { itemCatalog } from '../../packages/engine/src/equipment';
-import { gearStats } from '../../packages/engine/src/gear-stats';
+import { gearFields, gearFieldText, gearStats } from '../../packages/engine/src/gear-stats';
 import { Activity, Calling, activityName, callingName } from '../../packages/engine/src/person';
 import { goalBranchName, GoalBranch } from '../../packages/engine/src/settlement-progression';
 import { pressureNotice, raidWarning, RaidKind } from '../../packages/engine/src/raid-progression';
@@ -78,8 +78,21 @@ describe('language choice', () => {
 
 describe('Korean tables', () => {
   const known = (text: string) => expect(hasHangul(korean.translate(text)), text).toBe(true);
+  it('translates the gear actions, required materials and the item currently in use', () => {
+    for (const words of ['Works from the backpack', 'Storage', 'Worn gear', 'Currently using Bare hands', 'Upgrades from Wooden axe',
+      'Missing 2 wood, 1 stone', 'Gathers 2 stone', 'Craft Wooden sword', 'Refine Iron ingot', 'Upgrade Stone axe', 'View upgrade',
+      'Make a tool', 'Make a weapon', 'Take from storage', 'Store resources', 'Equipped: offhand', 'Equip', 'Unequip']) {
+      expect(korean.translate(words), words).not.toMatch(/[A-Za-z]/);
+    }
+  });
   it('retains every signed gear stat and distinguishes attack scaling from an attribute granted by armor', () => {
     for (const item of itemCatalog.filter(i => i.category !== 'resource')) {
+      for (const field of gearFields(item)) {
+        if (field.value === undefined) continue;
+        const label = korean.translate(field.label);
+        expect(label, field.label).not.toMatch(/[A-Za-z]/);
+        expect(korean.translate(gearFieldText(field))).toBe(`${label} ${field.value}`);
+      }
       const fields = gearStats(item).flatMap(line => line.split(' · '));
       const translated = fields.map(field => {
         const text = korean.translate(field);
@@ -91,6 +104,11 @@ describe('Korean tables', () => {
     }
     for (const attribute of ['STR', 'DEX', 'INT'])
       expect(korean.translate(`${attribute} scaling +1`)).not.toBe(korean.translate(`${attribute} +1`));
+    expect(korean.translate('Block +1.5')).toBe(korean.translate('Shield block +1.5'));
+    expect(korean.translate('Block 1')).not.toBe(korean.translate('Shield block 1'));
+    for (const label of ['Attack if equipped', 'Attack with tool in pack'])
+      for (const value of ['2', '1 → 2', '4 → 2'])
+        expect(korean.translate(`${label} ${value}`)).toBe(`${korean.translate(label)} ${value}`);
   });
   it('keeps every placeholder of a key in its translation', () => {
     for (const table of koreanPhrases)

@@ -2,7 +2,7 @@ import { beforeAll, afterAll, expect, it, vi } from 'vitest';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import ThorVG, { type ThorVGNamespace } from '@thorvg/webcanvas';
 import { parseFontMetrics } from '../../packages/native-ui/src/fonts';
-import { Context, Rect, Key, Cursor } from '../../packages/native-ui/src';
+import { Align, Context, Rect, Key, Cursor } from '../../packages/native-ui/src';
 import { handleTouchEvent } from '../../apps/web/src/native/game-touch';
 import { emptyEvent } from '../../apps/web/src/native/application-contracts';
 import { civicInspector } from '../../apps/web/src/native/game-civic-panel';
@@ -14,7 +14,11 @@ import { Town } from '../../packages/engine/src/town';
 import { Activity, Calling, Role, Person, Race } from '../../packages/engine/src/person';
 import { point } from '../../packages/engine/src/geometry';
 import { GameAppState, DockView } from '../../apps/web/src/native/game-app-state';
-import { addInventory, attackDamage, itemSpec } from '../../packages/engine/src/equipment';
+import { makeTile } from '../../packages/engine/src/world-types';
+import { levelVariant } from '../../packages/engine/src/craft-stations';
+import { craftOrder } from '../../packages/engine/src/craft-orders';
+import { attackPreview } from '../../packages/engine/src/gear-stats';
+import { addInventory, itemSpec } from '../../packages/engine/src/equipment';
 import { koreanFont, locale, setLocale, translate } from '../../packages/localization/src';
 import { itemIcon } from '../../apps/web/src/native/game-equipment-panel';
 import {
@@ -24,6 +28,7 @@ import {
   taskbar,
 } from '../../apps/web/src/native/game-context-dock';
 import { rosterPanel, rosterBounds } from '../../apps/web/src/native/game-roster';
+import { inspectorHeightLimit } from '../../apps/web/src/native/mobile-layout';
 import {
   commandCard,
   inspector,
@@ -440,14 +445,64 @@ it('keeps Unit management open while equipping its selected resident without sel
   }
 });
 
+it.each([[568, 320], [320, 568], [1280, 800]])('inspects an upgrade in place and uses village storage at %i × %i', (width, height) => {
+  const ui = fixture(width, height);
+  try {
+    const app = ui.app, p = ui.town.folk[0], camp = new Building(0, Structure.Camp, point(8, 8), 0, 0),
+      bench = new Building(1, Structure.Workbench, point(12, 8), 0, 0);
+    for (let y = 6; y <= 11; y++) for (let x = 6; x <= 15; x++) Object.assign(ui.town.map().at(x, y), makeTile());
+    ui.town.placed = [camp, bench];
+    camp.village = bench.village = p.village = p.home = 0;
+    ui.town.migrateSettlements();
+    p.position = bench.door(); p.level = 5;
+    ui.town.changes++; ui.town.tick(0);
+    const stock = ui.town.stock(0);
+    stock.wood = 9; stock.stone = 5;
+    addInventory(p, 'wooden-axe');
+    app.viewWidth = width; app.viewHeight = height; app.rosterOpen = true; app.rosterSelected = `units:${p.id}`;
+    const bounds = rosterBounds.call(app, width, height);
+    const draw = () => ui.draw(() => rosterPanel.call(app, bounds));
+    const click = (id: string) => {
+      const control = ui.controls.mock.calls.find(([key]) => key === id);
+      expect(control, id).toBeDefined();
+      const [, r, , enabled] = control!;
+      expect(enabled, id).toBe(true);
+      expect(r.intersect(bounds)).toEqual(r);
+      ui.context.pointerDown(r.x + r.w / 2, r.y + r.h / 2);
+      ui.context.pointerUp(r.x + r.w / 2, r.y + r.h / 2);
+      draw();
+    };
+    draw(); click('inventory-slot-1');
+    expect(ui.controls.mock.calls.find(([id]) => id === 'inventory-upgrade')?.[3]).toBe(false);
+    bench.variant = levelVariant(2); draw(); click('inventory-upgrade');
+    expect([app.equipmentTab, app.craftWorkshopFilter]).toEqual(['craft', Structure.Workbench]);
+    expect(ui.labels.mock.calls.some(([, text]) => text === 'Stone axe')).toBe(true);
+    expect(p.craftItem).toBeFalsy();
+    click('resident-service-order');
+    expect(craftOrder(p.craftItem)).toEqual({ kind: 'upgrade', item: itemSpec('stone-axe') });
+    click('resident-cancel-craft'); click('equipment-tab-equipment');
+    p.position = camp.door();
+    click('inventory-storage');
+    click('inventory-withdraw-wood');
+    expect(stock.wood).toBe(8);
+    expect(p.inventory[1]).toEqual({ item: 'wood', quantity: 1 });
+    click('inventory-slot-2'); click('inventory-deposit');
+    expect(stock.wood).toBe(9);
+    expect(p.inventory[0]?.item).toBe('wooden-axe');
+    if (width === 568) { click('roster-close'); expect(app.rosterOpen).toBe(false); }
+  } finally { ui.dispose(); }
+});
+
 it.each([
   ['ENG', 1280, 800], ['KR', 1280, 800], ['KR', 360, 740], ['KR', 640, 360],
-  ['KR', 320, 568], ['ENG', 568, 320], ['KR', 720, 540],
+  ['KR', 320, 568], ['ENG', 568, 320], ['KR', 568, 320], ['KR', 720, 540],
 ] as const)('shows the same complete gear stats in recipes and inventory in %s at %ix%i', (language, width, height) => {
   const previous = locale();
   setLocale(language);
   const ui = fixture(width, height);
   try {
+    ui.app.viewWidth = width;
+    ui.app.viewHeight = height;
     const [resident, other] = ui.town.folk;
     resident.name = 'Bryn'; other.name = 'Signe';
     const camp = new Building(0, Structure.Camp, point(5, 5), 0, 0),
@@ -465,41 +520,66 @@ it.each([
     const board = rosterBounds.call(ui.app, width, height);
     const draw = () => ui.draw(() => rosterPanel.call(ui.app, board));
     const shown = (stats: string[], bounds: Rect) => {
+      let bottom = bounds.y, right: number | undefined;
       for (const stat of stats) {
-        const target = translate(stat);
+        const pair = /^(.*?) ([+-]?\d+(?:\.\d+)?(?: → \d+)?)$/.exec(stat);
+        const target = translate(pair?.[1] ?? stat);
         if (language === 'KR') expect(target, stat).not.toMatch(/[A-Za-z]{2}/);
-        const row = ui.labels.mock.calls.find(([box, text]) => translate(text).split(' · ').includes(target)
-          && box.x >= bounds.x && box.y >= bounds.y && box.x + box.w <= bounds.x + bounds.w + 0.01
+        const row = ui.labels.mock.calls.find(([box, text]) => translate(text) === target
+          && box.x >= bounds.x && box.y >= bottom - 0.01 && box.x + box.w <= bounds.x + bounds.w + 0.01
           && box.y + box.h <= bounds.y + bounds.h + 0.01);
-        expect(row, stat).toBeDefined();
+        expect(row, `${stat} inside ${bounds.y}..${bounds.y + bounds.h}, drawn at ${ui.labels.mock.calls
+          .filter(([, text]) => translate(text) === target).map(([r]) => `${r.y}..${r.y + r.h}`).join(', ')}`).toBeDefined();
         expect(ui.context.textWidth(translate(row![1]), row![3], row![4]), stat).toBeLessThanOrEqual(row![0].w + 0.01);
+        const box = row![0];
+        bottom = box.y + box.h;
+        if (pair) {
+          const value = ui.labels.mock.calls.find(([r, text, , , , align]) => text === pair[2] && align === Align.End
+            && r.y === box.y && r.x >= box.x + box.w && r.x + r.w <= bounds.x + bounds.w);
+          expect(value, stat).toBeDefined();
+          expect(ui.context.textWidth(pair[2], value![3], false, target)).toBeLessThanOrEqual(value![0].w);
+          const edge = value![0].x + value![0].w;
+          if (right !== undefined) expect(edge, stat).toBeCloseTo(right);
+          right = edge;
+        }
       }
     };
-    const attackLine = (current: number, equipped: number) =>
-      `Attack if equipped ${current === equipped ? equipped : `${current} → ${equipped}`}`;
     for (const [station, id, stats] of [
-      [smith, 'wooden-spear', ['Melee attack +1', 'DEX scaling +3', 'STR scaling +2', 'Reach +0.5', 'Pierces', 'Two-handed']],
+      [smith, 'wooden-spear', ['Melee attack +1', 'STR scaling +2', 'DEX scaling +3', 'Reach +0.5', 'Pierces · Two-handed']],
       [bench, 'wooden-mallet', ['Building efficiency +1', 'Crafting efficiency +1', 'Attack as a weapon +1']],
     ] as const) {
       const item = itemSpec(id)!;
-      const expected = [...stats, ...(item.scaling ? [attackLine(attackDamage(resident), attackDamage(resident, item))] : [])];
       ui.app.equipmentTab = 'craft';
       ui.app.craftWorkshopFilter = station.kind;
       ui.app.craftPage = ui.town.craftOptions(resident.id, station.id).filter(({ item }) => item.stationLevel === 1).findIndex(o => o.item.id === id);
       draw();
-      shown(expected, board);
+      shown([...stats, attackPreview(resident, item)], board);
+      const order = ui.controls.mock.calls.find(([key]) => key === 'resident-service-order')![1];
+      expect(order.y + order.h, id).toBeLessThanOrEqual(board.y + board.h);
       addInventory(resident, id);
       ui.app.equipmentTab = 'equipment';
       ui.app.inventorySelected = resident.inventory.findIndex(s => s?.item === id) + 1;
       draw();
-      shown(expected, board);
+      shown([...stats, attackPreview(resident, item)], board);
+      const actions = ui.controls.mock.calls.filter(([key]) => ['inventory-equip', 'inventory-deposit'].includes(key) || key.startsWith('inventory-withdraw-'));
+      for (const [i, [key, box]] of actions.entries()) {
+        for (const [other, r] of actions.slice(i + 1)) {
+          const overlap = box.intersect(r);
+          expect(overlap.w * overlap.h, `${key} overlaps ${other}`).toBe(0);
+        }
+      }
+      if (item.category === 'tool') expect(actions.some(([key]) => key === 'inventory-equip')).toBe(false);
     }
     // A proper name outside the phrase book must not turn its neighbouring stats back into English.
-    const stationBoard = new Rect(20, 12, Math.min(width - 40, 620), height - 24);
+    const stationBoard = new Rect(12, 0, Math.min(width - 24, 620), inspectorHeightLimit(height, true));
+    stationBoard.y = height - 12 - stationBoard.h;
     ui.app.selected = smith.id;
     ui.draw(() => inspector.call(ui.app, stationBoard, true));
     const sword = itemSpec('wooden-sword')!, who = ui.town.craftOffers(smith.id).find(o => o.item.id === sword.id)!.who!;
-    shown(['STR scaling +3', 'DEX scaling +1', attackLine(attackDamage(who), attackDamage(who, sword))], stationBoard);
+    shown(['STR scaling +3', 'DEX scaling +1', attackPreview(who, sword)], stationBoard);
+    for (const [key, box] of ui.controls.mock.calls.filter(([key]) => key.startsWith('station-') || key === 'clear-target')) {
+      expect(box.y + box.h, key).toBeLessThanOrEqual(stationBoard.y + stationBoard.h);
+    }
   } finally {
     ui.dispose();
     setLocale(previous);
@@ -992,7 +1072,16 @@ it('equips the selected real inventory stack through the centered gear grid with
     expect(p.inventory[0]).toEqual({ item: 'shield', quantity: 1 });
     ui.app.inventorySelected = -1;
     draw();
+    addInventory(p, 'reinforced-shield');
+    p.level = 5;
+    click('inventory-slot-2');
+    draw();
     click('equipment-slot-offhand');
+    expect(ui.app.inventorySelected).toBe(1);
+    expect(p.equipment.offhand).toBe(1);
+    draw();
+    expect(ui.labels.mock.calls.some(([, label]) => label === 'Unequip')).toBe(true);
+    click('inventory-equip');
     expect(p.equipment.offhand).toBe(-1);
     expect(p.inventory[0]?.item).toBe('shield');
   } finally {

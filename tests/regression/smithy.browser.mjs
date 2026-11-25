@@ -176,6 +176,32 @@ async function open(width, height, { mobile = false, korean = false } = {}) {
   return page;
 }
 
+async function checkKoreanStats(page, itemId, residentId) {
+  const { visible, expected } = await page.evaluate(async ([id, resident]) => {
+    const { gearFields } = await import('/packages/engine/src/gear-stats.ts');
+    const { itemSpec } = await import('/packages/engine/src/equipment.ts');
+    const { translate } = await import('/packages/localization/src/index.ts');
+    const c = probe.game.context, original = c.text, visible = [];
+    c.text = function (box, words, ...style) {
+      const clip = c.clip(), right = box.x + box.w;
+      if (box.x >= clip.x && box.y >= clip.y && right <= clip.x + clip.w + 0.01 && box.y + box.h <= clip.y + clip.h + 0.01)
+        visible.push({ words: translate(words), x: box.x, y: box.y, right });
+      original.call(this, box, words, ...style);
+    };
+    try { probe.frames(1); } finally { c.text = original; }
+    return { visible, expected: gearFields(itemSpec(id), probe.town.person(resident))
+      .map(field => ({ label: translate(field.label), value: field.value })) };
+  }, [itemId, residentId]);
+  let y = -1;
+  for (const { label, value } of expected) {
+    assert(!/[A-Za-z]/.test(label), label);
+    const row = visible.find(row => row.words === label && row.y > y && (value === undefined ||
+      visible.some(cell => cell.words === value && cell.y === row.y && cell.x >= row.right)));
+    assert(row, `Missing visible stat of ${itemId}: ${label} ${value ?? ''}`);
+    y = row.y;
+  }
+}
+
 try {
   await mkdir(output, { recursive: true });
   server = await createServer({
@@ -397,25 +423,17 @@ try {
     return id;
   });
   assert(koSmith >= 0);
-  const reading = await ko.evaluate(async (station) => {
-    const { gearStats, attackPreview } = await import('/packages/engine/src/gear-stats.ts');
-    const { translate } = await import('/packages/localization/src/index.ts');
-    const { item, who } = probe.town.craftOffers(station).find(offer => offer.item.id === 'wooden-sword');
+  const recipient = await ko.evaluate(station => {
+    const { who } = probe.town.craftOffers(station).find(offer => offer.item.id === 'wooden-sword');
     who.name = 'Bryn';
-    const c = probe.game.context, original = c.text, visible = new Set();
-    c.text = function (box, words, ...style) {
-      for (const field of translate(words).split(' · ')) visible.add(field);
-      original.call(this, box, words, ...style);
-    };
-    try { probe.frames(3); } finally { c.text = original; }
-    return { visible: [...visible], expected: [...gearStats(item), attackPreview(who, item)]
-      .flatMap(words => words.split(' · ')).map(translate) };
+    return who.id;
   }, koSmith);
-  for (const stat of reading.expected) {
-    assert(!/[A-Za-z]/.test(stat), stat);
-    assert(reading.visible.includes(stat), `missing localized stat: ${stat}`);
-  }
+  await checkKoreanStats(ko, 'wooden-sword', recipient);
   await shot('10-korean-smithy', 'The smithy panel in Korean.', ko);
+  await click('station-inspect-wooden-club', ko);
+  const clubOwner = await ko.evaluate(id => probe.town.craftOffers(id).find(o => o.item.id === 'wooden-club').who.id, koSmith);
+  await checkKoreanStats(ko, 'wooden-club', clubOwner);
+  assert.equal(await ko.evaluate(id => probe.sent(id), koSmith), -1, 'reading another recipe does not place an order');
   const [foundry, worker] = await ko.evaluate(() => {
     const id = probe.place('Foundry'), [resident] = probe.founders();
     Object.assign(probe.town.stock(), { ironOre: 4, frostwood: 2, bones: 3, cinderOre: 2, hides: 2 });
@@ -473,6 +491,71 @@ try {
   assert(refineButtons.every((c) => c.bounds.x >= 0 && c.bounds.x + c.bounds.w <= 390));
   await shot('12-phone-foundry', 'The foundry recipes at phone width.', phone);
   await phone.context().close();
+
+  // A short landscape window fits the complete table, the order and the page controls in each Korean view.
+  const landscape = await open(568, 320, { mobile: true, korean: true });
+  const [station, smithResident] = await landscape.evaluate(() => {
+    probe.game.touchMode = true;
+    probe.settle();
+    const id = probe.place('Weaponsmith');
+    probe.open(id);
+    return [id, probe.town.craftOffers(id).find(offer => offer.item.id === 'wooden-sword').who.id];
+  });
+  await checkKoreanStats(landscape, 'wooden-sword', smithResident);
+  const buttons = await controls(landscape);
+  for (const id of ['station-craft-wooden-sword', `station-page-next-${station}`, 'clear-target']) {
+    const control = buttons.find(c => c.id === id);
+    assert(control && control.bounds.y + control.bounds.h <= 308, `Clipped landscape control: ${id}`);
+  }
+  await shot('13-landscape-korean-smithy', 'The complete weapon and its order at 568 by 320.', landscape);
+  await click(`station-page-next-${station}`, landscape);
+  const clubResident = await landscape.evaluate(id => probe.town.craftOffers(id).find(o => o.item.id === 'wooden-club').who.id, station);
+  await checkKoreanStats(landscape, 'wooden-club', clubResident);
+  await click(`station-group-shields-${station}`, landscape);
+  const shieldResident = await landscape.evaluate(id => probe.town.craftOffers(id).find(o => o.item.id === 'shield').who.id, station);
+  await checkKoreanStats(landscape, 'shield', shieldResident);
+  await landscape.evaluate(id => { probe.game.selectPeople([id]); probe.frames(8); }, smithResident);
+  await click('unit-workbench', landscape);
+  await checkKoreanStats(landscape, 'wooden-sword', smithResident);
+  await shot('14-landscape-korean-craft', 'The resident can read every stat and place the order.', landscape);
+  await landscape.evaluate(async id => {
+    const { addInventory } = await import('/packages/engine/src/equipment.ts');
+    addInventory(probe.town.person(id), 'wooden-axe');
+  }, smithResident);
+  await click('equipment-tab-equipment', landscape);
+  const slot = await landscape.evaluate(id => probe.town.person(id).inventory.findIndex(s => s?.item === 'wooden-axe') + 1, smithResident);
+  await click(`inventory-slot-${slot}`, landscape);
+  await checkKoreanStats(landscape, 'wooden-axe', smithResident);
+  assert(!(await controls(landscape)).some(c => c.id === 'inventory-equip'), 'a carried tool has no equip action');
+  await shot('15-landscape-korean-equipment', 'The axe contributes from the backpack at 568 by 320.', landscape);
+  await landscape.evaluate(async id => {
+    const { levelVariant } = await import('/packages/engine/src/craft-stations.ts');
+    const p = probe.town.person(id);
+    p.level = 5;
+    const { Structure } = await import('/packages/engine/src/building-catalog.ts');
+    probe.town.buildings().find(b => b.kind === Structure.Workbench).variant = levelVariant(2);
+    probe.frames(2);
+  }, smithResident);
+  await click('inventory-upgrade', landscape);
+  await checkKoreanStats(landscape, 'stone-axe', smithResident);
+  assert.equal(await landscape.evaluate(id => probe.town.person(id).craftItem, smithResident), null);
+  await shot('16-landscape-korean-upgrade', 'Inspecting the stone upgrade of the axe carried by this resident.', landscape);
+  await click('resident-service-order', landscape);
+  assert.equal(await landscape.evaluate(id => probe.town.person(id).craftItem, smithResident), 'upgrade:stone-axe');
+  await click('resident-cancel-craft', landscape);
+  await click('equipment-tab-equipment', landscape);
+  await click('inventory-storage', landscape);
+  assert((await controls(landscape)).some(c => c.id === 'inventory-withdraw-wood'));
+  const shieldSlot = await landscape.evaluate(id => {
+    probe.equip(id, ['shield']); probe.frames(2);
+    return probe.town.person(id).equipment.offhand;
+  }, smithResident);
+  await click('equipment-slot-offhand', landscape);
+  assert.deepEqual(await landscape.evaluate(id => [probe.game.inventorySelected, probe.town.person(id).equipment.offhand], smithResident),
+    [shieldSlot, shieldSlot], 'inspecting a shield keeps it equipped');
+  await click('inventory-equip', landscape);
+  assert.equal(await landscape.evaluate(id => probe.town.person(id).equipment.offhand, smithResident), -1);
+  await landscape.context().close();
 
   const items = report.shots
     .map((s) => `<figure><img src="${s.file}" alt=""><figcaption>${s.file}: ${s.caption}</figcaption></figure>`)

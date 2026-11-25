@@ -562,11 +562,13 @@ export class Context {
     bold = false,
     align = Align.Start,
     horizontalOffset = 0,
+    /** A numeric cell can share the script and baseline of its neighbouring label. */
+    fontContext = '',
   ): void {
     if (bounds.w <= 0 || bounds.h <= 0 || !value) return;
     value = this.localize(value);
     const logicalSize = size > 0 ? size : this.tokens.fontSize,
-      font = this.fittedFont(value, bold, logicalSize, bounds.w),
+      font = this.fittedFont(value, bold, logicalSize, bounds.w, fontContext),
       points = Math.fround(logicalSize * 0.75 * this.faceScale(font));
     this.paint(JSON.stringify(['T', bounds, color, points, align, horizontalOffset, font, value]), () => {
       const label = new this.tvg.Text()
@@ -626,10 +628,11 @@ export class Context {
     return bold ? 'DejaVuSans-Bold' : 'DejaVuSans';
   }
   /** A title too long for its box is set in the narrower bold face instead of being cut. */
-  private fittedFont(value: string, bold: boolean, size: number, width: number): string {
-    const font = this.fontFor?.(value, bold) || this.scriptFont(value, bold, size);
+  private fittedFont(value: string, bold: boolean, size: number, width: number, fontContext = ''): string {
+    const sample = fontContext || value;
+    const font = this.fontFor?.(sample, bold) || this.scriptFont(sample, bold, size);
     if (!this.titled(font) || this.measure(value, font, size) <= width) return font;
-    return this.scriptFont(value, bold, 0);
+    return this.scriptFont(sample, bold, 0);
   }
   private titled(font: string): boolean {
     return !!this.tokens.titleFont && (font === this.tokens.titleFont || font === koreanTitleFont);

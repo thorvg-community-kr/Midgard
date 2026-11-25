@@ -624,7 +624,7 @@ function gateRows(app: GameHudApp, gate: number, out: InspectorRows): void {
   if (others.length) textLine(app, out, 'Also held: ' + others.map(boonName).join(', '), t.muted, 11);
 }
 /** Adds the rows of the newer building and gate systems to the inspector; `out.y` advances. */
-export function progressInspector(app: GameHudApp, building: Building | null, gate: number, out: InspectorRows): void {
+export function progressInspector(app: GameHudApp, building: Building | null, gate: number, out: InspectorRows, recipes?: InspectorRows): void {
   if (!building) {
     if (gate >= 0) gateRows(app, gate, out);
     return;
@@ -646,7 +646,7 @@ export function progressInspector(app: GameHudApp, building: Building | null, ga
     );
     return;
   }
-  if (isCraftStation(building.kind)) stationRows(app, building, out);
+  if (isCraftStation(building.kind)) stationRows(app, building, out, recipes);
   else if (marketTier(building.kind)) marketRows(app, building, out);
   else if (building.kind === Structure.MageTower) riteRows(app, building, out);
   else if (building.kind === Structure.Runestone) memorialRows(app, out);

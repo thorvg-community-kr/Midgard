@@ -244,7 +244,10 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
   const station = building && isCraftStation(building.kind),
     lowDungeon = !building && this.viewHeight > 1 && this.viewHeight < 460,
     left = f32(panel.x + (station || !building ? 14 : 112)),
-    inner = f32(panel.w - (station || !building ? 28 : 128)),
+    fullWidth = f32(panel.w - (station || !building ? 28 : 128)),
+    // In landscape the building and its orders sit beside the recipes, leaving each stat a full row.
+    splitStation = station && building.built() && this.viewHeight > 1 && this.viewHeight < 460 && fullWidth >= 440,
+    inner = splitStation ? Math.floor(fullWidth * 0.44) : fullWidth,
     top = panel.y,
     frame = station
       ? new Rect(left, f32(top + y), 44, 44)
@@ -453,12 +456,13 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
       else if (!output.empty()) textRow(`Makes ${describe(output)} a day`, t.success, 12);
       else if (spec.product !== Product.None && !building.workers) textRow('Assign a worker to start production.', t.muted, 12);
     }
-    const footerWidth = station && building.built() ? Math.max(1, inner - stationPagerWidth(this.touchMode) - 8) : inner;
+    const footerWidth = station && building.built() ? Math.max(1, fullWidth - stationPagerWidth(this.touchMode) - 8) : fullWidth;
     const footer: InspectorRows = { rows: [], left, inner: footerWidth, top, y: 0 };
     if (isPlayerBuilding(building)) clearRows(this, { kind: 'building', id: building.id }, footer);
     const progress: InspectorRows = { rows, left, inner, top, y };
     if (station && this.viewHeight > 1) progress.bottom = inspectorHeightLimit(this.viewHeight, true) - footer.y - 10;
-    progressInspector(this, building, -1, progress);
+    const recipes = splitStation ? { ...progress, left: left + inner + 14, inner: fullWidth - inner - 14, y: 12 } : undefined;
+    progressInspector(this, building, -1, progress, recipes);
     y = progress.y;
     const growth = this.town.growthStatus(building);
     if (growth.grows) {

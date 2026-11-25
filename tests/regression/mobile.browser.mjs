@@ -224,7 +224,7 @@ try {
         return r && r.x + r.w / 2 === innerWidth / 2 && r.y + r.h / 2 === innerHeight / 2 &&
           c.inModal() && !c.controls.some(k => ['speed-toggle', 'guide-log-button', 'objectives-toggle', 'unit-management'].includes(k.id));
       }));
-      for (const id of ['roster-close', 'roster-tab-units', 'roster-tab-guests']) {
+      for (const id of ['roster-close', 'roster-tab-units', 'roster-tab-guests', 'equipment-tab-equipment', 'equipment-workbench', 'equipment-tab-guild', 'inventory-slot-0']) {
         const r = await button(id);
         check(id + ' has an in-view 44 px touch target', r.w >= 44 && r.h >= 44 && r.x >= 22 && r.y >= 22 && r.x <= width - 22 && r.y <= height - 22);
       }
@@ -237,6 +237,48 @@ try {
       await frames();
       check('Pinching and army keys inside the window leave the world alone',
         JSON.stringify(await underlying()) === JSON.stringify(background));
+      const scroll = await page.evaluate(() => {
+        const s = window.mobile.game.rosterScroll;
+        return { ...s.bounds, limit: s.limit };
+      });
+      if (scroll.limit > 0) {
+        const x = scroll.x + scroll.w / 2, bottom = scroll.y + scroll.h - 8;
+        await touch('touchStart', [[x, bottom]]);
+        await touch('touchMove', [[x, scroll.y + 6]]);
+        await touch('touchEnd', []);
+        await frames();
+        check('Swiping the inventory scrolls its contents without activating a slot', await page.evaluate(() => {
+          const g = window.mobile.game;
+          return g.rosterScroll.offset > 0 && g.inventorySelected === -1;
+        }));
+      }
+      await tapControl('equipment-workbench');
+      if (width === 390 || width === 568) {
+        const sword = await page.evaluate(async () => {
+          const g = window.mobile.game, p = g.town.person(Number(g.rosterSelected.split(':')[1]));
+          const { addInventory } = await import('/packages/engine/src/equipment.ts');
+          if (!addInventory(p, 'wooden-sword')) throw Error('No room in the fixture backpack');
+          return { id: p.id, slot: p.inventory.findIndex(stack => stack?.item === 'wooden-sword') + 1 };
+        });
+        await tapControl('equipment-tab-equipment');
+        await tapControl('inventory-slot-' + sword.slot);
+        await page.screenshot({ path: `${output}/${width}x${height}-equipment-ko.png`, scale: 'css' });
+        for (let swipe = 0; swipe < 4 && (await button('inventory-equip')).h < 44; ++swipe) {
+          const { view, next } = await page.evaluate(() => ({ view: window.mobile.game.rosterScroll.bounds, next: window.mobile.hud['inventory-equip'] }));
+          const x = view.x + view.w / 2, bottom = view.y + view.h - 6;
+          await touch('touchStart', [[x, bottom]]);
+          await touch('touchMove', [[x, bottom - Math.min(view.h - 12, Math.max(12, next.y + next.h - bottom))]]);
+          await touch('touchEnd', []);
+          await frames();
+        }
+        check('The complete Equip button is reachable for the selected item', (await button('inventory-equip')).h >= 44);
+        await tapControl('inventory-equip');
+        check('Tapping Equip changes the actual resident equipment', await page.evaluate(s => window.mobile.game.town.person(s.id).equipment.weapon === s.slot, sword));
+        await tapControl('inventory-equip');
+        check('The equipped item can be put back in the backpack', await page.evaluate(s => window.mobile.game.town.person(s.id).equipment.weapon < 0, sword));
+        await page.evaluate(s => { window.mobile.game.town.person(s.id).inventory[s.slot - 1] = null; }, sword);
+      }
+      await tapControl('equipment-tab-guild');
       await tapControl('roster-tab-guests');
       await tapControl('roster-close');
       check('The close button restores the same expanded HUD', JSON.stringify(await underlying()) === JSON.stringify(background));

@@ -1,4 +1,4 @@
-import { Rect, Align, ButtonStyle, button, meter, slab, tone, well, type Color } from '../../../../packages/native-ui/src';
+import { Rect, Align, ButtonStyle, button, meter, well, type Color } from '../../../../packages/native-ui/src';
 import { Structure, describe, structureSpec, resourceProducts, type Resources } from '../../../../packages/engine/src/building-catalog';
 import type { Building } from '../../../../packages/engine/src/town-models';
 import type { Town } from '../../../../packages/engine/src/town';
@@ -12,13 +12,14 @@ import {
   isShield,
   itemCatalog,
   lacksKind,
+  lineOf,
   madeFrom,
   productItem,
   upgradeCost,
   upperTier,
   type ItemSpec,
 } from '../../../../packages/engine/src/equipment';
-import { attackPreview, gearStats } from '../../../../packages/engine/src/gear-stats';
+import { gearFields } from '../../../../packages/engine/src/gear-stats';
 import { stationLevel, stationStep, topLevel } from '../../../../packages/engine/src/craft-stations';
 import { weaponSchool } from '../../../../packages/engine/src/progression-rules';
 import { craftOrder, orderItem } from '../../../../packages/engine/src/craft-orders';
@@ -34,12 +35,13 @@ import {
 import type { GameHudApp } from './game-hud-contract';
 import type { InspectorRows } from './game-progress-hud';
 import { actionButton } from './hud-actions';
-import { itemIcon } from './game-equipment-panel';
-import { wrapText } from './game-combat-hud';
-import { gearStatRows } from './gear-stat-layout';
+import { itemIcon, itemIllustration } from './item-icon';
+import { tooltip, wrapText } from './game-combat-hud';
+import { comparesWith, itemSheet } from './gear-item-sheet';
 
 // The recipe group and its page shown at each station; transient, per app.
 const pages = new WeakMap<object, Map<number, number>>(),
+  inspectedKinds = new WeakMap<object, Map<number, string>>(),
   groups = new WeakMap<object, Map<number, RecipeGroup>>(),
   // Fits under the level rows in a laptop-height panel.
   recipesPerPage = 7;
@@ -258,32 +260,23 @@ export function stationProfile(app: GameHudApp, station: Building, out: Inspecto
 }
 /** Two page buttons and the page count share the footer with the building's clear control. */
 export const stationPagerWidth = (touch: boolean): number => (touch ? 44 : 28) * 2 + 36;
+function stationLine(app: GameHudApp, out: InspectorRows, words: string, color: Color, size: number): void {
+  const c = app.context, at = out.y;
+  out.rows.push(() => c.text(new Rect(out.left, f32(out.top + at), out.inner, size + 8),
+    c.elideText(words, out.inner, size), color, size));
+  out.y = f32(at + size + 9);
+}
 /** Inspector rows of a workbench or smithy: what its next level asks, who works, who waits, and every recipe. */
-export function stationRows(app: GameHudApp, station: Building, out: InspectorRows): void {
+export function stationRows(app: GameHudApp, station: Building, out: InspectorRows, recipes = out): void {
   if (!isCraftStation(station.kind)) return;
   const c = app.context,
     t = app.theme,
     town = app.town,
     owned = isPlayerBuilding(station),
     { left, inner, top } = out,
-    offers = town.craftOffers(station.id),
     working = town.craftingAt(station.id),
     waiting = town.craftQueue(station.id),
-    wanted = questItems(town),
-    narrow = inner < 430,
-    line = (text: string, color = t.text, size = 12, bold = false) => {
-      const at = out.y;
-      out.rows.push(() =>
-        c.text(
-          new Rect(left, f32(top + at), inner, size + 8),
-          c.elideText(text, inner, size, bold),
-          color,
-          size,
-          bold,
-        ),
-      );
-      out.y = f32(out.y + size + 9);
-    };
+    line = (words: string, color: Color, size: number) => stationLine(app, out, words, color, size);
   out.y = f32(out.y + 4);
   const cancelW = 66,
     cancel = (p: Person, id: string, y: number) =>
@@ -384,11 +377,17 @@ export function stationRows(app: GameHudApp, station: Building, out: InspectorRo
   }
   if (working || waiting.length) line('Nothing is spent until the item is done.', t.muted, 10);
   out.y = f32(out.y + 4);
+  drawStationRecipes(app, station, recipes, out.y);
+  out.y = Math.max(out.y, recipes.y);
+}
+function drawStationRecipes(app: GameHudApp, station: Building, out: InspectorRows, workBottom: number): void {
+  const c = app.context, t = app.theme, town = app.town, owned = isPlayerBuilding(station);
+  const { left, inner, top } = out, narrow = inner < 430;
+  const offers = town.craftOffers(station.id), wanted = questItems(town);
   // Recipes come in groups the player switches between; a long group still pages.
   const grouped = stationRecipes(town, station, offers),
     group = shownGroup(app, station, grouped, wanted),
-    recipes = grouped.get(group) ?? [],
-    rowH = narrow ? 35 : 38;
+    recipes = grouped.get(group) ?? [];
   if (grouped.size > 1) {
     const at = out.y,
       tabs = [...grouped.keys()],
@@ -419,171 +418,136 @@ export function stationRows(app: GameHudApp, station: Building, out: InspectorRo
     );
     out.y = f32(out.y + 32);
   }
-  const entries = recipes.map((item) => {
-    const offer = recipeOffer(town, station, item, offers),
-      inputs = item.category === 'resource' ? resourceProducts.filter((p) => resourceAmount(offer.cost, p) > 0) : [],
-      effects = gearStatRows(c, gearStats(item), inner - 16, 11),
-      inline = !narrow && effects.length === 1 && c.textWidth(effects[0], 11) <= f32(inner * 0.55) - 40,
-      preview = item.scaling && offer.who
-        ? gearStatRows(c, [offer.who.name, attackPreview(offer.who, item)], inner - 16, 11) : [],
-      height = item.category === 'resource' ? 34 + 16 * inputs.length : rowH + ((inline ? 0 : effects.length) + preview.length) * 16,
-      // Under a material: why it cannot be refined, else who goes; missing inputs already show in its counts.
-      note = item.category !== 'resource' ? '' : offer.reason ? (offer.reason === 'Not enough settlement materials' ? '' : offer.reason) : offer.hint;
-    return { item, offer, inputs, effects, inline, preview, height, note, advance: height + 4 + (note ? 19 : 0) };
+  const pagerSize = app.touchMode ? 44 : 28, pagerHeight = pagerSize + 4;
+  const room = (out.bottom ?? Infinity) - out.y;
+  const beside = inner >= 465, compact = inner < 435 || room < 270;
+  const rowH = compact ? 36 : app.touchMode ? 48 : 46;
+  const listW = beside ? Math.floor(inner * 0.47) : inner, sheetW = beside ? inner - listW - 10 : inner;
+  const entries = recipes.map(item => {
+    const offer = recipeOffer(town, station, item, offers);
+    const inputs = item.category === 'resource' ? resourceProducts.filter(product => resourceAmount(offer.cost, product) > 0) : [];
+    const note = item.category !== 'resource' ? '' : offer.reason === 'Not enough settlement materials' ? '' : offer.reason || offer.hint;
+    const notes = offer.action === 'none' ? [] : [{ text: `Materials · ${describe(offer.cost)}` }];
+    const missing = offer.who && town.missingUpgradeMaterials(offer.who, station, offer.cost);
+    const reason = offer.reason === 'Not enough settlement materials' && missing && !missing.empty() ? `Missing ${describe(missing)}`
+      : !offer.reason && offer.action === 'upgrade' && missing && !missing.empty() ? `Gathers ${describe(missing)}` : offer.reason;
+    const fields = gearFields(item, offer.who);
+    const mark = freshMake(town, item) ? 'New' : wanted.includes(item.id) ? 'Quest' : '';
+    const detail = (single: boolean) => itemSheet(c, item, fields, sheetW, compact,
+      single ? [mark, offer.mark || offer.hint].filter(Boolean).join(' · ') : offer.who ? comparesWith(item, offer.who) : '',
+      [...notes, { text: reason || (offer.action === 'none' && !single ? offer.hint : ''), warning: !!offer.reason }], single ? 66 : 0);
+    const height = 34 + inputs.length * 16;
+    return { item, offer, inputs, note, height, mark, advance: height + 4 + (note ? 19 : 0), detail,
+      sheet: item.category !== 'resource' ? detail(false) : null };
   });
-  const pagerSize = app.touchMode ? 44 : 28, pagerHeight = pagerSize + 4,
-    room = (out.bottom ?? Infinity) - out.y,
-    // During an unbounded inspection the list uses its usual page size.
-    maxRows = out.bottom === undefined ? (narrow ? 6 : recipesPerPage) : Infinity,
-    listRoom = !owned && entries.reduce((sum, entry) => sum + entry.advance, 0) > room ? room - pagerHeight : room;
-  let currentPage: typeof entries = [];
-  const recipePages = [currentPage];
-  let pageHeight = 0;
-  for (const entry of entries) {
-    if (currentPage.length && (currentPage.length >= maxRows || pageHeight + entry.advance > listRoom)) {
-      currentPage = [];
-      recipePages.push(currentPage);
-      pageHeight = 0;
+  type Entry = typeof entries[number];
+  const materialList = group === 'Materials';
+  const maxDetailH = Math.max(0, ...entries.map(entry => entry.sheet?.height ?? 0));
+  const limit = Math.max(1, Math.min(recipesPerPage,
+    Math.floor((room - (!owned ? pagerHeight : 0) - (beside ? 0 : maxDetailH + 6)) / rowH)));
+  const recipePages: Entry[][] = [];
+  if (materialList) {
+    let height = 0;
+    for (const entry of entries) {
+      if (!recipePages.length || height + entry.advance > room - (!owned ? pagerHeight : 0)) {
+        recipePages.push([]);
+        height = 0;
+      }
+      recipePages[recipePages.length - 1].push(entry);
+      height += entry.advance;
     }
-    currentPage.push(entry);
-    pageHeight += entry.advance;
-  }
-  const pageCount = recipePages.length,
-    page = Math.max(0, Math.min(pages.get(app)?.get(station.id) ?? 0, pageCount - 1)),
-    listed = recipePages[page];
-  noteViewed(town, listed.map((entry) => entry.item));
-  for (const { item, offer, inputs, effects, inline, preview, height, note } of listed) {
-    const at = out.y,
-      quest = wanted.includes(item.id),
-      fresh = freshMake(town, item),
-      faded = !!offer.mark,
-      maker = offer.action === 'none' && making(offer.who, item) ? offer.who : null,
-      label = offer.action === 'upgrade' ? 'Upgrade' : item.category === 'resource' ? 'Refine' : 'Craft',
-      idle = offer.action === 'none',
-      status = offer.reason || offer.hint,
-      statusColor = offer.reason ? t.danger : offer.hint && !idle ? t.accent : t.muted,
-      // What is already carried is paid for: its row names no cost.
-      paidText = idle ? '' : offer.action === 'upgrade' ? `Upgrade: ${describe(offer.cost)}` : describe(offer.cost),
-      // An owned make is drawn faded with its mark; a recipe that cannot be made keeps full contrast and says why.
-      nameColor = faded ? t.muted : offer.reason ? t.muted : t.text,
-      run = () => {
-        const who = offer.who;
-        if (who && town.orderSettlementCraft(station.id, item.id))
-          app.status =
-            offer.action === 'upgrade' ? `${who.name} goes to upgrade to the ${item.name}` : `${who.name} goes to make ${item.name}`;
-      };
-    if (item.category === 'resource') {
-      // A material is nobody's gear: the row counts the stores and every local pack, and can be ordered again.
-      const stock = town.stock(town.settlementOf(station)),
-        local = town.stationFolk(station),
-        costLines = inputs.map((product) => {
-          const available = resourceAmount(stock, product) + local.reduce((sum, p) => sum + heldAmount(p, product), 0);
-          return `${productItem(product)!.name} ${available} / ${resourceAmount(offer.cost, product)}`;
-        });
+  } else for (let i = 0; i < entries.length; i += limit) recipePages.push(entries.slice(i, i + limit));
+  const pageCount = recipePages.length;
+  const page = Math.max(0, Math.min(pages.get(app)?.get(station.id) ?? 0, pageCount - 1));
+  const listed = recipePages[page] ?? [];
+  const selected = listed.find(entry => lineOf(entry.item) === inspectedKinds.get(app)?.get(station.id)) ?? listed[0];
+  noteViewed(town, listed.map(entry => entry.item));
+  const orderButton = (entry: Entry, r: Rect, showPrice = false) => {
+    const { item, offer } = entry;
+    if (offer.action === 'none') {
+      if (making(offer.who, item)) {
+        const maker = offer.who;
+        button(c, `station-cancel-${item.id}`, r, 'Cancel', () => {
+          if (town.cancelCraft(maker.id)) app.status = `${maker.name} stopped making the ${item.name}`;
+        }, ButtonStyle.Quiet, owned);
+      }
+      return;
+    }
+    const label = offer.action === 'upgrade' ? 'Upgrade' : item.category === 'resource' ? 'Refine' : 'Craft';
+    const id = `station-${offer.action}-${item.id}`, primary = entry === selected || materialList;
+    const ready = owned && !offer.reason && !!offer.who;
+    const state = button(c, id, r, showPrice ? '' : label, () => {
+      if (offer.who && town.orderSettlementCraft(station.id, item.id))
+        app.status = offer.action === 'upgrade' ? `${offer.who.name} goes to upgrade to the ${item.name}` : `${offer.who.name} goes to make ${item.name}`;
+      else app.status = offer.reason || 'Could not start this order';
+    }, primary ? ButtonStyle.Primary : ButtonStyle.Quiet, ready, undefined, false, { fontSize: 11 });
+    if (showPrice) {
+      const cost = describe(offer.cost), half = Math.floor(r.h / 2);
+      const ink = !ready ? t.muted : primary ? t.accentText : t.text;
+      c.text(new Rect(r.x + 2, r.y + 1, r.w - 4, half), label, ink, 11, true, Align.Center);
+      c.text(new Rect(r.x + 2, r.y + half, r.w - 4, r.h - half - 2), c.elideText(cost, r.w - 4, 10), ink, 10, false, Align.Center);
+      tooltip(c, id, state.hovered, [item.name, cost, offer.reason || offer.hint].filter(Boolean));
+    }
+  };
+  if (materialList) {
+    const stock = town.stock(town.settlementOf(station)), local = town.stationFolk(station);
+    for (const entry of listed) {
+      const { item, offer, inputs, height, note } = entry, at = out.y;
       out.rows.push(() => {
         const y = f32(top + at);
         well(c, new Rect(left, y, inner, height), t.surface);
         itemIcon(c, new Rect(left + 3, y + 2, 28, 28), item);
-        const stored = `${resourceAmount(stock, item.product)} in store`,
-          title = narrow ? item.name : `${item.name} · ${stored}`;
+        const stored = `${resourceAmount(stock, item.product)} in store`, title = narrow ? item.name : `${item.name} · ${stored}`;
         c.text(new Rect(left + 36, y + 3, inner - 110, 24), c.elideText(title, inner - 110, 12, true), t.text, 12, true);
-        costLines.forEach((words, i) => c.text(new Rect(left + 12, y + 30 + i * 16, narrow ? inner - 86 : inner - 24, 16), words, t.muted, 11));
+        inputs.forEach((product, i) => {
+          const available = resourceAmount(stock, product) + local.reduce((sum, p) => sum + heldAmount(p, product), 0);
+          c.text(new Rect(left + 12, y + 30 + i * 16, narrow ? inner - 86 : inner - 24, 16),
+            `${productItem(product)!.name} ${available} / ${resourceAmount(offer.cost, product)}`, t.muted, 11);
+        });
         if (narrow) c.text(new Rect(left + inner - 74, y + 30, 70, 16), stored, t.muted, 10, false, Align.End);
-        button(c, `station-craft-${item.id}`, new Rect(left + inner - 66, y + 4, 62, 25), label, run,
-          ButtonStyle.Primary, owned && !offer.reason && !!offer.who, undefined, false, { fontSize: 11 });
+        orderButton(entry, new Rect(left + inner - 66, y + 4, 62, 25));
       });
       out.y += height + 4;
-      if (note) line(note, offer.reason ? t.danger : t.accent, 10);
-      continue;
+      if (note) stationLine(app, out, note, offer.reason ? t.danger : t.accent, 10);
     }
+  } else if (selected) {
+    const at = out.y, single = !beside && listed.length === 1;
+    const sheet = single ? selected.detail(true) : selected.sheet!;
+    const listH = single ? 0 : listed.length * rowH;
+    const selectedX = beside ? left + listW + 10 : left;
+    const selectedY = top + at + (beside || single ? 0 : listH + 4);
     out.rows.push(() => {
-      const y = f32(top + at),
-        r = new Rect(left, y, inner, height),
-        // On a phone the icon and button sit beside the name and cost, leaving the effect line the whole row.
-        buttonY = f32(y + (narrow ? 4 : (rowH - 26) / 2));
-      // What can be made stands proud of the board; what cannot lies in it.
-      if (faded) well(c, r, tone(t.surface, t.dusk, 0.16), { rim: quest ? t.accent : undefined });
-      else slab(c, r, tone(t.surface, t.raised, 0.7), { lip: 2, trim: quest ? t.accent : undefined });
-      itemIcon(
-        c,
-        narrow
-          ? new Rect(f32(left + 5), f32(y + 3), 28, 28)
-          : new Rect(f32(left + 3), f32(y + (rowH - 32) / 2), 32, 32),
-        item,
-        faded,
-      );
-      let nameX = f32(left + 40);
-      const chip = (text: string, fill: Color, ink: Color, border?: Color) => {
-        const w = f32(c.textWidth(text, 8, true) + 10),
-          mark = new Rect(nameX, f32(y + 5), w, 13);
-        c.rect(mark, fill, 6, border);
-        c.text(mark, text, ink, 8, true, Align.Center);
-        nameX = f32(nameX + w + 6);
-      };
-      if (quest) chip('Quest', t.accent, t.accentText);
-      if (fresh) chip('New', t.danger, t.accentText);
-      if (offer.mark) chip(offer.mark, t.surface, t.muted, t.border);
-      let statY = y + rowH - 1;
-      for (const words of inline ? [] : effects) {
-        c.text(new Rect(left + 8, statY, inner - 16, 16), words, t.muted, 11);
-        statY += 16;
-      }
-      for (const words of preview) {
-        c.text(new Rect(left + 8, statY, inner - 16, 16), words, t.text, 11);
-        statY += 16;
-      }
-      if (narrow) {
-        const textW = f32(inner - 40 - 66),
-          paid = [paidText, status].filter(Boolean).join(' · ');
-        c.text(
-          new Rect(nameX, f32(y + 2), f32(textW - (nameX - left - 40)), 18),
-          c.elideText(item.name, f32(textW - (nameX - left - 40)), 12, true),
-          nameColor,
-          12,
-          true,
-        );
-        c.text(new Rect(f32(left + 40), f32(y + 18), textW, 16), c.elideText(paid, textW, 10), offer.reason ? t.danger : faded ? t.muted : t.accent, 10);
-      } else {
-        const split = f32(inner * 0.55),
-          textW = f32(split - (nameX - left));
-        c.text(new Rect(nameX, f32(y + 2), textW, 18), c.elideText(item.name, textW, 12, true), nameColor, 12, true);
-        if (inline) c.text(new Rect(f32(left + 40), f32(y + 19), f32(split - 40), 16), effects[0], t.muted, 11);
-        const rightX = f32(left + split),
-          rightW = f32(inner - split - 70);
-        c.text(new Rect(rightX, f32(y + 2), rightW, 18), c.elideText(paidText, rightW, 10), faded ? t.muted : t.accent, 10, false, Align.End);
-        c.text(new Rect(rightX, f32(y + 19), rightW, 16), c.elideText(status, rightW, 9), statusColor, 9, false, Align.End);
-      }
-      // An order can be stopped from the row it was started on.
-      if (maker)
-        button(
-          c,
-          `station-cancel-${item.id}`,
-          new Rect(f32(left + inner - 62), buttonY, 58, 26),
-          'Cancel',
-          () => {
-            if (town.cancelCraft(maker.id)) app.status = `${maker.name} stopped making the ${item.name}`;
-          },
-          ButtonStyle.Default,
-          owned,
-        );
-      else if (!idle)
-        button(
-          c,
-          `station-${offer.action}-${item.id}`,
-          new Rect(f32(left + inner - 62), buttonY, 58, 26),
-          label,
-          run,
-          ButtonStyle.Primary,
-          owned && !offer.reason && !!offer.who,
-          undefined,
-          false,
-          { fontSize: 11 },
-        );
+      if (!single) listed.forEach((entry, i) => {
+        const { item, offer } = entry, y = top + at + i * rowH, active = entry === selected;
+        const mark = entry.mark;
+        const showOrder = offer.action !== 'none' || making(offer.who, item);
+        const orderW = showOrder ? 59 : 0, row = new Rect(left, y, listW - orderW, rowH - 3);
+        button(c, `station-inspect-${item.id}`, row, '', () => {
+          let map = inspectedKinds.get(app);
+          if (!map) inspectedKinds.set(app, (map = new Map()));
+          map.set(station.id, lineOf(item));
+        }, ButtonStyle.Quiet, true, undefined, active);
+        if (active) c.rect(new Rect(left + 1, y + 3, 3, row.h - 7), t.accent, 1);
+        const face = Math.min(row.h - 6, 32), x = left + face + 12, w = row.x + row.w - x - 5;
+        well(c, new Rect(left + 6, y + 3, face, face), t.well);
+        itemIllustration(c, new Rect(left + 6, y + 3, face, face), item);
+        const markW = mark ? c.textWidth(mark, 9, true) + 6 : 0;
+        c.text(new Rect(x, y + 1, w - markW, 18), c.elideText(item.name, w - markW, 12, true),
+          active ? t.accent : t.text, 12, true);
+        if (mark) c.text(new Rect(x + w - markW, y + 1, markW, 16), mark, t.accent, 9, true, Align.End);
+        const status = offer.mark || offer.reason || offer.hint;
+        c.text(new Rect(x, y + 18, w, row.h - 18), c.elideText(status, w, 10), offer.reason ? t.danger : t.muted, 10);
+        if (showOrder) orderButton(entry, new Rect(left + listW - 56, y, 56, row.h), true);
+      });
+      sheet.draw(selectedX, selectedY);
+      if (single) orderButton(selected, new Rect(selectedX + sheetW - 67, selectedY + 6, 60, 27));
     });
-    out.y = f32(out.y + height + 4);
+    // The inspector is anchored to the bottom of the screen. Keep the list still while comparing its items.
+    const height = single ? sheet.height : Math.max(...listed.map(entry => entry.sheet!.height));
+    out.y += (beside ? Math.max(listH, height) : listH + (single ? 0 : 4) + height) + 4;
   }
   if (pageCount > 1) {
-    const at = out.y + (owned ? 12 : 0),
+    const at = owned ? Math.max(out.y, workBottom) + 12 : out.y,
       turn = (to: number) => () => {
         let map = pages.get(app);
         if (!map) pages.set(app, (map = new Map()));

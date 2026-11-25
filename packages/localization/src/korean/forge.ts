@@ -1,6 +1,27 @@
 import type { Phrases } from '../phrases';
 
 export const forgePhrases: Phrases = {
+  'Could not start this order': '이 작업을 시작할 수 없습니다',
+  'Backpack': '배낭',
+  'Worn gear': '착용 장비',
+  'Currently using {0}': '현재 사용 · {0}',
+  'Upgrades from {0}': '강화 대상 · {0}',
+  'Works from the backpack': '배낭에서 자동 사용',
+  'Inspect item': '장비 살펴보기',
+  'Equip': '장착',
+  'Unequip': '장착 해제',
+  'View upgrade': '강화 보기',
+  'Make a tool': '도구 제작',
+  'Make a weapon': '무기 제작',
+  'Store resources': '창고에 넣기',
+  'Storage': '창고',
+  'Take from storage': '창고에서 꺼내기',
+  'Craft {0}': '{0} 제작',
+  'Refine {0}': '{0} 제련',
+  'Gathers {0}': '직접 수집 · {0}',
+  'Missing {0}': '부족 · {0}',
+  'Requires {0}': '필요 시설 · {0}',
+
   "Embersteel boots": "잿불강 장화",
   "embersteel boots": "잿불강 장화",
   "Embersteel soles cross lava at full pace and keep the grip of snow boots.": "설피에 잿불강 밑창을 대어 눈길에서도 발이 빠지지 않고 용암 위를 평소 속도로 건넙니다.",

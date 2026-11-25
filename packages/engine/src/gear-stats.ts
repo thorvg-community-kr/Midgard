@@ -52,7 +52,7 @@ export function gearFields(item: ItemSpec, person?: Person | null): GearField[] 
   if (item.attribute) stat(attributeNames[item.attribute], 1);
   stat('Reach', item.reach - bareReach);
   stat('Defence', modifierPoints(item.defense));
-  stat('Block', modifierPoints(item.block));
+  stat('Shield block', modifierPoints(item.block));
   stat('Carry', item.carry);
   stat('Walking speed', modifierPoints(item.walkBonus));
   stat('Snow footing', modifierPoints(item.snowGrip));
