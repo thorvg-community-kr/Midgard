@@ -256,6 +256,7 @@ export function render(
   }
   this.context.begin(this.theme, new Rect(0, 0, width, height), uiSeconds >= 0 ? uiSeconds : seconds);
   if (this.prayer) {
+    this.hud(width, height);
     renderPrayer.call(this, width, height);
     this.context.end();
     return;
@@ -289,7 +290,7 @@ export function render(
   this.hud(width, height);
   const arrival = this.residentArrival;
   if (arrival?.placed) this.context.deferOverlay((_, controls) => measureArrivalHud(arrival, controls));
-  if (!editing) this.commandOverlay();
+  if (!editing && !this.context.inModal()) this.commandOverlay();
   if (this.editor) {
     const person = this.town.person(this.editor.personId());
     if (person) this.editor.setBackdrop(backdrop(this.town, person.position));

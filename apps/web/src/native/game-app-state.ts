@@ -52,7 +52,6 @@ export enum DockView {
   Inspector,
   Resource,
   Placement,
-  Roster,
   Menu,
 }
 export class Plan {
@@ -116,6 +115,8 @@ export class GameAppState {
   drawerBridge = new Rect();
   dockStarted = -1;
   dockProgress = 1;
+  dockViewportWidth = 0;
+  dockViewportHeight = 0;
   dockDuration = Math.fround(0.24);
   dockContent: Paint | null = null;
   dockGhost: Paint | null = null;
@@ -124,9 +125,14 @@ export class GameAppState {
   inspectorPerson = -1;
   inspectorCalling = Calling.Warrior;
   rosterOpen = false;
+  groupPage = 0;
   rosterTab: 'units' | 'guests' = 'units';
   rosterPage = 0;
   rosterSelected = '';
+  rosterScroll = {
+    key: '', bounds: new Rect(), offset: 0, limit: 0,
+    drag: null as { y: number; offset: number; moved: boolean } | null,
+  };
   campResources = new CampResourceHud();
   pending = Order.None;
   crew: number[] = [];

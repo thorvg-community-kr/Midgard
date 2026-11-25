@@ -76,9 +76,13 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
     header = this.touchMode ? 44 : 38,
     // Opened on a small touch screen it keeps left of the order rail.
     rail = compact ? orderRail(this, width, height) : null,
-    w = Math.min(compact && collapsed ? 164 : 292, f32(width - 24), rail && !rail.beside ? f32(rail.bounds.x - 20) : Infinity),
+    w = Math.min(compact && collapsed ? 164 : 292, f32(width - (compact ? 76 : 24)), rail && !rail.beside ? f32(rail.bounds.x - 20) : Infinity),
     y = Math.min(top, f32(height - 60)),
-    expanded = clamp(f32(f32(this.dockBounds.y - y) - 24), 38, 210),
+    branchShift = this.touchMode && core < 0 ? 26 : 0,
+    preferred = 210 + branchShift,
+    expanded = compact
+      ? Math.min(preferred, height - y - 12)
+      : clamp(f32(f32(this.dockBounds.y - y) - 24), 38, preferred),
     reveal = c.animate('quests/reveal', collapsed ? 0 : 1, 0.18),
     h = lerpFloat(header, Math.max(header, expanded), reveal),
     bounds = new Rect(compact ? 12 : f32(f32(width - 12) - w), y, w, h),
@@ -96,7 +100,10 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
       : new Rect(f32(f32(bounds.x + w) - 38), f32(y + 6), 26, 26),
     this.touchMode ? '' : collapsed ? '+' : '-',
     () => {
-      if (compact) this.mobileQuestsExpanded = !this.mobileQuestsExpanded;
+      if (compact) {
+        this.mobileQuestsExpanded = !this.mobileQuestsExpanded;
+        if (height < 500 && this.mobileQuestsExpanded) this.timeExpanded = false;
+      }
       else this.objectivesCollapsed = !this.objectivesCollapsed;
     },
     ButtonStyle.Quiet,
@@ -145,7 +152,7 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
       new Rect(f32(bounds.x + 38), f32(y + 7), f32(w - (compact && collapsed ? 50 : 196)), 24),
       compact && collapsed ? `Quests ${completed}/${goals.length}` : goal || !folded ? 'Quests' : 'Quests complete',
       t.text,
-      compact && collapsed ? 11 : 13,
+      13,
       true,
     );
   if (!celebrating && !folded && (!compact || !collapsed)) {
@@ -159,7 +166,7 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
       Align.End,
     );
     // Sealed worlds' boons are listed on hover or focus of the counter.
-    if (seals.sealed) {
+    if (seals.sealed && !this.touchMode) {
       const state = c.control('quest-boons', counter, undefined, true, true);
       if (state.hovered || state.focused) boonTip(this, counter);
     }
@@ -177,7 +184,7 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
       const tab = f32(f32(w - 28) / branches.length);
       branches.forEach((branch, index) => {
         const done = !open.includes(branch),
-          area = new Rect(f32(left + f32(tab * index)), f32(y + 38), tab, 20);
+          area = new Rect(f32(left + f32(tab * index)), f32(y + (this.touchMode ? 44 : 38)), tab, this.touchMode ? 44 : 20);
         c.control('quest-branch/' + branch, area, (event) => {
           if (event.type === EventType.Activate && !done) this.questBranch = branch;
         });
@@ -191,14 +198,15 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
         );
       });
     }
-    c.text(new Rect(left, f32(y + 61), f32(w - 28), 23), goal.title, t.text, 14, true);
+    const bodyY = y + branchShift;
+    c.text(new Rect(left, f32(bodyY + 61), f32(w - 28), 23), goal.title, t.text, 14, true);
     let words = '',
       row = '',
-      descriptionY = f32(y + 88);
+      descriptionY = f32(bodyY + 88);
     const flush = () => {
       const next = row ? row + ' ' + words : words;
       if (row && c.textWidth(next, 10) > f32(w - 28)) {
-        if (descriptionY < f32(y + 117))
+        if (descriptionY < f32(bodyY + 117))
           c.text(new Rect(left, descriptionY, f32(w - 28), 16), row, t.muted, 10);
         descriptionY = f32(descriptionY + 15);
         row = words;
@@ -210,7 +218,7 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
       else words = words.concat(character);
     }
     flush();
-    if (row && descriptionY < f32(y + 117))
+    if (row && descriptionY < f32(bodyY + 117))
       c.text(new Rect(left, descriptionY, f32(w - 28), 16), row, t.muted, 10);
     const measured = goalProgress(this.town, goal),
       action = questAction(this, goal);
@@ -268,18 +276,18 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
       if (this.town.roads().roads().length) status = 'Laying road ' + Math.trunc(f32(progress * 100)) + '%';
     }
     c.text(
-      new Rect(left, f32(y + 127), f32(w - 28), 18),
+      new Rect(left, f32(bodyY + 127), f32(w - 28), 18),
       c.elideText(status, f32(w - 28), 10),
       warn ? t.danger : waiting ? t.accent : t.text,
       10,
     );
     const displayed = c.animate('quests/progress/' + current, clamp(progress, 0, 1), 0.2);
-    meter(c, new Rect(left, f32(y + 149), f32(w - 28), 7), displayed, t.accent);
-    if (expanded < 200 || !action) return;
+    meter(c, new Rect(left, f32(bodyY + 149), f32(w - 28), 7), displayed, t.accent);
+    if (expanded < 200 + branchShift || !action) return;
     button(
       c,
       'quest-action/' + current,
-      new Rect(left, f32(y + (this.touchMode ? 160 : 171)), f32(w - 28), this.touchMode ? 44 : 29),
+      new Rect(left, f32(bodyY + (this.touchMode ? 160 : 171)), f32(w - 28), this.touchMode ? 44 : 29),
       action.label,
       action.run,
       ButtonStyle.Primary,

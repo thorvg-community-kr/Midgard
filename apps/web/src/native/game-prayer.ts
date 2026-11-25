@@ -1,4 +1,5 @@
 import {
+  Align,
   ButtonStyle,
   Key,
   Rect,
@@ -46,7 +47,7 @@ const materials: Record<OfferingKey, { name: string; cue: Cue; take: Cue }> = {
 const materialGain = 0.72;
 
 export function altarInspector(this: GameAppState, building: Building, panel: Rect, draw: boolean): number {
-  const h = 78;
+  const buttonH = this.touchMode ? 44 : 28, h = 50 + buttonH;
   if (!draw) return h;
   const c = this.context,
     t = this.theme,
@@ -56,7 +57,7 @@ export function altarInspector(this: GameAppState, building: Building, panel: Re
   button(
     c,
     'altar-pray',
-    new Rect(x, panel.y + h - 39, w, 28),
+    new Rect(x, panel.y + 39, w, buttonH),
     'Prepare an offering',
     () => openPrayer.call(this, building.id),
     ButtonStyle.Primary,
@@ -73,6 +74,7 @@ export interface PrayerDialog extends ResidentCreationView {
   presets: ResidentPresetPanel | null;
   error: string;
   offering: Resources;
+  materialPage: number;
   inputs: Record<OfferingKey, TextInput>;
   scene: OfferingScene;
   adapter: WebCanvasAdapter;
@@ -99,6 +101,7 @@ export function openPrayer(this: GameAppState, altar: number): void {
     presets: null,
     error: '',
     offering,
+    materialPage: 0,
     inputs: Object.fromEntries(
       offeringKeys.map((key) => [key, new TextInput(offering[key] ? String(offering[key]) : '')]),
     ) as Record<OfferingKey, TextInput>,
@@ -251,13 +254,18 @@ function showMaterials(app: GameAppState, state: PrayerDialog, stage: Rect): voi
 function materialRows(app: GameAppState, state: PrayerDialog, area: Rect, stock: Resources): void {
   const c = app.context,
     t = app.theme,
-    rowH = Math.min(57, area.h / resourceOrder.length);
-  for (const [index, key] of resourceOrder.entries()) {
+    paged = app.touchMode && area.h < 47 * resourceOrder.length,
+    perPage = paged ? Math.max(1, Math.floor((area.h - 50) / 47)) : resourceOrder.length,
+    pages = Math.ceil(resourceOrder.length / perPage),
+    rowH = Math.min(57, (area.h - (paged ? 50 : 0)) / perPage);
+  state.materialPage = Math.min(state.materialPage, pages - 1);
+  const start = state.materialPage * perPage;
+  for (const [index, key] of resourceOrder.slice(start, start + perPage).entries()) {
     const y = area.y + index * rowH,
-      h = Math.min(38, rowH - 3),
+      h = Math.min(app.touchMode ? 44 : 38, rowH - 3),
       mid = y + rowH / 2,
       iconSize = Math.min(34, rowH - 4),
-      controls = Math.min(158, area.w * 0.5),
+      controls = app.touchMode ? 185 : Math.min(158, area.w * 0.5),
       x = area.x + area.w - controls,
       nameX = area.x + iconSize + 5,
       labelW = x - nameX - 2;
@@ -312,6 +320,12 @@ function materialRows(app: GameAppState, state: PrayerDialog, area: Rect, stock:
       ButtonStyle.Quiet,
       state.offering[key] + offeringStep <= limit,
     );
+  }
+  if (paged) {
+    const y = area.y + area.h - 44;
+    button(c, 'offering-prev', new Rect(area.x, y, 44, 44), '<', () => --state.materialPage, ButtonStyle.Quiet, state.materialPage > 0);
+    c.text(new Rect(area.x + 44, y, area.w - 88, 44), `${state.materialPage + 1} / ${pages}`, t.muted, 13, false, Align.Center);
+    button(c, 'offering-next', new Rect(area.x + area.w - 44, y, 44, 44), '>', () => ++state.materialPage, ButtonStyle.Quiet, state.materialPage + 1 < pages);
   }
 }
 
@@ -369,12 +383,12 @@ export function renderPrayer(this: AltarApp, width: number, height: number): voi
     x = panel.x + pad,
     innerW = w - pad * 2,
     short = h < 460,
-    header = short ? 38 : 52,
-    footer = short ? 60 : 74,
+    header = this.touchMode ? 54 : short ? 38 : 52,
+    footer = this.touchMode ? 72 : short ? 60 : 74,
     body = new Rect(x, panel.y + header, innerW, h - header - footer - 4),
     footY = panel.y + h - footer,
-    buttonY = footY + (short ? 20 : 26),
-    buttonH = short ? 31 : 38;
+    buttonY = footY + (this.touchMode ? 21 : short ? 20 : 26),
+    buttonH = this.touchMode ? 44 : short ? 31 : 38;
   c.control('prayer-panel', panel, undefined, true, false);
   board(c, panel, { header: header - 5 });
   const title = state.presets ? 'Appearance presets' : state.editing ? 'Customize resident' : 'An offering to Odin';
@@ -395,7 +409,7 @@ export function renderPrayer(this: AltarApp, width: number, height: number): voi
     button(
       c,
       'prayer-cancel',
-      new Rect(panel.x + w - pad - 67, panel.y + 5, 67, header - 14),
+      new Rect(panel.x + w - pad - 67, panel.y + 5, 67, this.touchMode ? 44 : header - 14),
       'Cancel',
       depart,
       ButtonStyle.Quiet,
@@ -425,8 +439,8 @@ export function renderPrayer(this: AltarApp, width: number, height: number): voi
   }
   if (state.editing) renderResidentCreation(this, state, body);
   else {
-    const wide = body.w >= 590,
-      colW = wide ? body.w * 0.53 : body.w,
+    const wide = body.w >= 590 || (this.touchMode && short && body.w >= 455),
+      colW = wide ? (this.touchMode ? Math.min(body.w * 0.48, body.w - 282) : body.w * 0.53) : body.w,
       stageH = wide ? body.h - 50 : Math.min(colW / 2.08, body.h * 0.34),
       stage = new Rect(body.x, body.y + 2, colW, stageH);
     showMaterials(this, state, stage);

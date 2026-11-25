@@ -609,7 +609,7 @@ it.each([
   },
 );
 
-it.each(['build', 'units', 'selection'] as const)(
+it.each(['build', 'selection'] as const)(
   'dismisses the %s panel on an empty-world click without redundant close controls',
   (kind) => {
     const ui = fixture(390, 844);
@@ -632,9 +632,9 @@ it.each(['build', 'units', 'selection'] as const)(
       app.dockProgress = 1;
       app.dockBounds = app.dockTarget = new Rect(12, 480, 366, 352);
       app.chosen = kind === 'selection' ? [ui.town.folk[0].id] : [];
-      app.rosterOpen = kind === 'units';
+      app.rosterOpen = false;
       app.globalCard = kind === 'build' ? 0 : -1;
-      app.dockView = kind === 'build' ? DockView.Build : kind === 'units' ? DockView.Roster : DockView.Unit;
+      app.dockView = kind === 'build' ? DockView.Build : DockView.Unit;
       ui.draw(() => taskbar.call(app, 390, 844));
       expect(ui.controls.mock.calls.map(([id]) => id)).not.toContain('dock-close');
       expect(ui.controls.mock.calls.map(([id]) => id)).not.toContain('roster-close');
@@ -769,6 +769,36 @@ it('opens resource offerings from the altar without choosing or ordering a resid
     ui.context.pointerUp(next[1].x + 10, next[1].y + 10);
     ui.draw(() => renderPrayer.call(ui.app, 880, 600));
     expect(ui.controls.mock.calls.find((call) => call[0] === 'prayer-confirm')![3]).toBe(false);
+    closePrayer.call(ui.app);
+    ui.draw(() => {});
+  } finally {
+    const pending = ui.app.prayer;
+    ui.dispose();
+    pending?.adapter.dispose();
+  }
+});
+it('pages altar materials into finger-sized rows on a short landscape screen', () => {
+  const ui = fixture(568, 320);
+  try {
+    ui.app.touchMode = true;
+    const { altar } = civicTown(ui.town);
+    openPrayer.call(ui.app, altar.id);
+    const seen = new Set<string>();
+    for (let page = 0; page < 5; page++) {
+      ui.draw(() => renderPrayer.call(ui.app, 568, 320));
+      const buttons = ui.controls.mock.calls;
+      for (const [id, r] of buttons.filter(([id]) => id.startsWith('offering-') || id === 'prayer-cancel' || id === 'prayer-customize')) {
+        expect(r.w, id).toBeGreaterThanOrEqual(44);
+        expect(r.h, id).toBeGreaterThanOrEqual(44);
+        if (id.startsWith('offering-more-')) seen.add(id.slice('offering-more-'.length));
+      }
+      const next = buttons.find(([id]) => id === 'offering-next')!;
+      if (!next[3]) break;
+      const r = next[1];
+      ui.context.pointerDown(r.x + r.w / 2, r.y + r.h / 2);
+      ui.context.pointerUp(r.x + r.w / 2, r.y + r.h / 2);
+    }
+    expect([...seen].sort()).toEqual(['bones', 'food', 'gold', 'stone', 'water']);
     closePrayer.call(ui.app);
     ui.draw(() => {});
   } finally {
@@ -970,7 +1000,7 @@ it('equips the selected real inventory stack through the centered gear grid with
   }
 });
 
-it('morphs a single handle into Build and Unit and centers the unit window from the first frame', () => {
+it('opens the centered Unit window from the handle without moving the dock and captures outside taps', () => {
   const ui = fixture();
   try {
     const app = ui.app;
@@ -997,9 +1027,20 @@ it('morphs a single handle into Build and Unit and centers the unit window from 
     const r = ui.controls.mock.calls.find((call) => call[0] === 'unit-roster')![1];
     ui.context.pointerDown(r.x + 10, r.y + 10);
     ui.context.pointerUp(r.x + 10, r.y + 10);
-    ui.draw(() => updateContextDock.call(app, 880, 600));
-    expect(app.dockView).toBe(DockView.Roster);
-    expect(app.dockTarget.y + app.dockTarget.h / 2).toBe(300);
+    const original = { ...app.dockTarget };
+    ui.draw(() => {
+      updateContextDock.call(app, 880, 600);
+      renderDockContent.call(app, app.dockTarget);
+      rosterPanel.call(app, app.rosterBounds(880, 600));
+    });
+    expect(app.dockTarget).toEqual(original);
+    const panel = app.rosterBounds(880, 600);
+    expect(panel.y + panel.h / 2).toBe(300);
+    expect(ui.context.inModal()).toBe(true);
+    expect(ui.context.focused()).toBe('roster-tab-units');
+    ui.context.pointerDown(r.x + 10, 2);
+    ui.context.pointerUp(r.x + 10, 2);
+    expect(app.rosterOpen).toBe(false);
   } finally {
     ui.dispose();
   }
@@ -1204,7 +1245,7 @@ it.each([
     expect([r.w, r.h]).toEqual([size, size]);
     // Clear of the top-left button and of the sky itself.
     expect(r.x).toBeGreaterThanOrEqual(12 + size + 8);
-    expect(r.x + r.w).toBeLessThanOrEqual(ui.app.skyBounds.x);
+    expect(r.x + r.w <= ui.app.skyBounds.x || r.y >= ui.app.skyBounds.y + ui.app.skyBounds.h + 6).toBe(true);
     ui.context.pointerDown(r.x + 10, r.y + 10);
     ui.context.pointerUp(r.x + 10, r.y + 10);
     ui.draw(() => skyMural.call(ui.app, width));

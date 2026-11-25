@@ -1,6 +1,7 @@
 // The guide on screen: one card at a time, set beside the thing it introduces as the village stores window is set
 // beside a camp, or else at the edge of the play area, and the log of everything that has happened so far.
 import { localeRevision, translate } from '../../../../packages/localization/src/index';
+import { windowBackdrop } from './hud-window';
 import { Align, ButtonStyle, EventType, Rect, board, button, frame, groove, tag } from '../../../../packages/native-ui/src';
 import { clamp, f32 } from '../../../../packages/engine/src/numeric';
 import { project } from '../../../../packages/engine/src/geometry';
@@ -395,28 +396,33 @@ function logPanel(app: GameHudApp, width: number): void {
     s = app.guide,
     prefs = guidePreferences(),
     touch = app.touchMode,
+    short = touch && app.viewHeight < 450 && width >= 480,
     bh = touch ? 44 : 28,
     top = touch ? 64 : 56,
-    w = Math.min(440, f32(width - 24)),
+    w = Math.min(short ? 600 : 440, f32(width - 24)),
     // Ends above the notice toast's line over the dock.
     bottom = Math.max(f32(top + 260), f32(app.dockBounds.y - 54)),
-    r = new Rect(12, top, w, f32(Math.min(bottom, app.viewHeight - 8) - top)),
+    h = Math.min(620, app.viewHeight - 24),
+    r = touch ? new Rect((width - w) / 2, (app.viewHeight - h) / 2, w, h)
+      : new Rect(12, top, w, f32(Math.min(bottom, app.viewHeight - 8) - top)),
     inner = f32(w - 32),
     left = f32(r.x + 16);
-  c.control('guide-log', r, undefined, true, false);
+  if (touch) windowBackdrop(c, new Rect(0, 0, width, app.viewHeight), r, 'guide-log', 'guide-log/close', () => toggleGuideLog(app));
+  else c.control('guide-log', r, undefined, true, false);
   board(c, r, { header: 56 });
-  c.text(new Rect(left, f32(r.y + 12), f32(inner - 50), 24), 'Log', t.accent, 17, true);
-  c.text(new Rect(left, f32(r.y + 36), f32(inner - 50), 16), 'Everything that has happened, newest first.', t.muted, 11);
+  c.text(new Rect(left, f32(r.y + 12), short ? 76 : f32(inner - 50), short ? 32 : 24), 'Log', t.accent, 17, true);
+  if (!short) c.text(new Rect(left, f32(r.y + 36), f32(inner - 50), 16), 'Everything that has happened, newest first.', t.muted, 11);
   const close = new Rect(f32(r.x + r.w - 12 - bh), f32(r.y + 10), bh, bh),
     closing = button(c, 'guide-log/close', close, '', () => toggleGuideLog(app), ButtonStyle.Quiet),
     ink = closing.hovered || closing.focused ? t.text : t.muted,
     m = f32(bh / 2 - 5);
   c.line(f32(close.x + m), f32(close.y + m), f32(close.x + bh - m), f32(close.y + bh - m), ink, f32(1.5));
   c.line(f32(close.x + bh - m), f32(close.y + m), f32(close.x + m), f32(close.y + bh - m), ink, f32(1.5));
-  let y = f32(r.y + 60);
-  const half = f32((inner - 8) / 2);
-  button(c, 'guide-log/focus', new Rect(left, y, half, bh), prefs.focus ? 'Camera focus: On' : 'Camera focus: Off', () => setGuidePreference('focus', !prefs.focus), ButtonStyle.Default, true, undefined, prefs.focus, { fontSize: 11 });
-  button(c, 'guide-log/cards', new Rect(f32(left + half + 8), y, half, bh), prefs.cards ? 'Cards: On' : 'Cards: Off', () => setGuidePreference('cards', !prefs.cards), ButtonStyle.Default, true, undefined, prefs.cards, { fontSize: 11 });
+  let y = f32(r.y + (short ? 10 : 60));
+  const prefX = short ? left + 80 : left, endX = short ? close.x - 8 : left + inner;
+  const half = (endX - prefX - 8) / 2;
+  button(c, 'guide-log/focus', new Rect(prefX, y, half, bh), prefs.focus ? 'Camera focus: On' : 'Camera focus: Off', () => setGuidePreference('focus', !prefs.focus), ButtonStyle.Default, true, undefined, prefs.focus, { fontSize: touch ? 13 : 11 });
+  button(c, 'guide-log/cards', new Rect(f32(prefX + half + 8), y, half, bh), prefs.cards ? 'Cards: On' : 'Cards: Off', () => setGuidePreference('cards', !prefs.cards), ButtonStyle.Default, true, undefined, prefs.cards, { fontSize: touch ? 13 : 11 });
   y = f32(y + bh + 12);
   groove(c, left, y, inner);
   y = f32(y + 10);
@@ -467,7 +473,10 @@ function entryRow(app: GameHudApp, layout: EntryLayout, x: number, y: number, in
       row = f32(row + 15);
     }
   if (layout.open && entry.at)
-    button(c, `guide-log/look/${index}`, new Rect(f32(x + inner - look), f32(row + 4), look, app.touchMode ? head : f32(head - 2)), 'Look', () => guideShow(app, entry), ButtonStyle.Default, true, undefined, false, { fontSize: 11 });
+    button(c, `guide-log/look/${index}`, new Rect(f32(x + inner - look), f32(row + 4), look, app.touchMode ? head : f32(head - 2)), 'Look', () => {
+      if (app.touchMode) toggleGuideLog(app);
+      guideShow(app, entry);
+    }, ButtonStyle.Default, true, undefined, false, { fontSize: 11 });
   groove(c, x, f32(y + layout.height - (layout.open ? 6 : 3)), inner);
 }
 /** Once per HUD frame, after every other panel: the log button, then the log or the card. */
@@ -475,9 +484,11 @@ export function guideHud(app: GameHudApp, width: number, height: number): void {
   if (app.town.isTitleAutoplay()) return;
   const c = app.context;
   logButton(app);
+  if (app.rosterOpen || app.prayer) return;
   if (app.guide.logOpen) logPanel(app, width);
   else card(app, width, height);
   if (app.guide.glide) c.requestAnimationFrame();
+  if (app.touchMode && app.guide.logOpen) return;
   c.deferOverlay(
     (_, controls) =>
       blocked.set(

@@ -34,6 +34,9 @@ export function dismissBuildDrawer(this: GameHudApp): void {
   this.drawerBridge = new Rect();
 }
 export function updateContextDock(this: GameHudApp, width: number, height: number): void {
+  const resized = this.dockViewportWidth !== width || this.dockViewportHeight !== height;
+  this.dockViewportWidth = width;
+  this.dockViewportHeight = height;
   const now = this.context.time(),
     advance = () => {
       this.dockProgress =
@@ -46,7 +49,8 @@ export function updateContextDock(this: GameHudApp, width: number, height: numbe
     };
   if (this.dockKey) advance();
   const handle = new Rect(f((width - 128) / 2), height - 40, 128, 28),
-    atHandle = handle.contains(this.mouse.x, this.mouse.y);
+    covered = this.rosterOpen || this.prayer || (this.touchMode && this.guide.logOpen),
+    atHandle = covered ? this.dockView === DockView.Menu : handle.contains(this.mouse.x, this.mouse.y);
   if (!atHandle) this.drawerSuppressed = false;
   const eligible =
     this.pending === Order.None && !this.roadPress && !this.boxFrom && !this.fieldFrom && !this.panFrom;
@@ -57,17 +61,16 @@ export function updateContextDock(this: GameHudApp, width: number, height: numbe
   const menu = this.buildMenuBounds(width, height, true),
     inMenu =
       padded(this.dockBounds, 8).contains(this.mouse.x, this.mouse.y) ||
-      (this.drawerOpen &&
+      (!covered && this.drawerOpen &&
         (padded(menu, 8).contains(this.mouse.x, this.mouse.y) ||
           padded(this.drawerBridge, 8).contains(this.mouse.x, this.mouse.y)));
-  if (this.drawerOpen && this.dockProgress === 1 && menu.contains(this.mouse.x, this.mouse.y)) {
+  if (!covered && this.drawerOpen && this.dockProgress === 1 && menu.contains(this.mouse.x, this.mouse.y)) {
     this.drawerPinned = false;
     this.drawerBridge = new Rect();
   }
   const global = eligible && this.globalCard >= 0;
   let next = DockView.Handle;
-  if (eligible && this.rosterOpen) next = DockView.Roster;
-  else if (eligible && ((this.chosen.length > 0 && this.card >= 0) || global)) next = DockView.Build;
+  if (eligible && ((this.chosen.length > 0 && this.card >= 0) || global)) next = DockView.Build;
   else if (this.chosen.length) next = DockView.Unit;
   else if (this.selected >= 0 || this.selectedDungeon >= 0) next = DockView.Inspector;
   else if (
@@ -87,7 +90,7 @@ export function updateContextDock(this: GameHudApp, width: number, height: numbe
   const folded = aimFolded(this) && this.chosen.length > 0;
   if (folded) next = DockView.Unit;
   else if (this.pending !== Order.None) next = DockView.Handle;
-  else if (this.tool !== Tool.Select && next !== DockView.Build && next !== DockView.Roster)
+  else if (this.tool !== Tool.Select && next !== DockView.Build)
     next = DockView.Placement;
   let target = new Rect(f((width - 128) / 2), height - 28, 128, 16),
     key = String(next);
@@ -123,14 +126,11 @@ export function updateContextDock(this: GameHudApp, width: number, height: numbe
   } else if (next === DockView.Placement) {
     target = this.placementPanelBounds(width, height);
     key += ':' + this.tool;
-  } else if (next === DockView.Roster) {
-    target = this.rosterBounds(width, height);
-    key += ':' + this.rosterTab;
   }
   target.x = f(f(width - target.w) / 2);
-  target.y = next === DockView.Roster ? f((height - target.h) / 2) : f(height - 12 - target.h);
+  target.y = f(height - 12 - target.h);
   if (
-    key !== this.dockKey ||
+    resized || key !== this.dockKey ||
     target.w !== this.dockTarget.w ||
     target.h !== this.dockTarget.h ||
     target.x !== this.dockTarget.x ||
@@ -142,13 +142,13 @@ export function updateContextDock(this: GameHudApp, width: number, height: numbe
         this.context.deferRelease(() => old.dispose());
       }
       this.dockGhost = null;
-      if (key !== this.dockKey) {
+      if (!resized && key !== this.dockKey) {
         this.dockGhost = this.dockContent?.duplicate() ?? null;
         this.dockGhostBounds = copy(this.dockBounds);
       }
       if (this.dockView === DockView.Build && next === DockView.Build)
         this.drawerBridge = copy(this.dockBounds);
-      if (key !== this.dockKey) this.context.cancelPointer();
+      if (key !== this.dockKey && !covered) this.context.cancelPointer();
       this.dockFrom = copy(this.dockBounds);
       this.dockStarted = now;
     } else {
@@ -159,7 +159,7 @@ export function updateContextDock(this: GameHudApp, width: number, height: numbe
     this.dockView = next;
     this.dockTarget = target;
     this.dockDuration = next === DockView.Handle ? f(0.18) : f(0.24);
-    if (this.reducedMotion()) this.dockStarted = -1;
+    if (resized || this.reducedMotion()) this.dockStarted = -1;
     advance();
   }
   this.drawerOpen = this.dockView === DockView.Build;
@@ -251,9 +251,6 @@ export function renderDockContent(this: GameHudApp, panel: Rect): void {
       break;
     case DockView.Resource:
       this.worldObjectPanel(panel);
-      break;
-    case DockView.Roster:
-      this.rosterPanel(panel);
       break;
   }
 }

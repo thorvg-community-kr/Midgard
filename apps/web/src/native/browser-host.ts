@@ -40,6 +40,7 @@ export class BrowserHost {
   private renderedAt = 0;
   private width = 0;
   private height = 0;
+  private displayDensity = 0;
   private readonly pressed = new Set<string>();
   /** What each held physical key was called when it went down, so its release carries the same name. */
   private readonly heldText = new Map<string, string>();
@@ -317,12 +318,16 @@ export class BrowserHost {
   private resize(): void {
     if (this.closed || this.surfaceLost) return;
     const width = Math.max(1, this.element.clientWidth),
-      height = Math.max(1, this.element.clientHeight);
-    if (width === this.width && height === this.height) return;
+      height = Math.max(1, this.element.clientHeight),
+      density = this.devicePixelRatio ? window.devicePixelRatio || 1 : 1,
+      resized = width !== this.width || height !== this.height;
+    if (!resized && density === this.displayDensity) return;
     this.width = width;
     this.height = height;
+    this.displayDensity = density;
     this.app.invalidatePresentation?.();
-    this.canvas.resize(width, height);
+    // WebCanvas updates its own backing scale on render, even at an unchanged CSS size.
+    if (resized) this.canvas.resize(width, height);
   }
   render(seconds = (performance.now() - this.started) / 1000): void {
     if (this.closed || this.surfaceLost) return;

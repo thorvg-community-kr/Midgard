@@ -97,14 +97,27 @@ export function groupTabs(app: GameHudApp, height: number): void {
     count = shown.length + (spare ? 1 : 0),
     span = count * w + (count - 1) * gap,
     dock = app.dockBounds,
-    beside = !app.touchMode && dock.x - 24 >= span,
+    vertical = app.touchMode && height < 500 && dock.x >= 12 + w + 6,
+    beside = vertical || (!app.touchMode && dock.x - 24 >= span),
     x = 12,
     // Above the panel they clear the status line and the notice toast.
     y = beside ? f32(height - 12 - h) : f32(dock.y - 52 - h);
   if (y < 60) return;
+  const capacity = !app.touchMode ? count : Math.max(2, vertical
+    ? Math.floor((height - 124) / (h + gap))
+    : Math.floor((app.viewWidth - (own.length ? 92 : 18)) / (w + gap)));
+  const paged = count > capacity, perPage = paged ? capacity - 1 : count;
+  const pages = Math.ceil(count / perPage);
+  app.groupPage = Math.min(app.groupPage, pages - 1);
+  const start = app.groupPage * perPage;
+  const tile = (index: number) => new Rect(x + (vertical ? 0 : index * (w + gap)), y - (vertical ? index * (h + gap) : 0), w, h);
+  if (paged) button(c, 'group-page', tile(perPage), `${app.groupPage + 1} / ${pages}`, () => {
+    app.groupPage = (app.groupPage + 1) % pages;
+  }, ButtonStyle.Quiet);
   shown.forEach((digit, i) => {
+    if (i < start || i >= start + perPage) return;
     const members = groupMembers(app, digit),
-      r = new Rect(f32(x + i * (w + gap)), y, w, h),
+      r = tile(i - start),
       id = 'group-' + digit,
       active = sameIds(app.chosen, members.map((p) => p.id)),
       state = button(c, id, r, '', () => recallGroup(app, digit), ButtonStyle.Quiet, true, undefined, active),
@@ -124,8 +137,8 @@ export function groupTabs(app: GameHudApp, height: number): void {
         : `${digit} selects them, ${digit} twice looks at them. Ctrl+${digit} remakes the group, Shift+${digit} adds to it.`,
     ]);
   });
-  if (spare) {
-    const r = new Rect(f32(x + shown.length * (w + gap)), y, w, h),
+  if (spare && shown.length >= start && shown.length < start + perPage) {
+    const r = tile(shown.length - start),
       id = 'group-new',
       state = button(c, id, r, '', () => setGroup(app, spare, false), ButtonStyle.Quiet);
     c.text(r, `+ ${spare}`, t.accent, 12, true, Align.Center);

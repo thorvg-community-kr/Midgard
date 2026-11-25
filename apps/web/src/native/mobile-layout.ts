@@ -1,5 +1,14 @@
 import { Rect } from '../../../../packages/native-ui/src';
 
+/** All HUD measurements are logical CSS pixels. The backing canvas owns the display density. */
+export const touchTarget = 44;
+export function touchClockBounds(width: number): Rect {
+  const w = Math.min(224, Math.max(1, width - (12 + touchTarget + 8) * 2));
+  return new Rect((width - w) / 2, 12, w, touchTarget);
+}
+export const speedColumns = (width: number): number => width < 300 ? 3 : 6;
+export const touchHudTop = (width: number, expanded: boolean): number =>
+  expanded ? 70 + (6 / speedColumns(width)) * 46 : 64;
 export const compactViewport = (width: number, height: number): boolean => width < 600 || height < 500;
 /** In landscape a station or dungeon can use the space immediately below the sky controls. */
 export function inspectorHeightLimit(height: number, expanded = false): number {

@@ -32,20 +32,19 @@ try {
   });
   await server.listen();
   browser = await chromium.launch({ headless: true, args: ['--mute-audio', '--use-angle=gl', '--enable-gpu', '--ignore-gpu-blocklist'] });
-  for (const [width, height, renderer] of [
-    [390, 844, 'gl'],
-    [844, 390, 'gl'],
-    [360, 740, 'gl'],
+  for (const [width, height, density] of [
+    [390, 844, 3], [844, 390, 1], [360, 740, 2], [320, 568, 2], [568, 320, 1],
   ]) {
+    const renderer = 'gl';
     const context = await browser.newContext({
       viewport: { width, height },
       hasTouch: true,
       isMobile: true,
-      deviceScaleFactor: width === 360 ? 2 : 1,
+      deviceScaleFactor: density,
       reducedMotion: width === 844 ? 'no-preference' : 'reduce',
     });
     const page = await context.newPage();
-    const row = { width, height, renderer, checks: [] };
+    const row = { width, height, density, renderer, checks: [] };
     report.cases.push(row);
     const check = (name, actual) => {
       row.checks.push({ name, passed: !!actual });
@@ -63,12 +62,15 @@ try {
         for (let i = 0; i < count; i++) {
           window.mobile.runtime.app.dirty = true;
           window.mobile.labels = [];
+          window.mobile.hud = {};
           window.mobile.runtime.host.render(++window.mobile.frame / 60);
         }
       }, count);
     try {
       await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/mobile-probe`);
       await page.evaluate(async (renderer) => {
+        if (innerWidth === 390 || innerWidth === 568)
+          (await import('/packages/localization/src/index.ts')).storeLocale('KR');
         // Guide cards are covered by guide.browser.mjs; here they would sit under the gestures.
         (await import('/apps/web/src/native/guide-preferences.ts')).setGuidePreference('cards', false);
         const [{ startNativeGame }, { Tool }, { Terrain, Layer }, { WorldMap }, { Town }, { project, Camera }] =
@@ -109,13 +111,18 @@ try {
         const center = project(start.x, start.y);
         game.setView(new Camera(center.x, center.y, 1.4));
         game.renderer.invalidateMap();
-        window.mobile = { runtime, game, Tool, frame: 0, labels: [], orders: [] };
+        window.mobile = { runtime, game, Tool, frame: 0, labels: [], hud: {}, orders: [] };
         // Drive the real UI clock with the replay clock, including dock morphs.
         runtime.app.services.frameTime = () => window.mobile.frame / 60;
         const text = game.context.text.bind(game.context),
+          control = game.context.control.bind(game.context),
           move = game.town.orderMove.bind(game.town);
+        game.context.control = (...args) => {
+          window.mobile.hud[args[0]] = { ...args[1] };
+          return control(...args);
+        };
         game.context.text = (...args) => {
-          window.mobile.labels.push({ bounds: args[0], text: args[1] });
+          window.mobile.labels.push({ bounds: args[0], text: args[1], size: args[3] });
           return text(...args);
         };
         game.town.orderMove = (...args) => {
@@ -179,6 +186,82 @@ try {
         await page.touchscreen.tap(p.x, p.y);
         await frames(16);
       };
+      const clock = await button('speed-toggle');
+      check('The centered clock has a 44 px touch target and readable time and countdown', await page.evaluate(() => {
+        const { labels, game } = window.mobile, r = game.skyBounds;
+        return r.x + r.w / 2 === innerWidth / 2 && r.w >= 180 && r.h >= 44 &&
+          labels.some(l => /^\d\d:\d\d$/.test(l.text) && l.size >= 16) &&
+          labels.some(l => /^Sun(set|rise) in /.test(l.text) && l.size >= 13 && game.context.textWidth(l.text, l.size) <= l.bounds.w);
+      }));
+      check('The backing store uses the display density and inputs stay in CSS pixels', await page.evaluate(() => {
+        const { runtime, game } = window.mobile, canvas = document.querySelector('#world');
+        return game.viewWidth === canvas.clientWidth && Math.abs(canvas.width - game.viewWidth * runtime.host.canvas.dpr) < 1 &&
+          (devicePixelRatio === 1 ? runtime.host.canvas.dpr === 1 : runtime.host.canvas.dpr > 1);
+      }));
+      await tapControl('objectives-toggle');
+      check('An expanded quest offers its full-size action even on short screens', await page.evaluate(() => {
+        const action = window.mobile.game.context.controls.find(k => k.id.startsWith('quest-action/'));
+        return action?.bounds.h >= 44 && action.bounds.y + action.bounds.h <= innerHeight;
+      }));
+      await tapControl('speed-toggle');
+      await tapControl('speed-2x');
+      check('The clock changes the live game speed', await page.evaluate(() => window.mobile.game.gameSpeed() === 2));
+      await tapControl('speed-1x');
+      await tapControl('speed-||');
+      check('The same controls pause the game', await page.evaluate(() => window.mobile.game.gameSpeed() === 0));
+      await page.screenshot({ path: `${output}/${width}x${height}-clock.png`, scale: 'css' });
+      const underlying = () => page.evaluate(() => {
+        const { game: g, hud } = window.mobile;
+        return { dock: hud['context-dock'], quests: hud['objectives-panel'], rail: hud['unit/orders'], clock: hud['speed-toggle'],
+          camera: { x: g.camera.x, y: g.camera.y, zoom: g.camera.zoom }, units: [...g.chosen], speed: g.timeExpanded, orders: g.pending };
+      });
+      const background = await underlying();
+      await tapControl('unit-management');
+      check('Opening Unit management leaves the clock, selection, orders and expanded HUD in place',
+        JSON.stringify(await underlying()) === JSON.stringify(background));
+      check('Only the centered window can receive input', await page.evaluate(() => {
+        const c = window.mobile.game.context, r = c.controls.find(k => k.id === 'roster-panel')?.bounds;
+        return r && r.x + r.w / 2 === innerWidth / 2 && r.y + r.h / 2 === innerHeight / 2 &&
+          c.inModal() && !c.controls.some(k => ['speed-toggle', 'guide-log-button', 'objectives-toggle', 'unit-management'].includes(k.id));
+      }));
+      for (const id of ['roster-close', 'roster-tab-units', 'roster-tab-guests']) {
+        const r = await button(id);
+        check(id + ' has an in-view 44 px touch target', r.w >= 44 && r.h >= 44 && r.x >= 22 && r.y >= 22 && r.x <= width - 22 && r.y <= height - 22);
+      }
+      await page.screenshot({ path: `${output}/${width}x${height}-hall.png`, scale: 'css' });
+      await page.keyboard.press('b');
+      await page.keyboard.press('Tab');
+      await touch('touchStart', [[width * .35, y, 0], [width * .65, y, 1]]);
+      await touch('touchMove', [[width * .25, y, 0], [width * .75, y, 1]]);
+      await touch('touchEnd', []);
+      await frames();
+      check('Pinching and army keys inside the window leave the world alone',
+        JSON.stringify(await underlying()) === JSON.stringify(background));
+      await tapControl('roster-tab-guests');
+      await tapControl('roster-close');
+      check('The close button restores the same expanded HUD', JSON.stringify(await underlying()) === JSON.stringify(background));
+      await tapControl('unit-management');
+      await page.touchscreen.tap(3, 3);
+      await frames();
+      check('An outside tap closes only the window', await page.evaluate(() => !window.mobile.game.rosterOpen) &&
+        JSON.stringify(await underlying()) === JSON.stringify(background));
+      await tapControl('guide-log-button');
+      const journal = await button('guide-log');
+      check('The mobile Log is centered above the HUD', journal.x === width / 2 && journal.y === height / 2);
+      await page.keyboard.press('Escape');
+      await frames();
+      if (await page.evaluate(() => window.mobile.game.mobileQuestsExpanded)) await tapControl('objectives-toggle');
+      if (await page.evaluate(() => window.mobile.game.timeExpanded)) await tapControl('speed-toggle');
+      if (width === 390) {
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, mobile: true, deviceScaleFactor: 1 });
+        await frames();
+        check('A density-only change preserves the logical clock and refreshes the backing store',
+          JSON.stringify(await button('speed-toggle')) === JSON.stringify(clock) &&
+          await page.evaluate(() => document.querySelector('#world').width === window.mobile.game.viewWidth));
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, mobile: true, deviceScaleFactor: density });
+        await frames();
+      }
+      if (Math.min(width, height) === 320) continue;
       await tapControl('unit/card-move');
       await touch('touchStart', [[width * 0.4, y]]);
       await touch('touchMove', [[width * 0.4 + 40, y + 12]]);
@@ -471,6 +554,71 @@ try {
       await page.evaluate(() => window.mobile?.runtime.dispose()).catch(() => {});
       await context.close();
     }
+  }
+  // Exercise the actual title and game shell as well: its Settings layer sits outside the game HUD.
+  const shellContext = await browser.newContext({ viewport: { width: 568, height: 320 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+  try {
+    const page = await shellContext.newPage();
+    page.on('pageerror', e => report.errors.push(e.stack ?? String(e)));
+    await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/mobile-probe`);
+    await page.evaluate(async () => {
+      const { startNativeGame } = await import('/apps/web/src/native/bootstrap.ts');
+      (await import('/packages/localization/src/index.ts')).storeLocale('KR');
+      const { setGuidePreference } = await import('/apps/web/src/native/guide-preferences.ts');
+      setGuidePreference('cards', false);
+      setGuidePreference('focus', false);
+      window.shell = await startNativeGame(document.querySelector('#world'), { titleScreen: true, seed: 5 }, 'gl', undefined, false);
+      window.stamp = 0;
+    });
+    const paint = (n = 2) => page.evaluate(n => {
+      for (let i = 0; i < n; ++i) shell.host.render(window.stamp += .1);
+    }, n);
+    const tap = async (id, game = false) => {
+      const r = await page.evaluate(([id, game]) => {
+        const c = game ? shell.app.gameSession.game.context : shell.app.overlay;
+        return c.controls.find(k => k.id === id)?.bounds;
+      }, [id, game]);
+      assert.ok(r && r.w >= 44 && r.h >= 44, id + ' is a finger-sized button');
+      await page.touchscreen.tap(r.x + r.w / 2, r.y + r.h / 2);
+      await paint();
+    };
+    await paint();
+    await tap('title-settings');
+    await tap('settings/close');
+    await tap('new-game');
+    await page.evaluate(() => shell.app.command('scene.skip-saga'));
+    await paint(30);
+    await page.evaluate(() => { shell.app.gameSession.services.frameTime = () => window.stamp; });
+    await tap('settings');
+    await page.screenshot({ path: output + '/settings-landscape-ko.png', scale: 'css' });
+    await tap('settings/save');
+    assert.ok(await page.evaluate(() => {
+      const slots = shell.app.overlay.controls.filter(k => k.id.startsWith('settings/slot'));
+      return slots.length === 9 && slots.every(({ bounds: r }) => r.w >= 44 && r.h >= 44 && r.y >= 0 && r.y + r.h <= innerHeight);
+    }), 'Every save slot fits on the short landscape screen');
+    await tap('settings/back');
+    await tap('settings/close');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await paint(4);
+    await page.evaluate(() => {
+      const g = shell.app.gameSession.game;
+      g.selectPeople(g.town.people().map(p => p.id));
+    });
+    await paint(6);
+    await page.screenshot({ path: output + '/settlement-portrait-ko.png', scale: 'css' });
+    await tap('unit-management', true);
+    assert.ok(await page.evaluate(() => shell.app.gameSession.game.context.inModal() &&
+      !shell.app.overlay.controls.some(k => k.id === 'settings')), 'The global Settings button cannot cover a game window');
+    await page.setViewportSize({ width: 568, height: 320 });
+    await paint(4);
+    await page.screenshot({ path: output + '/settlement-hall-landscape-ko.png', scale: 'css' });
+    await tap('roster-close', true);
+    assert.ok(await page.evaluate(() => !shell.app.settingsOpen && !shell.app.gameSession.game.rosterOpen &&
+      shell.app.overlay.controls.some(k => k.id === 'settings')), 'The overlapping close button closes the rotated window without opening Settings');
+    report.shell = 'Title, settings, save slots, game, open-window rotation and overlapping controls passed';
+  } finally {
+    await shellContext.pages()[0]?.evaluate(() => window.shell?.dispose()).catch(() => {});
+    await shellContext.close();
   }
   assert.deepEqual(report.errors, []);
   report.passed = true;

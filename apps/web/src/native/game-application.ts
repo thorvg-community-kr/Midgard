@@ -19,6 +19,7 @@ import { Script } from '../../../../packages/native-ui/src/script';
 import { combatHotkey } from './game-combat-hud';
 import { armyKeyDown, armyKeyUp } from './army-keys';
 import { guideHotkey } from './game-guide';
+import { hasHudWindow, windowEvent } from './hud-window';
 import { releaseArrivalCamera } from './resident-arrival';
 export interface ApplicationFiles {
   readSync(path: string, maxBytes?: number): string;
@@ -309,7 +310,7 @@ export class GameApplication implements Application {
     const showScript =
       activeScript.ready() &&
       (!this.editorAttached || this.playback !== Playback.Stopped) &&
-      !this.game.buildings && !this.game.prayer;
+      !this.game.buildings && !hasHudWindow(this.game);
     if (showScript) {
       if (simulate && (!this.editorAttached || dt > 0)) activeScript.update(dt);
       this.scriptContext.begin(this.scriptTheme, new Rect(0, 0, width, height), seconds);
@@ -335,6 +336,13 @@ export class GameApplication implements Application {
     if (e.type === 'PointerDown' || e.type === 'Wheel' || e.type === 'Gesture' || e.type === 'KeyDown')
       releaseArrivalCamera(this.game);
     if (this.game.handlePrayerEvent?.(e)) { this.dirty = true; return; }
+    if (!this.authoringTool() && hasHudWindow(this.game)) {
+      this.dirty = true;
+      this.keys.clear();
+      this.game.setPan(0, 0);
+      if (this.game.context.inModal?.()) windowEvent(this.game, e);
+      return;
+    }
     if (this.editorAttached && this.playback !== Playback.Playing && !this.authoringTool()) {
       const openTool = e.type === 'KeyDown' && ['f2', 'f3', 'f4'].includes(e.text);
       if (!openTool) {
@@ -521,6 +529,7 @@ export class GameApplication implements Application {
     return true;
   }
   command(id: string, argument = ''): boolean {
+    if (id === 'session.modal') return hasHudWindow(this.game);
     if (id === 'session.freeze') {
       this.presentationFrozen = argument !== 'off';
       return true;

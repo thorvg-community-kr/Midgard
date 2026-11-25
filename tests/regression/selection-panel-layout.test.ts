@@ -37,12 +37,15 @@ describe('selection and Unit management are distinct surfaces', () => {
     expect(app.dockView).toBe(DockView.Unit);
     expect(app.dockTarget.y + app.dockTarget.h).toBe(h - 12);
   });
-  it('centers only the explicitly opened Unit window and returns to bottom selection when closed', () => {
+  it('leaves the selection dock in place while the centered Unit window opens and closes', () => {
     const app = fixture();
+    updateContextDock.call(app, 1280, 800);
+    const original = { ...app.dockTarget };
     app.rosterOpen = true;
     updateContextDock.call(app, 1280, 800);
-    expect(app.dockView).toBe(DockView.Roster);
-    expect(app.dockTarget.y + app.dockTarget.h / 2).toBe(400);
+    expect(app.dockView).toBe(DockView.Unit);
+    expect(app.dockTarget).toEqual(original);
+    expect(app.rosterBounds(1280, 800).y + 220).toBe(400);
     app.rosterOpen = false;
     updateContextDock.call(app, 1280, 800);
     expect(app.dockView).toBe(DockView.Unit);

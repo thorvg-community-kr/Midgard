@@ -57,7 +57,7 @@ import {
   type InspectorRows,
 } from './game-progress-hud';
 import { clearRows } from './clear-order-hud';
-import { inspectorHeightLimit, touchPlacementHeight } from './mobile-layout';
+import { inspectorHeightLimit, touchHudTop, touchPlacementHeight } from './mobile-layout';
 import { combatOverlays } from './game-combat-hud';
 import { guideHud } from './game-guide-panel';
 import { orderRail, unitOrderRail } from './unit-orders-card';
@@ -161,16 +161,21 @@ export function hud(this: GameHudApp, width: number, height: number): void {
     }
   }
   noticeToast(this, width, height, guided ? 28 : 0, right);
-  this.objectives(width, height, this.touchMode ? (this.timeExpanded ? 116 : 64) : width < 900 ? 104 : 64);
+  const questTop = this.touchMode ? touchHudTop(width, this.timeExpanded) : width < 900 ? 104 : 64;
+  const overDock = this.touchMode && height < 500 && this.mobileQuestsExpanded;
+  if (!overDock) this.objectives(width, height, questTop);
   this.timeControls(width);
   this.campSupplies(width, height);
   this.calendarDetails(width);
   this.taskbar(width, height);
   unitOrderRail(this, width, height);
   if (!this.town.isTitleAutoplay()) groupTabs(this, height);
+  if (overDock) this.objectives(width, height, questTop);
   combatOverlays(this, width, height);
-  this.sagaBanner(width, height);
   guideHud(this, width, height);
+  if (this.prayer) return;
+  if (this.rosterOpen) this.rosterPanel(this.rosterBounds(width, height));
+  else if (!c.inModal()) this.sagaBanner(width, height);
 }
 export function campSupplies(this: GameHudApp, width: number, height: number): void {
   const markers: CampMarker[] = [];

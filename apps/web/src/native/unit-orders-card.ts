@@ -6,6 +6,7 @@ import { f32, clamp } from '../../../../packages/engine/src/numeric';
 import type { HudGlyph } from './hud-actions';
 import { hudGlyph } from './hud-glyphs';
 import { DockView } from './game-app-state';
+import { touchHudTop } from './mobile-layout';
 import { tooltip } from './game-combat-hud';
 import { allHolding, holdPosition } from './army-orders';
 import type { GameHudApp } from './game-hud-contract';
@@ -158,7 +159,6 @@ export function orderRail(app: GameHudApp, width: number, height: number): Order
     !app.touchMode ||
     !app.residentSelection() ||
     app.tool !== Tool.Select ||
-    app.rosterOpen ||
     app.town.isTitleAutoplay() ||
     !(app.dockView === DockView.Unit || app.pending !== Order.None)
   )
@@ -167,7 +167,7 @@ export function orderRail(app: GameHudApp, width: number, height: number): Order
     panel = app.personPanelBounds(width, height, true),
     beside = railBeside(true, height),
     // The same line the quest panel starts from: below the sky and its time controls.
-    top = app.timeExpanded ? 116 : 64,
+    top = beside && width >= 480 ? 56 : touchHudTop(width, app.timeExpanded),
     bottom = beside ? height - 12 : panel.y - 10,
     room = bottom - top - railPad * 2,
     columns = beside || room >= count * 44 + (count - 1) * railGap ? 1 : 2,
@@ -197,6 +197,6 @@ export function unitOrderRail(app: GameHudApp, width: number, height: number): v
       lift = s.lift ?? 0,
       color = order.active ? t.accentText : t.text;
     hudGlyph(c, order.glyph, f32(tile.x + tile.w / 2), f32(tile.y + tile.h / 2 - 8 + lift), color, 0.9);
-    c.text(new Rect(tile.x, f32(tile.y + tile.h - 21 + lift), tile.w, 14), order.label, color, 10, true, Align.Center);
+    c.text(new Rect(tile.x + 1, f32(tile.y + tile.h - 20 + lift), tile.w - 2, 17), order.label, color, 12, true, Align.Center);
   });
 }

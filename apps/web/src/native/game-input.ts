@@ -475,10 +475,10 @@ export function pointerDown(this: GameInputApp, x: number, y: number, button: Po
   x = f(x);
   y = f(y);
   this.pointerMove(x, y);
-  if (this.timeExpanded && !this.timeToggleBounds.contains(x, y) && !this.timePanelBounds.contains(x, y))
-    this.timeExpanded = false;
+  const inHud = this.context.controlAt(x, y);
+  if (this.timeExpanded && !inHud) this.timeExpanded = false;
   if (button === PointerButton.Secondary) {
-    if (this.context.controlAt(x, y)) return;
+    if (inHud) return;
     // Right-click puts an aimed skill down; it gives no order.
     if (cancelSkill(this)) return;
     if (this.roadPress) {
@@ -491,7 +491,7 @@ export function pointerDown(this: GameInputApp, x: number, y: number, button: Po
     return;
   }
   this.cancelStroke();
-  if (this.context.controlAt(x, y)) {
+  if (inHud) {
     this.hudPointer = true;
     this.context.pointerDown(x, y);
     return;

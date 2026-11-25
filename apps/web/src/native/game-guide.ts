@@ -99,6 +99,7 @@ export type GuideApp = Pick<
   | 'combatHud'
   | 'army'
   | 'prayer'
+  | 'rosterOpen'
   | 'residentArrival'
   | 'hoveredWorldTarget'
   | 'guide'
@@ -222,7 +223,7 @@ export function guideBusy(app: GuideApp, now: number): boolean {
   if (now - s.cameraMovedAt < guideRules.busySeconds || now - s.orderedAt < guideRules.busySeconds) return true;
   if (app.panFrom || app.boxFrom || app.fieldFrom || app.roadPress || app.roadStroke.length) return true;
   if (app.touchGesture || app.sceneDragAt || app.pan.x !== 0 || app.pan.y !== 0) return true;
-  if (app.tool !== Tool.Select || app.pending !== Order.None || app.army.aim || app.prayer) return true;
+  if (app.tool !== Tool.Select || app.pending !== Order.None || app.army.aim || app.prayer || app.rosterOpen) return true;
   return guideFightInView(app);
 }
 function standing(town: Town, ref: WorldObjectRef): boolean {
@@ -315,7 +316,7 @@ function fire(app: GuideApp, moment: GuideMoment, spot: GuideSpot, now: number):
 }
 /** Banners that already speak for the moment come first; the card waits behind them. */
 const held = (app: GuideApp) =>
-  !!app.combatHud.autoPause || app.combatHud.memorials.length > 0 || !!app.prayer || !!app.residentArrival || app.guide.logOpen;
+  !!app.combatHud.autoPause || app.combatHud.memorials.length > 0 || !!app.prayer || !!app.residentArrival || app.guide.logOpen || app.rosterOpen;
 
 /** Once per frame, before the toast takes its notice: hear new moments, run the queue and the camera. */
 export function guideFrame(app: GuideApp): void {

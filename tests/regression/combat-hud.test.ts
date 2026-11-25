@@ -14,7 +14,7 @@ import { GameAppState } from '../../apps/web/src/native/game-app-state';
 import { GameApplication } from '../../apps/web/src/native/game-application';
 import { issueOrder } from '../../apps/web/src/native/game-commands';
 import { pointerDown, pointerUp, select, toScreen } from '../../apps/web/src/native/game-input';
-import { groupTabs } from '../../apps/web/src/native/control-groups';
+import { groupTabs, setGroup } from '../../apps/web/src/native/control-groups';
 import { keyState, KeyState } from '../../apps/web/src/native/army-keys';
 import { holdPosition } from '../../apps/web/src/native/army-orders';
 import { commandGroundMarks } from '../../apps/web/src/native/command-ground-marks';
@@ -441,6 +441,30 @@ describe('commanding a few residents', () => {
     } finally {
       ui.dispose();
     }
+  });
+  it.each([[320, 568], [568, 320]])('keeps all nine groups reachable on a %i by %i touch screen', (width, height) => {
+    const ui = fixture(width, height);
+    try {
+      const { app, town } = ui, p = resident(town, 0, 'Askr', Calling.Warrior);
+      app.touchMode = true;
+      app.chosen = [p.id];
+      app.dockBounds = new Rect(width > height ? 84 : 12, height - 136, width > height ? width - 168 : width - 24, 124);
+      for (let digit = 1; digit <= 9; ++digit) setGroup(app, digit, false);
+      const seen = new Set<string>();
+      for (let page = 0; page < 9; ++page) {
+        ui.draw(() => groupTabs(app, height));
+        for (const [id, r] of ui.controls.mock.calls) {
+          expect(r.w).toBeGreaterThanOrEqual(44);
+          expect(r.h).toBeGreaterThanOrEqual(44);
+          expect(r.x + r.w).toBeLessThanOrEqual(width - 12);
+          expect(r.y).toBeGreaterThanOrEqual(64);
+          if (id !== 'group-page') seen.add(id);
+        }
+        ui.click('group-page');
+        if (app.groupPage === 0) break;
+      }
+      expect(seen.size).toBe(9);
+    } finally { ui.dispose(); }
   });
   it('one key rule: with residents selected and no tool the card letters command them; other letters pick buildings', () => {
     const ui = fixture();

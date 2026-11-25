@@ -272,12 +272,17 @@ export class Context {
   modal(initialFocus: string, dismiss?: () => void): void {
     if (!this.modalActive) this.cancelPointer();
     this.controls = [];
+    this.overlayDraws = [];
     this.dismissModal = dismiss;
     if (!this.modalActive) {
       this.savedFocus = this.focusId;
       this.focus(initialFocus);
     }
     this.modalFrame = true;
+  }
+  /** The foreground window owns the rest of this frame and input until the next one. */
+  inModal(): boolean {
+    return this.modalFrame;
   }
   private find(id: string): Control | undefined {
     return this.controls.find((control) => control.id === id);

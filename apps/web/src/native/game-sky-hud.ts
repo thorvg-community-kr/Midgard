@@ -19,6 +19,7 @@ import { skyMural as mural } from './hud-assets';
 import { tooltip } from './game-combat-hud';
 import { hudGlyph } from './hud-glyphs';
 import { winterOutlookLine, winterLineHeight } from './camp-resource-hud';
+import { speedColumns, touchClockBounds, touchHudTop, touchTarget } from './mobile-layout';
 const revealDuration = f(0.18),
   controlStep = 34,
   panelWidth = 6 * controlStep + 8;
@@ -147,16 +148,24 @@ export function skyMural(this: GameHudApp, width: number): void {
   else if (this.timeExpanded) this.timeReveal = Math.min(target, f(this.timeReveal + f(dt / revealDuration)));
   else this.timeReveal = Math.max(target, f(this.timeReveal - f(dt / revealDuration)));
   const opened = unfold(this.timeReveal);
-  this.timeToggleBounds = new Rect(width - (this.touchMode ? 108 : 96), 12, this.touchMode ? 44 : 36, this.touchMode ? 44 : 36);
-  const below = width < 900,
-    right = below ? width - 16 : this.timeToggleBounds.x - 8,
-    controlsWidth = this.touchMode ? 6 * 46 + 8 : panelWidth;
+  const touch = this.touchMode;
+  this.timeToggleBounds = touch ? touchClockBounds(width) : new Rect(width - 96, 12, 36, 36);
+  const below = touch || width < 900, columns = touch ? speedColumns(width) : 6,
+    controlsWidth = touch ? columns * 46 + 8 : panelWidth,
+    right = touch ? (width + controlsWidth) / 2 : below ? width - 16 : this.timeToggleBounds.x - 8;
   this.timePanelBounds = new Rect(
     f(right - f(controlsWidth * opened)),
     below ? (this.touchMode ? 62 : 56) : 12,
     f(controlsWidth * opened),
-    this.touchMode ? 52 : 36,
+    touch ? (6 / columns) * 46 + 6 : 36,
   );
+  if (touch) {
+    this.skyBounds = this.timeToggleBounds;
+    this.skyHovered = false;
+    wakeButton(this, width);
+    if (this.timeReveal !== target) c.requestAnimationFrame();
+    return;
+  }
   const leftEdge = 16,
     rightEdge = below ? this.timeToggleBounds.x - 12 : this.timePanelBounds.x - 12,
     room = f(2 * Math.min(f(f(width / 2) - leftEdge), f(rightEdge - f(width / 2)))),
@@ -234,17 +243,20 @@ export function skyMural(this: GameHudApp, width: number): void {
       0.8,
     );
   }
-  wakeButton(this);
+  wakeButton(this, width);
   if (Math.abs(f(this.timeReveal - target)) > f(0.001)) c.requestAnimationFrame();
 }
 /** Beside the sky, and only while somebody is abed: one press brings them all out. */
-function wakeButton(app: GameHudApp): void {
+function wakeButton(app: GameHudApp, width: number): void {
   if (app.town.isTitleAutoplay() || !app.town.abed().length) return;
   const c = app.context,
     t = app.theme,
-    size = app.touchMode ? 44 : 36,
-    // Clear of the top-left button even where the sky is narrow.
-    r = new Rect(Math.max(12 + size + 8, f(app.skyBounds.x - size - 8)), 12, size, size),
+    size = app.touchMode ? touchTarget : 36,
+    nextToLog = app.skyBounds.x >= 12 + size * 2 + 12,
+    // In portrait the spare place is across from Quests, below Settings.
+    r = app.touchMode && !nextToLog
+      ? new Rect(width - size - 12, touchHudTop(width, app.timeExpanded), size, size)
+      : new Rect(Math.max(12 + size + 8, f(app.skyBounds.x - size - 6)), 12, size, size),
     state = button(c, 'wake-everyone', r, '', () => app.wakeEveryone());
   hudGlyph(c, 'wake', f(r.x + r.w / 2), f(r.y + r.h / 2 + (state.lift ?? 0)), state.hovered ? t.text : t.accent);
   tooltip(c, 'wake-everyone', state.hovered && !app.touchMode, [
@@ -315,15 +327,40 @@ export function calendarDetails(this: GameHudApp, width: number): void {
   }
 }
 const heldReason = 'Normal speed beyond a gate';
+/** One tappable clock in the middle of the top row. Its lettering stays in logical pixels. */
+function touchClock(app: GameHudApp): void {
+  const c = app.context, t = app.theme, r = app.skyBounds;
+  const state = button(c, 'speed-toggle', r, '', () => {
+    app.timeExpanded = !app.timeExpanded;
+    if (app.viewHeight < 500 && app.timeExpanded) app.mobileQuestsExpanded = false;
+  },
+    ButtonStyle.Default, true, undefined, app.timeExpanded);
+  const cycle = dayCycle(app.town.yearFraction(), app.town.dayFraction());
+  const cy = r.y + 14 + (state.lift ?? 0), middle = r.x + r.w / 2;
+  const speed = app.gameSpeed(), ink = t.text;
+  c.paint(JSON.stringify(['clock-emblem', cycle.daylight, middle, cy]), () => {
+    const body = celestialBody(c.tvg, !cycle.daylight);
+    body.translate(middle - 48, cy);
+    return body;
+  });
+  c.text(new Rect(middle - 34, cy - 12, 66, 24), timeOfDay(app.town.dayFraction()), ink, 18, true, Align.Center);
+  if (speed) c.text(new Rect(middle + 36, cy - 9, 28, 18), speed + 'x', t.accent, 13, true, Align.Center);
+  else {
+    c.rect(new Rect(middle + 45, cy - 5, 3, 10), t.accent);
+    c.rect(new Rect(middle + 51, cy - 5, 3, 10), t.accent);
+  }
+  const caption = (cycle.daylight ? 'Sunset in ' : 'Sunrise in ') + timeRemaining(cycle);
+  c.text(new Rect(r.x + 5, cy + 10, r.w - 10, 18), caption, t.text, 13, false, Align.Center);
+}
 export function timeControls(this: GameHudApp, width: number): void {
   const c = this.context,
     t = this.theme,
     step = this.touchMode ? 46 : controlStep,
-    fullWidth = this.touchMode ? 6 * step + 8 : panelWidth;
+    columns = this.touchMode ? speedColumns(width) : 6,
+    fullWidth = this.touchMode ? columns * step + 8 : panelWidth;
   if (this.timeReveal > 0) {
-    const below = width < 900,
-      right = below ? width - 16 : this.timeToggleBounds.x - 8,
-      full = new Rect(right - fullWidth, below ? 62 : 12, fullWidth, this.touchMode ? 52 : 36);
+    const full = new Rect(this.timePanelBounds.x + this.timePanelBounds.w - fullWidth,
+      this.timePanelBounds.y, fullWidth, this.timePanelBounds.h);
     // The clip is taller than the panel so the board keeps its thickness and shadow while it slides out.
     const reveal = this.timePanelBounds;
     c.clip(new Rect(reveal.x, reveal.y, reveal.w, f(reveal.h + 10)), () => {
@@ -335,7 +372,8 @@ export function timeControls(this: GameHudApp, width: number): void {
         const state = button(
           c,
           'speed-' + labels[i],
-          new Rect(full.x + 4 + i * step, full.y + 4, this.touchMode ? 44 : controlStep - 4, this.touchMode ? 44 : 28),
+          new Rect(full.x + 4 + i % columns * step, full.y + 4 + Math.floor(i / columns) * step,
+            this.touchMode ? 44 : controlStep - 4, this.touchMode ? 44 : 28),
           labels[i],
           () => {
             if (i) this.setSpeed(i);
@@ -345,11 +383,15 @@ export function timeControls(this: GameHudApp, width: number): void {
           this.timeExpanded,
           Icon.None,
           false,
-          { fontSize: 11 },
+          { fontSize: this.touchMode ? 14 : 11 },
         );
         if (held && i > 1) tooltip(c, 'speed-' + labels[i], state.hovered, [heldReason]);
       }
     });
+  }
+  if (this.touchMode) {
+    touchClock(this);
+    return;
   }
   const toggle = button(
       c,

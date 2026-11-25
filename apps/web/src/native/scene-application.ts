@@ -37,6 +37,7 @@ import { motionPreference, motionPreferences, setMotionPreference } from './moti
 import { startTitlePlay, type TitlePlay } from './title-session';
 import { drawTitleWordmark } from './title-wordmark';
 import { hudGlyph } from './hud-glyphs';
+import { touchTarget } from './mobile-layout';
 import { IntroSaga } from './intro-saga';
 import { structureSpec } from '../../../../packages/engine/src/building-catalog';
 import { Activity, activityName } from '../../../../packages/engine/src/person';
@@ -214,20 +215,21 @@ export class SceneApplication implements Application {
       return;
     }
     if (this.current === 'Title') {
-      const narrow = width < 680,
-        titleCenter = f(width * (narrow ? 0.5 : 0.8)),
-        titleWidth = Math.min(520, narrow ? width - 36 : f(width * f(0.36))),
+      const low = this.touchInput && height < 500 && width >= 470,
+        narrow = width < 680,
+        titleCenter = f(width * (low ? 0.28 : narrow ? 0.5 : 0.8)),
+        titleWidth = Math.min(520, low ? width * 0.44 : narrow ? width - 36 : f(width * f(0.36))),
         tagline = 'A WORLD WAITING FOR YOUR STORY',
         taglineSize = Math.min(12, (12 * (titleWidth - 8)) / this.overlay.textWidth(tagline, 12, true));
       this.overlay.text(
-        new Rect(f(titleCenter - titleWidth / 2), f(height * f(0.17)), titleWidth, 28),
+        new Rect(f(titleCenter - titleWidth / 2), low ? height * 0.34 - 28 : f(height * f(0.17)), titleWidth, 28),
         tagline,
         { r: 205, g: 217, b: 207, a: 255 },
         taglineSize,
         true,
         Align.Center,
       );
-      drawTitleWordmark(this.overlay, titleCenter, f(height * f(0.22)), titleWidth);
+      drawTitleWordmark(this.overlay, titleCenter, low ? height * 0.34 : f(height * f(0.22)), titleWidth);
       const subject = this.titlePlay?.subject();
       if (subject) {
         let activity = activityName(subject.activity);
@@ -249,9 +251,10 @@ export class SceneApplication implements Application {
           11,
         );
       }
-      const bw = Math.min(300, narrow ? width - 48 : f(width * f(0.32)));
-      const left = f(titleCenter - f(bw / 2)),
-        top = f(height * f(0.42));
+      const bw = Math.min(300, low ? width * 0.41 : narrow ? width - 48 : f(width * f(0.32)));
+      const left = f((low ? width * 0.75 : titleCenter) - f(bw / 2)),
+        top = low ? (height - 248) / 2 : this.touchInput ? Math.min(height * 0.42, height - 262) : f(height * f(0.42)),
+        minorHeight = this.touchInput ? touchTarget : 40;
       let hoveredItem = '';
       // The menu is lettering alone; the item under the pointer is lit and flanked by two studs.
       const menu = (id: string, bounds: Rect, label: string, activate: () => void, enabled = true) => {
@@ -291,11 +294,11 @@ export class SceneApplication implements Application {
       menu('new-game', new Rect(left, f(top + 53), bw, 44), 'Start New Game', () =>
         this.beginGame(false, undefined, true),
       );
-      menu('load', new Rect(left, f(top + 106), bw, 40), 'Load Game', () => this.openSettings('Load'), saves);
-      menu('map-editor', new Rect(left, f(top + 155), bw, 40), 'Map Editor', () => {
+      menu('load', new Rect(left, f(top + 106), bw, minorHeight), 'Load Game', () => this.openSettings('Load'), saves);
+      menu('map-editor', new Rect(left, f(top + 155), bw, minorHeight), 'Map Editor', () => {
         this.requested = 'MapEditor';
       });
-      menu('title-settings', new Rect(left, f(top + 204), bw, 40), 'Settings', () => this.openSettings());
+      menu('title-settings', new Rect(left, f(top + 204), bw, minorHeight), 'Settings', () => this.openSettings());
       if (hoveredItem !== this.hoveredTitleItem) {
         if (hoveredItem && this.intro === 'None' && this.titleSound)
           this.titleSound.play(new Sound(Cue.Click, f(0.35), 0));
@@ -323,7 +326,7 @@ export class SceneApplication implements Application {
           this.requested = 'Game';
         } else this.requested = 'Title';
       }
-      if (this.intro === 'None') {
+      if (this.intro === 'None' && (this.settingsOpen || !session.command('session.modal'))) {
         const bounds = new Rect(
           f(width - (this.touchInput ? 56 : 52)),
           12,
@@ -390,6 +393,11 @@ export class SceneApplication implements Application {
           this.quickSave();
         else this.overlay.key(event.key, event.shift);
       }
+      return;
+    }
+    if (this.current === 'Game' && this.active()?.command('session.modal')) {
+      this.overlayPointer = false;
+      this.active()?.event(event);
       return;
     }
     if (event.type === 'PointerCancel') {
@@ -577,25 +585,19 @@ export class SceneApplication implements Application {
       false,
     );
     this.overlay.rect(viewport, { r: 14, g: 12, b: 28, a: 170 });
-    const columns = 3,
+    const columns = this.touchInput && height < 420 && width >= 480 ? 5 : 3,
       rows = Math.ceil(slots.length / columns),
       pad = width < 520 ? 14 : 24,
       gap = width < 520 ? 8 : 14,
       head = 56,
       foot = 60,
       caption = 42;
-    // Cards keep 16:9 pictures, so the panel narrows until every row fits the viewport.
-    let w = Math.min(680, f(width - 24)),
-      card = 0,
-      shot = 0,
-      h = 0;
-    for (let pass = 0; pass < 2; pass++) {
-      card = Math.floor((w - pad * 2 - gap * (columns - 1)) / columns);
-      shot = Math.round(((card - 2) * 9) / 16);
+    // Budget for captions and controls first, then fit the 16:9 save pictures.
+    const gutter = pad * 2 + gap * (columns - 1),
+      maxShot = Math.max(1, Math.floor((height - 24 - head - foot - (rows - 1) * gap) / rows) - caption),
+      card = Math.floor(Math.min((Math.min(680, width - 24) - gutter) / columns, 2 + maxShot * 16 / 9)),
+      w = card * columns + gutter, shot = Math.round((card - 2) * 9 / 16),
       h = head + rows * (shot + caption) + (rows - 1) * gap + foot;
-      if (h <= height - 24) break;
-      w = Math.max(250, f((w * (height - 24)) / h));
-    }
     const panel = new Rect(f(Math.round((width - w) / 2)), f(Math.round((height - h) / 2)), f(w), h);
     this.overlay.control('settings/panel', panel, () => {}, true, false);
     board(this.overlay, panel, { header: 46 });
@@ -606,7 +608,8 @@ export class SceneApplication implements Application {
       18,
       true,
     );
-    const dismiss = new Rect(f(f(panel.x + panel.w) - pad - 26), f(panel.y + 9), 28, 28);
+    const closeSize = this.touchInput ? touchTarget : 28;
+    const dismiss = new Rect(panel.x + panel.w - pad - closeSize, panel.y + (head - closeSize) / 2, closeSize, closeSize);
     this.closeMark(dismiss, close, theme);
     const small = card < 120;
     slots.forEach((slot, index) => {
@@ -685,7 +688,8 @@ export class SceneApplication implements Application {
         small ? 9 : 11,
       );
     });
-    const footer = f(f(panel.y + panel.h) - foot + 14);
+    const backH = this.touchInput ? touchTarget : 34;
+    const footer = panel.y + panel.h - (foot + backH) / 2;
     if (saving && this.message)
       this.overlay.text(
         new Rect(f(panel.x + pad), footer, f(panel.w - pad * 2 - 110), 34),
@@ -696,7 +700,7 @@ export class SceneApplication implements Application {
     button(
       this.overlay,
       'settings/back',
-      new Rect(f(f(panel.x + panel.w) - pad - 100), footer, 100, 34),
+      new Rect(f(f(panel.x + panel.w) - pad - 100), footer, 100, backH),
       this.current === 'Game' ? 'Back' : 'Cancel',
       () => {
         if (this.current !== 'Game') return close();
@@ -772,10 +776,11 @@ export class SceneApplication implements Application {
       false,
     );
     this.overlay.rect(viewport, { r: 14, g: 12, b: 28, a: 150 });
-    const w = Math.min(320, f(width - 32)),
-      h = Math.min(game ? 370 : 188, height - 24),
-      pitch = game ? Math.min(50, (h - 100) / 5) : 50,
-      rowHeight = Math.min(40, pitch - 8);
+    const touch = this.touchInput, horizontal = touch && height < 450 && width >= 450,
+      w = Math.min(touch ? (horizontal ? 520 : 370) : 320, width - 24),
+      h = Math.min(touch ? (game ? horizontal ? 250 : 350 : 180) : game ? 370 : 188, height - 24),
+      pitch = touch ? 52 : game ? Math.min(50, (h - 100) / 5) : 50,
+      rowHeight = touch ? touchTarget : Math.min(40, pitch - 8);
     const panel = new Rect(f(f(width - w) / 2), f(f(height - h) / 2), w, h);
     this.overlay.control('settings/panel', panel, () => {}, true, false);
     board(this.overlay, panel, { header: 52 });
@@ -786,16 +791,19 @@ export class SceneApplication implements Application {
       18,
       true,
     );
-    const dismiss = new Rect(f(f(panel.x + panel.w) - 46), f(panel.y + 12), 28, 28);
+    const closeSize = touch ? touchTarget : 28;
+    const dismiss = new Rect(panel.x + panel.w - 10 - closeSize, panel.y + (52 - closeSize) / 2, closeSize, closeSize);
     this.closeMark(dismiss, close, theme);
-    let y = f(panel.y + 68);
-    this.overlay.text(new Rect(f(panel.x + 24), y, 110, rowHeight), 'Language', theme.text, 13);
-    const choice = f(f(panel.w - 48 - 118) / locales.length);
+    const pad = touch ? 16 : 24, inner = panel.w - 2 * pad, left = panel.x + pad;
+    const labelW = touch ? Math.min(104, inner * 0.32) : 110;
+    let y = panel.y + (touch ? 60 : 68);
+    this.overlay.text(new Rect(left, y, labelW, rowHeight), 'Language', theme.text, 13);
+    const choice = (inner - labelW - (locales.length - 1) * 8) / locales.length;
     locales.forEach((name, index) =>
       button(
         this.overlay,
         `settings/language/${name}`,
-        new Rect(f(panel.x + 24 + 110 + f((choice + 8) * index)), y, choice, rowHeight),
+        new Rect(left + labelW + (choice + 8) * index, y, choice, rowHeight),
         name,
         () => this.chooseLanguage(name),
         ButtonStyle.Default,
@@ -805,13 +813,13 @@ export class SceneApplication implements Application {
       ),
     );
     y = f(y + pitch);
-    this.overlay.text(new Rect(f(panel.x + 24), y, 110, rowHeight), 'Animations', theme.text, 13);
-    const motionWidth = f((panel.w - 48 - 118) / motionPreferences.length);
+    this.overlay.text(new Rect(left, y, labelW, rowHeight), 'Animations', theme.text, 13);
+    const motionWidth = (inner - labelW - (motionPreferences.length - 1) * 8) / motionPreferences.length;
     motionPreferences.forEach((value, index) =>
       button(
         this.overlay,
         `settings/motion/${value}`,
-        new Rect(f(panel.x + 24 + 110 + (motionWidth + 8) * index), y, motionWidth, rowHeight),
+        new Rect(left + labelW + (motionWidth + 8) * index, y, motionWidth, rowHeight),
         value,
         () => {
           setMotionPreference(value);
@@ -824,11 +832,14 @@ export class SceneApplication implements Application {
       ),
     );
     y = f(y + pitch);
+    const actionWidth = horizontal ? (inner - 16) / 3 : inner;
+    const action = (index: number) => new Rect(left + (horizontal ? index * (actionWidth + 8) : 0),
+      y + (horizontal ? 0 : index * pitch), actionWidth, rowHeight);
     if (game) {
       button(
         this.overlay,
         'settings/save',
-        new Rect(f(panel.x + 24), y, f(panel.w - 48), rowHeight),
+        action(0),
         'Save',
         () => {
           this.settingsPage = 'Save';
@@ -836,11 +847,10 @@ export class SceneApplication implements Application {
         },
         ButtonStyle.Primary,
       );
-      y = f(y + pitch);
       button(
         this.overlay,
         'settings/load',
-        new Rect(f(panel.x + 24), y, f(panel.w - 48), rowHeight),
+        action(1),
         'Load',
         () => {
           this.settingsPage = 'Load';
@@ -849,13 +859,12 @@ export class SceneApplication implements Application {
         ButtonStyle.Default,
         this.savedSlots().length > 0,
       );
-      y = f(y + pitch);
     }
     if (game)
       button(
         this.overlay,
         'settings/title',
-        new Rect(f(panel.x + 24), y, f(panel.w - 48), rowHeight),
+        action(2),
         'Back to Title',
         () => {
           this.requested = 'Title';

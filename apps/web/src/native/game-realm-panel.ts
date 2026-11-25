@@ -4,6 +4,7 @@ import { describe } from '../../../../packages/engine/src/building-catalog';
 import { worldName } from '../../../../packages/engine/src/world-map';
 import { Saga, sagaState, sealFloors, sealProgress } from '../../../../packages/engine/src/gate-seals';
 import { compactViewport } from './mobile-layout';
+import { windowBackdrop } from './hud-window';
 import type { GameHudApp } from './game-hud-contract';
 import { callingName, type Person } from '../../../../packages/engine/src/person';
 import { combatRules } from '../../../../packages/engine/src/combat-events';
@@ -273,9 +274,10 @@ export function sagaBanner(this: GameHudApp, width: number, height: number): voi
     t = this.theme,
     won = state === Saga.Victory,
     w = Math.min(440, f32(width - 24)),
-    bounds = new Rect(f32(f32(width - w) / 2), Math.max(70, f32(f32(height / 2) - 110)), w, 168),
+    bounds = new Rect((width - w) / 2, (height - 168) / 2, w, 168),
     seals = sealProgress(this.town);
-  c.control('saga-banner', bounds, undefined, true, false);
+  const close = () => { this.sagaDismissed = true; };
+  windowBackdrop(c, new Rect(0, 0, width, height), bounds, 'saga-banner', 'saga-continue', close);
   board(c, bounds, { trim: won ? t.success : t.danger, trimWidth: 2 });
   c.text(
     new Rect(bounds.x, f32(bounds.y + 18), w, 28),
@@ -294,9 +296,9 @@ export function sagaBanner(this: GameHudApp, width: number, height: number): voi
   button(
     c,
     'saga-continue',
-    new Rect(f32(bounds.x + f32(w / 2) - 80), f32(bounds.y + 116), 160, 34),
+    new Rect(f32(bounds.x + f32(w / 2) - 80), f32(bounds.y + 112), 160, this.touchMode ? 44 : 34),
     won ? 'Keep playing' : 'Keep watching',
-    () => (this.sagaDismissed = true),
+    close,
     ButtonStyle.Primary,
   );
 }
