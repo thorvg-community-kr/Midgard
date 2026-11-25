@@ -373,7 +373,7 @@ describe('quest panel', () => {
       p.activity = Activity.Felling;
       trackGearUse(ui.app);
       trackGearUse(ui.app);
-      expect(town.notices).toEqual(['First use of the Wooden axe · Felling efficiency +1 · Attack as a weapon +1']);
+      expect(town.notices).toEqual(['First use of the Wooden axe · Felling efficiency +1 · Attack as a weapon +1 · Two-handed']);
       // A loaded town reads the gear already in use silently.
       const loaded = settlement(),
         q = resident(loaded);

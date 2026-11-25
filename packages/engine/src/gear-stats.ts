@@ -76,6 +76,11 @@ export function gearFields(item: ItemSpec, person?: Person | null): GearField[] 
   }
   return out;
 }
+/** The personal attack row, when the resident can use this make. */
+export function attackPreview(person: Person, item: ItemSpec): string {
+  const preview = gearFields(item, person).find(field => field.change !== undefined);
+  return preview ? gearFieldText(preview) : '';
+}
 export const gearStats = (item: ItemSpec, person?: Person): string[] => gearFields(item, person).map(gearFieldText);
 /** The stats of gear on one line; a refined material says what it is for. */
 export function gearEffect(item: ItemSpec): string {

@@ -142,7 +142,7 @@ describe('crafting at the bench', () => {
     expect(workItem(a, 'woodcutting')?.id).toBe('wooden-axe');
     expect(town.notices.slice(-2)).toEqual([
       'Asa crafted Wooden axe',
-      'Wooden axe in the pack · Felling efficiency +1 · Attack as a weapon +1',
+      'Wooden axe in the pack · Felling efficiency +1 · Attack as a weapon +1 · Two-handed',
     ]);
     expect(town.craftingAt(bench.id)).toBeNull();
   });

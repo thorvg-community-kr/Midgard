@@ -18,7 +18,7 @@ import {
   upperTier,
   type ItemSpec,
 } from '../../../../packages/engine/src/equipment';
-import { attackPreview, gearStats, scalingLine } from '../../../../packages/engine/src/gear-stats';
+import { attackPreview, gearStats } from '../../../../packages/engine/src/gear-stats';
 import { stationLevel, stationStep, topLevel } from '../../../../packages/engine/src/craft-stations';
 import { weaponSchool } from '../../../../packages/engine/src/progression-rules';
 import { craftOrder, orderItem } from '../../../../packages/engine/src/craft-orders';
@@ -422,11 +422,10 @@ export function stationRows(app: GameHudApp, station: Building, out: InspectorRo
   const entries = recipes.map((item) => {
     const offer = recipeOffer(town, station, item, offers),
       inputs = item.category === 'resource' ? resourceProducts.filter((p) => resourceAmount(offer.cost, p) > 0) : [],
-      effects = gearStatRows(c, gearStats(item, false), inner - 16, 11),
+      effects = gearStatRows(c, gearStats(item), inner - 16, 11),
       inline = !narrow && effects.length === 1 && c.textWidth(effects[0], 11) <= f32(inner * 0.55) - 40,
-      preview = item.scaling ? gearStatRows(c, [
-        scalingLine(item), ...(offer.who ? [offer.who.name, attackPreview(offer.who, item)] : []),
-      ], inner - 16, 11) : [],
+      preview = item.scaling && offer.who
+        ? gearStatRows(c, [offer.who.name, attackPreview(offer.who, item)], inner - 16, 11) : [],
       height = item.category === 'resource' ? 34 + 16 * inputs.length : rowH + ((inline ? 0 : effects.length) + preview.length) * 16,
       // Under a material: why it cannot be refined, else who goes; missing inputs already show in its counts.
       note = item.category !== 'resource' ? '' : offer.reason ? (offer.reason === 'Not enough settlement materials' ? '' : offer.reason) : offer.hint;

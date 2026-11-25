@@ -247,6 +247,8 @@ export const catalogPhrases: Phrases = {
   'STR scaling +{0}': '힘 보정 +{0}',
   'DEX scaling +{0}': '기량 보정 +{0}',
   'INT scaling +{0}': '지능 보정 +{0}',
+  'Attack if equipped {0}': '장착 시 공격력 {0}',
+  'Attack with tool in pack {0}': '소지 시 공격력 {0}',
   'Attack if equipped {0} → {1}': '장착 시 공격력 {0} → {1}',
   'Vitality +{0}': '활력 +{0}',
   'Felling speed {0}': '벌목 속도 {0}',

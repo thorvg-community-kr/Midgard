@@ -475,12 +475,14 @@ it.each([
         expect(ui.context.textWidth(translate(row![1]), row![3], row![4]), stat).toBeLessThanOrEqual(row![0].w + 0.01);
       }
     };
+    const attackLine = (current: number, equipped: number) =>
+      `Attack if equipped ${current === equipped ? equipped : `${current} → ${equipped}`}`;
     for (const [station, id, stats] of [
       [smith, 'wooden-spear', ['Melee attack +1', 'DEX scaling +3', 'STR scaling +2', 'Reach +0.5', 'Pierces', 'Two-handed']],
       [bench, 'wooden-mallet', ['Building efficiency +1', 'Crafting efficiency +1', 'Attack as a weapon +1']],
     ] as const) {
       const item = itemSpec(id)!;
-      const expected = [...stats, ...(item.scaling ? [`Attack if equipped ${attackDamage(resident)} → ${attackDamage(resident, item)}`] : [])];
+      const expected = [...stats, ...(item.scaling ? [attackLine(attackDamage(resident), attackDamage(resident, item))] : [])];
       ui.app.equipmentTab = 'craft';
       ui.app.craftWorkshopFilter = station.kind;
       ui.app.craftPage = ui.town.craftOptions(resident.id, station.id).filter(({ item }) => item.stationLevel === 1).findIndex(o => o.item.id === id);
@@ -497,7 +499,7 @@ it.each([
     ui.app.selected = smith.id;
     ui.draw(() => inspector.call(ui.app, stationBoard, true));
     const sword = itemSpec('wooden-sword')!, who = ui.town.craftOffers(smith.id).find(o => o.item.id === sword.id)!.who!;
-    shown(['STR scaling +3', 'DEX scaling +1', `Attack if equipped ${attackDamage(who)} → ${attackDamage(who, sword)}`], stationBoard);
+    shown(['STR scaling +3', 'DEX scaling +1', attackLine(attackDamage(who), attackDamage(who, sword))], stationBoard);
   } finally {
     ui.dispose();
     setLocale(previous);
