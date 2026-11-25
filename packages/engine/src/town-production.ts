@@ -1,4 +1,5 @@
 import type { Town } from './town';
+import { heldAmount } from './carried-resources';
 import type { Building } from './town-models';
 import { Activity, TreeWorkKind, type Person } from './person';
 import { Product, Structure } from './building-catalog';
@@ -60,8 +61,9 @@ export function produceConstructionMaterial(this: Town, p: Person, product: Prod
     .sort((a, b) => distance(p.position, a.door()) - distance(p.position, b.door()));
   for (const workshop of workshops) {
     const recipe = processingRecipe(workshop.kind)!;
-    if (resourceAmount(this.stock(village), recipe.input) < 2) {
-      if (this.startHarvest(p, workshop.center, 12, recipe.input)) return true;
+    if (resourceAmount(this.stock(village), recipe.input) + (p.task === Activity.Crafting ? heldAmount(p, recipe.input) : 0) < 2) {
+      if (this.startHarvest(p, workshop.center, 12, recipe.input) ||
+          (p.task === Activity.Crafting && this.startHarvest(p, workshop.center, Math.hypot(this.world.width(), this.world.height()), recipe.input))) return true;
       continue;
     }
     if (!this.walkTo(p, workshop.door())) continue;

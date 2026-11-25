@@ -1,5 +1,5 @@
 // Translated from src/game/effect_manager.cpp; capacities and rejection order are unchanged.
-import { Cue, Sound, SpeechChannel, type VoiceKind, type VoiceLine } from './sound-types';
+import { Cue, Sound, SpeechChannel, isOfferingCue, type VoiceKind, type VoiceLine } from './sound-types';
 export interface EffectStatistics {
   effects: number;
   speech: number;
@@ -26,6 +26,7 @@ const statistics = (): EffectStatistics => ({
   replaced: 0,
 });
 function priority(cue: Cue): number {
+  if (isOfferingCue(cue)) return cue === Cue.OfferAccepted ? 9 : 8;
   switch (cue) {
     case Cue.Alarm:
       return 10;
@@ -166,7 +167,7 @@ function interval(cue: Cue): number {
   }
 }
 const interaction = (cue: Cue): boolean =>
-  cue === Cue.Click || cue === Cue.Order || cue === Cue.Place || cue === Cue.Refuse || cue === Cue.Open;
+  isOfferingCue(cue) || cue === Cue.Click || cue === Cue.Order || cue === Cue.Place || cue === Cue.Refuse || cue === Cue.Open;
 const thunder = (cue: Cue): boolean => cue >= Cue.ThunderCrack && cue <= Cue.ThunderRumble;
 /** The many small sounds of a melee; together they never hold more than `maxCrowd` slots. */
 export const crowdCue = (cue: Cue): boolean =>

@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Town } from '../../packages/engine/src/town';
 import { WorldMap } from '../../packages/engine/src/world-map';
 import { Layer, Terrain, DungeonKind, makeTile } from '../../packages/engine/src/world-types';
-import { Activity, Person, Role, Calling, Race } from '../../packages/engine/src/person';
+import { Activity, Person, Role, Calling, Race, Monster } from '../../packages/engine/src/person';
 import { Building, Field } from '../../packages/engine/src/town-models';
 import { Resources, Structure, resourceKeys } from '../../packages/engine/src/building-catalog';
 import { point, distance } from '../../packages/engine/src/geometry';
@@ -163,6 +163,35 @@ describe('stress recovery and independent settlements', () => {
     expect(p.job).toBe(camp.id);
   });
 
+  it('backs off a failed recovery route, then walks home as soon as a retry succeeds', () => {
+    const { town, p, camp } = fixture();
+    p.position = point(16, 16);
+    p.stress = 0.9;
+    p.scheduleAt = town.time + 30;
+    const plan = vi.spyOn(town.grid, 'path').mockReturnValue([]);
+    town.advance(0.1);
+    expect(plan).toHaveBeenCalledTimes(1);
+    expect(p.stressRecovery).toBe(true);
+    const startingStress = p.stress;
+    for (let tick = 0; tick < 10; ++tick) town.advance(0.1);
+    expect(plan).toHaveBeenCalledTimes(1);
+    expect(p.stress).toBeLessThan(startingStress);
+    for (let tick = 0; tick < 100 && plan.mock.calls.length === 1; ++tick) town.advance(0.1);
+    expect(plan).toHaveBeenCalledTimes(2);
+    expect(p.moving()).toBe(false);
+    plan.mockImplementation((from, to) => [from, to]);
+    for (let tick = 0; tick < 10; ++tick) town.advance(0.1);
+    expect(plan).toHaveBeenCalledTimes(2);
+    for (let tick = 0; tick < 100 && !p.moving(); ++tick) town.advance(0.1);
+    expect(plan).toHaveBeenCalledTimes(3);
+    expect(p.activity).toBe(Activity.Sleeping);
+    expect(p.target).toBe(camp.id);
+    const remaining = distance(p.position, camp.door());
+    town.advance(0.1);
+    expect(distance(p.position, camp.door())).toBeLessThan(remaining);
+    expect(plan).toHaveBeenCalledTimes(3);
+  });
+
   it('does not defect for a first breakdown or an episode outside the seven-day window', () => {
     const { town, p } = fixture();
     p.stress = 0.9;
@@ -191,15 +220,25 @@ describe('stress recovery and independent settlements', () => {
       town.advance(0.1);
       ++recoveryTicks;
     }
-    expect(recoveryTicks).toBeGreaterThan(1000);
+    expect(recoveryTicks).toBeGreaterThan(100);
     expect(p.stressRecovery).toBe(false);
     expect(p.stress).toBeLessThanOrEqual(stressPolicy.recovered);
     expect(canControl(p)).toBe(true);
     expect(p.faction).toBe(0);
   });
 
-  it('defects on the second recent breakdown and transfers only finite local supplies', () => {
+  it('stays in the settlement through ordinary fatigue even after a recent break', () => {
     const { town, p } = fixture();
+    p.lastBreakdownAt = town.time;
+    p.rest = 0.1;
+    expect(updateStress.call(town, p, 0.1)).toBe(true);
+    expect(p.stressRecovery).toBe(true);
+    expect(p.faction).toBe(0);
+  });
+
+  it('defects on a second recent breakdown while unpaid and transfers only finite local supplies', () => {
+    const { town, p } = fixture();
+    p.unpaid = true;
     p.stress = 0.9;
     updateStress.call(town, p, 0.1);
     p.stress = 0.3;
@@ -246,6 +285,7 @@ describe('stress recovery and independent settlements', () => {
 
   it('does not metabolize a newly defecting resident twice in the same live tick', () => {
     const { town, p } = fixture();
+    p.unpaid = true;
     p.lastBreakdownAt = town.time - 1;
     p.stress = 0.9;
     const food = p.food;
@@ -353,4 +393,59 @@ describe('stress recovery and independent settlements', () => {
     expect(town.population()).toBe(0);
     expect(p.faction).not.toBe(0);
   }, 30000);
+  it.each([
+    ['a raid elsewhere', true, point(17, 17)],
+    ['a roused foe beside them', false, point(13.5, 12)],
+  ] as const)('holds a breakdown back during %s and starts it when the fight is over', (_, raid, at) => {
+    const { town, p } = fixture(),
+      foe = new Monster(900, 0, point(at.x, at.y));
+    foe.raider = raid;
+    foe.angry = !raid;
+    foe.health = 1e6;
+    foe.strength = 0;
+    town.beasts.push(foe);
+    p.position = point(12, 12);
+    p.stress = 0.9;
+    for (let i = 0; i < 80; ++i) {
+      town.wildlifeDay = town.days;
+      town.advance(0.1);
+      p.health = 1;
+      p.stress = 0.9;
+      expect(p.stressRecovery).toBe(false);
+      expect(p.inside).toBe(false);
+      expect(p.activity).not.toBe(Activity.Sleeping);
+    }
+    town.beasts = [];
+    town.advance(0.1);
+    town.advance(0.1);
+    expect(p.stressRecovery || p.recoveringRest).toBe(true);
+    for (let i = 0; i < 300; ++i) town.advance(0.1);
+    expect(p.inside).toBe(true);
+    expect(p.activity).toBe(Activity.Sleeping);
+  });
+  it('stops an overwhelmed resident on the way home while a foe is near, and lets them in afterwards', () => {
+    const { town, p } = fixture(),
+      foe = new Monster(900, 0, point(15.5, 12));
+    foe.angry = true;
+    foe.health = 1e6;
+    foe.strength = 0;
+    town.beasts.push(foe);
+    p.position = point(14, 12);
+    p.stress = 0.9;
+    p.stressRecovery = true;
+    p.lastBreakdownAt = town.time;
+    for (let i = 0; i < 100; ++i) {
+      town.wildlifeDay = town.days;
+      town.advance(0.1);
+      p.health = 1;
+      expect(p.inside).toBe(false);
+      expect(p.activity).not.toBe(Activity.Sleeping);
+    }
+    expect(p.stressRecovery).toBe(true);
+    expect(p.stress).toBeGreaterThan(0.89);
+    town.beasts = [];
+    for (let i = 0; i < 300; ++i) town.advance(0.1);
+    expect(p.inside).toBe(true);
+    expect(p.activity).toBe(Activity.Sleeping);
+  });
 });

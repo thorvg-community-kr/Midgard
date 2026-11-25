@@ -81,6 +81,20 @@ describe('who a person is drawn as', () => {
     });
     expect(founderCast[0].hair).not.toEqual(founderCast[1].hair);
   });
+  it('still draws a founder from their design in a save that recorded an earlier past', () => {
+    const earlier = [
+      ['Askr', "Born under Ymir's left arm", 0],
+      ['Askr', 'An ash on the shore, given breath by Odin', 0],
+      ['Embla', "Woke under Ymir's arm beside Askr", 1],
+      ['Embla', 'An elm on the shore, woken beside Askr', 1],
+    ] as const;
+    for (const [name, past, index] of earlier) {
+      const person = resident(9);
+      person.name = name;
+      person.past = past;
+      expect(likenessOf(person)).toBe(founderCast[index]);
+    }
+  });
   it('reads a look saved by the old studio through to skin, hair and cut', () => {
     const person = resident(4242);
     person.customLook = appearanceOf(person);

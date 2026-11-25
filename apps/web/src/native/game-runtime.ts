@@ -43,9 +43,8 @@ export interface GameRuntime extends GameEditorsApp {
   openCharacterEditor(): void;
   mapKey(key: Key, shift?: boolean): void;
   prepare(order: Order): void;
-  stopSelected(): void;
-  toggleAuto(): void;
   openUnitBuild(): void;
+  toggleAuto(): void;
   selectTool(tool: Tool, useSelection?: boolean): void;
   togglePause(): void;
   cycleSpeed(): void;

@@ -128,6 +128,7 @@ function animation(
   angle: number,
   projection: BuildingProjection,
   still: boolean,
+  soilFloor = true,
 ): RiseAnimation {
   size = f32(size);
   angle = f32(angle);
@@ -182,7 +183,7 @@ function animation(
   const faces: Face[] = [],
     inset = f32(0.04),
     fresh = !replaced.length;
-  faces.push({
+  if (soilFloor) faces.push({
     shape: (frame) => {
       const s = fresh ? outCubic(f32(frame / 8)) : 1,
         c = f32(size / 2),
@@ -407,8 +408,9 @@ export function buildingRiseAnimation(
   replaced: readonly BuildingStage[] = [],
   angle = 0,
   projection = new BuildingProjection(),
+  soilFloor = true,
 ): RiseAnimation {
-  return animation(source, footprint, replaced, angle, projection, false);
+  return animation(source, footprint, replaced, angle, projection, false, soilFloor);
 }
 export function buildingStillAnimation(
   source: Model,

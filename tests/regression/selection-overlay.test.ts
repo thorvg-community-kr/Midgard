@@ -10,6 +10,12 @@ import { Person, Role, Calling, Race } from '../../packages/engine/src/person';
 import { Camera, point, project } from '../../packages/engine/src/geometry';
 import { Traffic } from '../../packages/engine/src/traffic';
 import type { Town } from '../../packages/engine/src/town';
+import { AnimalKind, Monster } from '../../packages/engine/src/person';
+import { Order, Tool } from '../../packages/engine/src/game-tools';
+import { objectSelectionOverlay } from '../../apps/web/src/native/selection-overlay';
+import { issueOrder, targetingCursor, type GameCommandApp } from '../../apps/web/src/native/game-commands';
+import { presentedHit } from './fixtures/presented-hit';
+import type { WorldObjectKind } from '../../packages/native-renderer/src/world-picking-types';
 
 class Pixels {
   constructor(
@@ -303,4 +309,110 @@ it('keeps stress recovery and neutral affiliation indicators tied to the actual 
   } finally {
     view.dispose();
   }
+});
+
+/** Two companions (0 selected), a stranger, a cow and a monster, with the cursor on whatever `hit` names. */
+function aiming(kind?: WorldObjectKind, id = 0) {
+  const person = (n: number, name: string) =>
+      new Person(n, name, Role.Resident, Calling.Settler, Race.Human, 5, point(10, 10)),
+    people = [person(0, 'Selected'), person(1, 'Companion'), person(2, 'Stranger')],
+    cow = new Monster(10, -1, point(12, 12)),
+    monster = new Monster(11, -1, point(13, 12)),
+    markers: GroundSelectionMarker[][] = [],
+    plates: string[] = [];
+  people[2].faction = 1;
+  cow.animal = AnimalKind.Cow;
+  const town = {
+    person: (n: number) => people[n] ?? null,
+    creature: (n: number) => (n === 10 ? cow : n === 11 ? monster : null),
+    building: () => ({ kind: 0 }),
+    buildings: () => [],
+    map: () => ({ width: () => 40, inside: () => false }),
+    orderAttack: vi.fn(() => true),
+    orderAttackPerson: vi.fn(),
+    orderAttackMove: vi.fn(),
+    approachOrder: vi.fn(),
+  };
+  const app = {
+    chosen: [0],
+    mouse: point(50, 50),
+    cursor: point(12, 12),
+    viewWidth: 320,
+    viewHeight: 240,
+    tool: Tool.Select,
+    pending: Order.Attack,
+    touchMode: false,
+    boxFrom: null,
+    panFrom: null,
+    dockBounds: null,
+    guide: { card: null, logOpen: false },
+    hoveredWorldTarget: { screen: point(50, 50), hit: kind ? presentedHit(kind, id) : null },
+    town,
+    cue: vi.fn(),
+    context: {
+      controlAt: () => false,
+      textWidth: (text: string) => text.length * 6,
+      elideText: (text: string) => text,
+      rect: () => {},
+      text: (_bounds: unknown, label: string) => plates.push(label),
+    },
+    renderer: {
+      selectionGeometry: () => presentedHit('person', 0).geometry,
+      setGroundSelection: (list: GroundSelectionMarker[]) => markers.push(list),
+    },
+  } as unknown as GameCommandApp;
+  app.targetingCursor = targetingCursor.bind(app);
+  const marks = () => {
+    objectSelectionOverlay(app);
+    return markers.at(-1)!.map((m) => [m.key, m.hover]);
+  };
+  return { app, town, marks, plates };
+}
+it.each([
+  ['monster', 11, 'Monster'],
+  ['animal', 10, 'Cow'],
+  ['person', 2, 'Stranger'],
+] as const)('an aimed attack marks the %s under the cursor as a hovered unit, beside the selection', (kind, id, name) => {
+  const view = aiming(kind, id);
+  expect(view.marks()).toEqual([
+    ['person:0', false],
+    [`${kind}:${id}`, true],
+  ]);
+  expect(view.plates).toEqual(['Selected', name]);
+});
+it('an aimed attack marks nothing a click would not strike', () => {
+  for (const [kind, id] of [
+    ['person', 1],
+    ['tree', 5],
+    ['rock', 5],
+    ['building', 3],
+    ['field', 2],
+  ] as const)
+    expect(aiming(kind, id).marks(), kind).toEqual([['person:0', false]]);
+  expect(aiming().marks()).toEqual([['person:0', false]]);
+});
+it('marks the unit under the cursor only while the attack is aimed with a mouse over the world', () => {
+  const view = aiming('monster', 11);
+  view.app.pending = Order.None;
+  expect(view.marks()).toEqual([['person:0', false]]);
+  view.app.pending = Order.Move;
+  expect(view.marks()).toEqual([['person:0', false]]);
+  view.app.pending = Order.Attack;
+  view.app.touchMode = true;
+  expect(view.marks()).toEqual([['person:0', false]]);
+  view.app.touchMode = false;
+  (view.app.context as any).controlAt = () => true;
+  expect(view.marks()).toEqual([['person:0', false]]);
+});
+it('the click strikes exactly the unit the aim marked', () => {
+  const stranger = aiming('person', 2);
+  issueOrder.call(stranger.app, Order.Attack);
+  expect(stranger.town.orderAttackPerson).toHaveBeenCalledWith([0], 2);
+  const cow = aiming('animal', 10);
+  issueOrder.call(cow.app, Order.Attack);
+  expect(cow.town.orderAttack).toHaveBeenCalledWith([0], 10);
+  const companion = aiming('person', 1);
+  issueOrder.call(companion.app, Order.Attack);
+  expect(companion.town.orderAttackMove).toHaveBeenCalledWith([0], companion.app.cursor);
+  expect(companion.town.orderAttackPerson).not.toHaveBeenCalled();
 });

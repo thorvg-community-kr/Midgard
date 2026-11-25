@@ -1,4 +1,4 @@
-import { canControl } from './faction';
+import { belongsToFaction, canControl } from './faction';
 // Native town_monsters.cpp combat, raids, expeditions and damage. Native RNG order is retained.
 import { TownState } from './town-state';
 import { Person, Monster, Expedition, Role, Calling, Activity, adventurer } from './person';
@@ -12,13 +12,14 @@ import { CampEconomy } from './camp-economy';
 import { animalSpec } from './wildlife';
 import { spreadFighter } from './person-navigation';
 import { planRaiderApproach } from './monster-navigation';
-import { campTier, dungeonThreat, raidKind, raidMuster, raidShape, RaidKind } from './raid-progression';
-import { gateSealed, sealable } from './gate-seals';
+import { campTier, dungeonThreat, raidKind, raidMight, raidMuster, raidShape, RaidKind } from './raid-progression';
+import { gateActive, gateCenter, inRaidedVillage, raidSeat, raidSources, updateGateOpenings } from './gate-progression';
 import { attackDamage, attackReach, armorProtection, combatItem, equippedItem, raisedShield } from './equipment';
 import { songOf, wardOf } from './calling-auras';
 import { CombatCue, MonsterRank, combatRules } from './combat-events';
 import { Boon, boon, boonRules } from './gate-boons';
 import { inArea } from './realm-layout';
+import { FirstSlam } from './expedition-record';
 import { rankMonster, rankPause, rankRules, rankWorth, skillEffects, slowedBy } from './monster-ranks';
 import { StrikeKind, strikeOf } from './skill-catalog';
 /** The mage tower's ward rite: monster blows near the resident's own seat. */
@@ -52,7 +53,6 @@ export interface CombatTown extends TownState {
   raze(id: number): void;
   expeditionProblem(dungeon: number, floor: number): string;
   deepestOpenFloor(dungeon: number): number;
-  watchtowerManned(id: number): boolean;
 }
 export interface BiteTown extends TownState {
   hurtGuest(p: Person, killed: boolean): void;
@@ -60,7 +60,7 @@ export interface BiteTown extends TownState {
   camp(id?: number): Building | null;
   settlementOf(p: Person | Building): number;
 }
-export const lairOf = (site: Dungeon): Point => point(f(site.origin.x + 1), f(site.origin.y + 1));
+export const lairOf = gateCenter;
 export const monsterEntrance = (site: Dungeon): Point =>
   point(f(site.origin.x + 1), f(site.origin.y + f(2.3)));
 export interface Breed {
@@ -104,7 +104,7 @@ export function power(this: CombatTown, p: Person): number {
 export function raiding(this: TownState): boolean {
   return this.beasts.some((m) => m.raider);
 }
-/** What a raid weighs itself against: the residents at home, their arms and levels, manned towers and walls. */
+/** What a raid weighs itself against: the residents at home, their arms and levels, watchtowers and walls. */
 function settlementMight(town: CombatTown): number {
   let might = 0;
   for (const p of town.folk)
@@ -115,28 +115,23 @@ function settlementMight(town: CombatTown): number {
       might += raidMuster.perBlow * f(attackDamage(p)) * p.vitalityMultiplier();
   for (const b of town.placed) {
     if (!b.built() || b.faction !== town.controlFaction) continue;
-    if (b.kind === Structure.Watchtower && town.watchtowerManned(b.id)) might += raidMuster.perTower;
+    if (b.kind === Structure.Watchtower) might += raidMuster.perTower;
     if (isSeat(b.kind)) might += raidMuster.perTier * campTier(b.kind);
   }
   return might;
 }
-export function summonRaid(this: CombatTown, kind = raidKind(this.world.seed(), this.days)): void {
-  const fire = this.camp();
-  if (!fire) return;
-  const gates = this.world
-    .dungeons()
-    .map((site, index) => ({ site, index }))
-    .filter((gate) => sealable(gate.site) && gate.site.discovered && !gateSealed(this, gate.index))
-    .sort(
-      (a, b) =>
-        distance(lairOf(a.site), fire.center) - distance(lairOf(b.site), fire.center) || a.index - b.index,
-    );
-  if (!gates.length) return;
-  if (kind === RaidKind.Pincer && gates.length < 2) kind = RaidKind.Pack;
-  const sources = gates.slice(0, kind === RaidKind.Pincer ? 2 : 1),
-    prowling = this.beasts.filter((m) => m.raider).length,
-    pressure = dungeonThreat(this.days, lairOf(gates[0].site), this.placed),
-    shape = raidShape(kind, settlementMight(this) + raidMuster.perWeek * pressure.week),
+export function summonRaid(this: CombatTown, kind = raidKind(this.world.seed(), this.days), warned?: readonly number[]): void {
+  if (!warned) updateGateOpenings(this);
+  const sources = (warned ?? raidSources(this, kind)).filter(gate => gateActive(this, gate))
+    .flatMap(index => {
+      const seat = raidSeat(this, index);
+      return seat ? [{ index, site: this.world.dungeons()[index], seat }] : [];
+    });
+  if (!sources.length) return;
+  if (kind === RaidKind.Pincer && sources.length < 2) kind = RaidKind.Pack;
+  const prowling = this.beasts.filter((m) => m.raider).length,
+    pressure = dungeonThreat(this.days, lairOf(sources[0].site), this.placed),
+    shape = raidShape(kind, raidMight(settlementMight(this), pressure.week)),
     // Leaders first, then the few brutes, then the swarm: a full settlement loses swarmers first.
     ranks = [
       ...Array<MonsterRank>(shape.count).fill(kind === RaidKind.Brutes ? MonsterRank.Brute : MonsterRank.Grunt),
@@ -154,6 +149,8 @@ export function summonRaid(this: CombatTown, kind = raidKind(this.world.seed(), 
         ),
       );
     beast.raider = true;
+    beast.home = { ...beast.position };
+    beast.prey = source.seat.id;
     const leader = i < shape.count;
     beast.health = f(breedOf(source.site.kind).health * pressure.health * (leader ? shape.health : 1));
     beast.strength = f(pressure.damage * (leader ? shape.damage : 1));
@@ -164,17 +161,12 @@ export function summonRaid(this: CombatTown, kind = raidKind(this.world.seed(), 
     planRaiderApproach(this, beast);
   });
   ++this.raidCount;
-  this.emit(CombatCue.Wave, monsterEntrance(sources[0].site), { amount: ranks.length });
-  const from = sources[0].site.name;
-  this.notify(
-    kind === RaidKind.Horde
-      ? 'A horde pours out of ' + from + '!'
-      : kind === RaidKind.Brutes
-        ? 'Great brutes from ' + from + ' march on the settlement!'
-        : kind === RaidKind.Pincer
-          ? 'Raiders close in from ' + from + ' and ' + sources[1].site.name + '!'
-          : 'Monsters from ' + from + ' raid the settlement!',
-  );
+  sources.slice(0, ranks.length).forEach((source, i) => {
+    this.open[source.index] = 1;
+    const amount = Math.ceil((ranks.length - i) / sources.length);
+    this.emit(CombatCue.Wave, monsterEntrance(source.site), { gate: source.index, amount });
+    this.notify(`Raiders from ${source.site.name} march on Camp #${source.seat.id + 1}`);
+  });
 }
 export function canSendExpedition(
   this: CombatTown,
@@ -217,7 +209,7 @@ export function sendExpedition(
     party.members.push(p.id);
   }
   if (!party.members.length) return false;
-  this.open[dungeon] = 1;
+  if (!this.opened(dungeon)) this.open[dungeon] = 1;
   if (!this.parties.includes(party)) this.parties.push(party);
   this.notify(
     `${party.members.length} set out for floor ${floor + 1} beyond ${this.world.dungeons()[dungeon].name}`,
@@ -309,7 +301,7 @@ export function rewardExperience(this: TownState, p: Person, points: number): vo
     this.emit(CombatCue.LevelUp, p.position, { person: p.id, amount: p.level });
   }
 }
-/** A resident's blow before crits: weapon, level and calling, with song, rally and the Valor boon. */
+/** The weapon and its wielder's attributes set the blow before songs, rally, Valor and crits. */
 export function blowStrength(this: CombatTown, p: Person): number {
   return f(
     blowOf(p) * songOf(this.folk, p) * (this.rallied(p) ? 1.25 : 1) *
@@ -333,7 +325,9 @@ export function hurtCreature(this: CombatTown, foe: Monster, damage: number, by:
     const remains = new Resources();
     // A swarm leaves scraps: one bone for every few small ones.
     remains.bones = foe.giant() ? 6 : rankWorth(foe) >= 1 ? 2 : foe.id % 3 === 0 ? 1 : 0;
-    if (remains.bones) this.store(remains, this.settlementOf(by));
+    if (foe.rank === MonsterRank.Brute || foe.giant()) remains.hides = 1;
+    if (this.realmGate >= 0 && inArea(this.realmArea, foe.home)) this.realmLoot.add(remains);
+    else if (!remains.empty()) this.store(remains, this.settlementOf(by));
   }
   const health =
       foe.animal !== null ? animalSpec(foe.animal).health : breedOf(this.world.dungeons()[foe.lair].kind).health,
@@ -366,6 +360,8 @@ export function tallyKill(this: TownState, foe: Monster): void {
 }
 /** An Aimed Shot breaks a guardian's wind-up; the slam comes again later. */
 export function breakWindup(this: TownState, beast: Monster): void {
+  if (beast.id === this.realmGuardian && beast.windupUntil >= 0 && this.firstExpedition.slam === FirstSlam.Winding)
+    this.firstExpedition.slam = FirstSlam.Interrupted;
   beast.windupUntil = -1;
   this.combatState.slamAt.set(beast.id, this.time + rankRules.slamBroken);
 }
@@ -477,7 +473,7 @@ function holdGround(town: CombatTown, p: Person, dt: number): void {
 // the original move, resource or construction transaction resumes.
 export function fight(this: CombatTown, p: Person, dt: number): void {
   if (
-    p.faction !== this.controlFaction || p.stressRecovery || p.health <= 0 ||
+    p.faction !== this.controlFaction || p.health <= 0 ||
     p.activity === Activity.Expedition || p.activity === Activity.Leaving || p.crossingDoorway()
   ) return;
   // The player's Move outranks self-defence: a unit told to go, goes. Attack-move
@@ -557,8 +553,7 @@ export function releaseMonster(this: CombatTown, at: Point): void {
   let lair = -1;
   for (let d = 0; d < this.world.dungeons().length; ++d)
     if (
-      sealable(this.world.dungeons()[d]) &&
-      !gateSealed(this, d) &&
+      gateActive(this, d) &&
       (lair < 0 ||
         distance(lairOf(this.world.dungeons()[d]), at) < distance(lairOf(this.world.dungeons()[lair]), at))
     )
@@ -583,7 +578,7 @@ export function wreck(this: CombatTown, beast: Monster, dt: number): void {
     lane = match.id ?? -1;
   if (match.distance < f(0.6) && lane >= 0) {
     const road = this.network.road(lane);
-    if (road && road.built >= 1 && road.wear < 1) {
+    if (road && (!beast.raider || belongsToFaction(road)) && road.built >= 1 && road.wear < 1) {
       road.wear = Math.min(1, f(road.wear + f(f(dt) * (road.paved ? f(0.012) : f(0.025)))));
       if (road.wear >= 1) {
         this.notify(road.paved ? 'Monsters tore up a paved road' : 'Monsters tore up a road');
@@ -592,10 +587,12 @@ export function wreck(this: CombatTown, beast: Monster, dt: number): void {
     }
   }
   if (this.time < beast.ready) return;
+  const seat = beast.raider ? raidSeat(this, beast.lair) : null;
   const target = beast.raider ? this.building(beast.prey) : null;
   const nearby = target ? [target, ...this.placed.filter(item => item !== target)] : this.placed;
   for (const item of nearby) {
     if (!item.footprint().contains(beast.position, f(0.7))) continue;
+    if (beast.raider && !inRaidedVillage(this, item, seat)) continue;
     const blow = f(breed.bite * beast.strength * f(0.25) * (boon(this, Boon.Bulwark) ? boonRules.bulwarkBuildingDamage : 1));
     beast.ready = this.time + breed.pause;
     beast.swingAt = this.time;

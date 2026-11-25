@@ -1,6 +1,25 @@
-/** A staffed watchtower shoots the nearest raider or angry monster within `reach` tiles every `pause` seconds. */
+import { Structure } from './building-catalog';
+import type { ItemSpec } from './equipment';
+import { Calling } from './person';
+
+export const guildLevel = 3;
+/** A finished school teaches the guild its calling and the smithy its weapon family. */
+export const callingSchools: Partial<Record<Calling, Structure>> = {
+  [Calling.Warrior]: Structure.TrainingYard,
+  [Calling.Ranger]: Structure.Watchtower,
+  [Calling.Mage]: Structure.MageTower,
+  [Calling.Cleric]: Structure.Shrine,
+  [Calling.Bard]: Structure.Tavern,
+};
+export function weaponSchool(item: ItemSpec): Structure | undefined {
+  if (item.category !== 'weapon') return;
+  switch (item.visual) {
+    case 'spear': return callingSchools[Calling.Warrior];
+    case 'bow': return callingSchools[Calling.Ranger];
+    case 'staff': return callingSchools[Calling.Mage];
+  }
+}
+/** A completed watchtower shoots the nearest raider or angry monster in reach. */
 export const towerVolley = { reach: 9, pause: 1.2, damage: 1.5 };
-/** Daily drill at a training yard: experience at full attendance, the level drilling stops teaching at, stress eased. */
-export const drillRules = { experience: 30, levelCap: 10, stressRelief: 0.04 };
 /** Grief multiplier while a runestone stands. */
 export const runestoneComfort = 0.5;

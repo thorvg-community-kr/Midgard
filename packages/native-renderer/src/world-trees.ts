@@ -4,23 +4,25 @@ import { WorldMap } from '../../engine/src/world-map';
 import { Town } from '../../engine/src/town';
 import { TreeWorkKind } from '../../engine/src/person';
 import { treeFallTiming } from '../../engine/src/work-timing';
+import { harvestProduct } from '../../engine/src/harvest-material';
 import * as mining from '../../engine/src/mining';
 import type { Climate } from '../../engine/src/climate';
 import { Rect } from '../../native-ui/src/types';
-import { SceneNode, ShapeNode } from './paint';
-import { fill, opaque } from './vector-paint';
-import { appendStone, stoneLit, stoneShade } from './mining-stone';
-import { TreeBatch, treeAt } from './tree-painter';
+import { identity, SceneNode, ShapeNode } from './paint';
+import { depositPaint } from './mining-stone';
+import { TreeBatch, TreeKind, treeAt } from './tree-painter';
+import { registerLeafCrown } from './wind-leaves';
 import { PeakBatch, peakAt } from './mountain-peaks';
 import { WorldRendererState } from './world-renderer-state';
-import { registerDepth } from './world-depth';
+import { registerDepth, viewRect } from './world-depth';
 import { registerPick } from './world-pick-registry';
+import { distantSceneryZoom, fullyRemembered, registerScenery } from './scenery-batches';
 import type { WorldObjectRef } from './world-picking-types';
 import { registerResourceHit, setResourceWind } from './resource-hit';
 const canopyBases = new WeakMap<SceneNode, number>();
 export const sprouting = (s: WorldRendererState, cell: number, index: number): boolean =>
   s.growingTrees.some((tree) => tree.cell === cell && tree.index === index);
-function shapesBounds(shapes: readonly ShapeNode[]): Rect {
+function shapesBounds(shapes: readonly ShapeNode[], padding = 10): Rect {
   let left = Infinity,
     top = Infinity,
     right = -Infinity,
@@ -47,7 +49,7 @@ function shapesBounds(shapes: readonly ShapeNode[]): Rect {
       }
     }
   return Number.isFinite(left)
-    ? new Rect(left - 10, top, right - left + 20, Math.max(1, bottom - top))
+    ? new Rect(left - padding, top, right - left + 2 * padding, Math.max(1, bottom - top))
     : new Rect();
 }
 export function buildTreeRow(
@@ -64,27 +66,30 @@ export function buildTreeRow(
     at: Point,
     key: string,
     shapes: ShapeNode[],
-    canopy = false,
+    kind?: TreeKind,
     ref: WorldObjectRef | null = null,
   ) => {
     const scene = new SceneNode(),
-      box = shapesBounds(shapes);
+      body = shapesBounds(shapes, 0),
+      box = new Rect(body.x - 10, body.y, body.w + 20, body.h);
     for (const shape of shapes) if (shape.commands.length) scene.add(shape);
     if (!scene.children.length) return;
     trees.add(scene);
     bounds.push(box);
     registerDepth(scene, at, key, box);
+    registerScenery(scene, body, project(at.x, at.y).y);
     registerPick(scene, {
       ref,
       body: [scene],
       foot: { ...at },
-      ellipse: { rx: canopy ? 7 : 9, ry: canopy ? 3 : 4 },
+      ellipse: kind !== undefined ? { rx: 7, ry: 3 } : { rx: 9, ry: 4 },
     });
     if (ref?.kind === 'tree' || ref?.kind === 'rock')
       registerResourceHit(scene, ref.kind, ref.id, ref.instanceIndex ?? 0, at);
-    if (canopy) {
+    if (kind !== undefined) {
       s.rowCanopies[row].push(scene);
       canopyBases.set(scene, project(at.x, at.y).y);
+      if (kind === TreeKind.Fir) registerLeafCrown(scene, at, body);
     }
   };
   for (let x = Math.max(0, row - map.height() + 1); x <= Math.min(row, map.width() - 1); x++) {
@@ -95,7 +100,7 @@ export function buildTreeRow(
       const tree = treeAt(map, x, y, i),
         batch = new TreeBatch(climate);
       batch.add(tree);
-      append(tree.foot, `tree:${x}:${y}:${i}`, batch.finish(project(tree.foot.x, tree.foot.y).y), true, {
+      append(tree.foot, `tree:${x}:${y}:${i}`, batch.finish(project(tree.foot.x, tree.foot.y).y), tree.kind, {
         kind: 'tree',
         id: y * map.width() + x,
         instanceIndex: i,
@@ -108,13 +113,9 @@ export function buildTreeRow(
       append(peak.foot, `peak:${x}:${y}`, batch.finish(project(peak.foot.x, peak.foot.y).y));
     }
     if (mining.deposit(map, x, y)) {
-      const foot = mining.position(x, y),
-        lit = new ShapeNode(),
-        shade = new ShapeNode();
-      appendStone(lit, shade, project(foot.x, foot.y), mining.size(map, x, y));
-      fill(lit, opaque(stoneLit));
-      fill(shade, opaque(stoneShade));
-      append(foot, `stone:${x}:${y}`, [lit, shade], false, { kind: 'rock', id: y * map.width() + x });
+      const foot = mining.position(x, y), product = harvestProduct(map, x, y, true),
+        shapes = depositPaint(product, project(foot.x, foot.y), mining.size(map, x, y), map.basaltCell === y * map.width() + x);
+      append(foot, `stone:${x}:${y}`, shapes, undefined, { kind: 'rock', id: y * map.width() + x });
     }
   }
   if (!bounds.length) {
@@ -132,18 +133,14 @@ export function buildTreeRow(
 }
 const distantTreesZoom = f32(0.33);
 export function cullTrees(s: WorldRendererState): void {
-  const padding = f32(2 / s.view.zoom),
-    visible = new Rect(
-      f32(f32(s.view.x - f32(f32(s.viewWidth / 2) / s.view.zoom)) - padding),
-      f32(f32(s.view.y - f32(f32(s.viewHeight / 2) / s.view.zoom)) - padding),
-      f32(f32(s.viewWidth + 4) / s.view.zoom),
-      f32(f32(s.viewHeight + 4) / s.view.zoom),
-    );
+  // Prepare row paints before they reach the screen, just as the object pass does.
+  const visible = viewRect(s);
   // This far out a tree is a few pixels, yet most of the map's trees are in view.
   const distant = s.editorView && s.view.zoom < distantTreesZoom;
   for (let i = 0; i < s.rowTrees.length; i++) {
     const overlap = s.treeBounds[i].intersect(visible);
-    s.rowTrees[i].opacity(!distant && overlap.w > 0 && overlap.h > 0 ? 255 : 0);
+    const alpha = !distant && overlap.w > 0 && overlap.h > 0 ? 255 : 0;
+    if (s.rowTrees[i].alpha !== alpha) s.rowTrees[i].opacity(alpha);
   }
 }
 export function swayTrees(s: WorldRendererState, wind: number, seconds: number): void {
@@ -151,14 +148,15 @@ export function swayTrees(s: WorldRendererState, wind: number, seconds: number):
   if (!active) {
     if (s.swaying)
       for (const canopies of s.rowCanopies)
-        for (const canopy of canopies) setResourceWind(canopy, [1, 0, 0, 0, 1, 0, 0, 0, 1]);
+        for (const canopy of canopies) setResourceWind(canopy, identity);
     s.swaying = false;
     return;
   }
   if (s.swaying && seconds >= s.swayAt && seconds - s.swayAt < 1 / 24) return;
   s.swayAt = seconds;
   s.swaying = true;
-  const tau = f32(6.2831853),
+  const distant = !s.editorView && s.fogged && !s.mistLifted && s.view.zoom <= distantSceneryZoom,
+    tau = f32(6.2831853),
     amplitude = f32(f32(0.012) + f32(f32(f32(0.07) * wind) * wind)),
     lean = f32(f32(f32(0.45) * amplitude) * wind),
     pace = f32(f32(0.35) + f32(f32(0.3) * wind)),
@@ -181,6 +179,10 @@ export function swayTrees(s: WorldRendererState, wind: number, seconds: number):
           ),
       );
     for (const canopy of canopies) {
+      if (distant && fullyRemembered(canopy)) {
+        if (canopy.matrix[1] !== 0 || canopy.matrix[2] !== 0) setResourceWind(canopy, identity);
+        continue;
+      }
       const base = canopyBases.get(canopy)!;
       setResourceWind(canopy, [1, -k, f32(k * base), 0, 1, 0, 0, 0, 1]);
     }

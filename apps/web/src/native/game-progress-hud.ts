@@ -19,19 +19,18 @@ import {
   equipmentSlots,
   equippedItem,
   carriedTools,
-  gearEffect,
   isCraftStation,
   itemSpec,
   workItem,
   type ItemSpec,
   type WorkKind,
 } from '../../../../packages/engine/src/equipment';
+import { gearEffect } from '../../../../packages/engine/src/gear-stats';
 import type { Town } from '../../../../packages/engine/src/town';
-import { craftCovered } from '../../../../packages/engine/src/town-equipment';
 import { marketTier } from '../../../../packages/engine/src/economy-rules';
 import { Boon, boon, boonOfWorld, boonName, boonText, boonsHeld } from '../../../../packages/engine/src/gate-boons';
 import { gateSealed, sealable } from '../../../../packages/engine/src/gate-seals';
-import { drillRules } from '../../../../packages/engine/src/progression-rules';
+import { gateActive } from '../../../../packages/engine/src/gate-progression';
 import { DungeonKind } from '../../../../packages/engine/src/world-types';
 import { DockView } from './game-app-state';
 import type { GameHudApp } from './game-hud-contract';
@@ -240,13 +239,16 @@ export function jumpToGate(app: GameHudApp): void {
   const town = app.town,
     from = town.camp()?.center ?? town.map().camp();
   let best = -1,
-    nearest = Infinity;
+    nearest = Infinity, active = false;
   town
     .map()
     .dungeons()
     .forEach((site, index) => {
       const gap = Math.hypot(site.origin.x + 1 - from.x, site.origin.y + 1 - from.y);
-      if (!site.discovered || !sealable(site) || gateSealed(town, index) || gap >= nearest) return;
+      if (!site.discovered || !sealable(site) || gateSealed(town, index)) return;
+      const ready = gateActive(town, index);
+      if ((active && !ready) || (ready === active && gap >= nearest)) return;
+      active = ready;
       best = index;
       nearest = gap;
     });
@@ -259,45 +261,8 @@ export function jumpToGate(app: GameHudApp): void {
   app.selectTool(Tool.Select, true);
   openExpedition(app, best, app.chosen);
 }
-// Tools work from the pack; a weapon counts once it is in hand.
-const inHand = (p: Person): boolean => carriedTools(p).length > 0 || !!equippedItem(p, 'weapon');
-/** The resident to craft for a quest: the selected one, else the nearest to the camp still lacking `items`. */
-export function questCrafter(app: GameHudApp, items: readonly string[], bare = false): Person | null {
-  const town = app.town,
-    camp = town.camp();
-  if (!camp?.built()) return null;
-  const able = town
-    .people()
-    .filter((p) => p.role === Role.Resident && canControl(p) && town.settlementOf(p) === town.settlementOf(camp));
-  const lacking = (p: Person) =>
-      bare ? !inHand(p) : !p.inventory.some((stack) => stack && items.includes(stack.item)),
-    stock = town.stock(town.settlementOf(camp)),
-    // Whoever already carries the wood for a recipe can start at once.
-    ready = (p: Person) =>
-      items.some((id) => {
-        const item = itemSpec(id);
-        return !!item && craftCovered(stock, p, item.cost);
-      })
-        ? 0
-        : 1;
-  return (
-    able.find((p) => app.chosen.length === 1 && app.chosen[0] === p.id && lacking(p)) ??
-    able
-      .filter(lacking)
-      .sort(
-        (a, b) =>
-          ready(a) - ready(b) ||
-          distance(a.position, camp.center) - distance(b.position, camp.center) ||
-          a.id - b.id,
-      )[0] ??
-    able.find((p) => app.chosen.includes(p.id)) ??
-    able[0] ??
-    null
-  );
-}
 function craftAction(app: GameHudApp, goal: SettlementGoal): QuestAction | null {
-  const equip = goal.kind === GoalKind.Equip,
-    camp = app.town.camp(),
+  const camp = app.town.camp(),
     // The station that makes the goal's items: the smithy for weapons, shields and armor.
     kind = goal.kind === GoalKind.Station ? goal.building : (itemSpec(goal.items[0] ?? '')?.workshop ?? Structure.Workbench),
     bench = camp ? nearestStation(app.town, camp.center, kind) : null;
@@ -309,13 +274,11 @@ function craftAction(app: GameHudApp, goal: SettlementGoal): QuestAction | null 
     const tool = toolOf(kind);
     return app.town.camp() && tool !== undefined ? placeAction(app, tool) : placeAction(app, Tool.Camp);
   }
-  const p = questCrafter(app, goal.items, equip);
-  if (!p) return null;
-  // The station's own list opens with the best crafter chosen; the player starts the work there.
+  // The station's own list opens; the player starts the work there and the station picks who gets the item.
   return {
-    label: equip ? `Craft gear for ${p.name}` : `Open the ${structureSpec(kind).name.toLowerCase()}`,
+    label: `Open the ${structureSpec(kind).name.toLowerCase()}`,
     run: () => {
-      openStation(app, bench, p.id);
+      openStation(app, bench);
       look(app, bench.center.x, bench.center.y);
     },
   };
@@ -365,10 +328,13 @@ export function questAction(app: GameHudApp, goal: SettlementGoal): QuestAction 
       return toolAvailable(town, Tool.Road)
         ? { label: 'Draw a road', run: () => app.selectTool(Tool.Road) }
         : placeAction(app, Tool.Road);
-    case GoalKind.Field:
-      return toolAvailable(town, Tool.Field)
-        ? { label: 'Plant a field', run: () => app.selectTool(Tool.Field) }
-        : placeAction(app, Tool.Field);
+    case GoalKind.Field: {
+      const site = town.buildings().find((b) => b.kind === Structure.Farm && !b.built() && isPlayerBuilding(b));
+      if (site) return siteAction(app, site);
+      return toolAvailable(town, Tool.Farm)
+        ? { label: 'Lay out a farm', run: () => app.selectTool(Tool.Farm) }
+        : placeAction(app, Tool.Farm);
+    }
     case GoalKind.Population:
       return populationAction(app);
     case GoalKind.Floor:
@@ -423,6 +389,8 @@ export interface InspectorRows {
   inner: number;
   top: number;
   y: number;
+  /** Last available row coordinate above the inspector footer, in panel space. */
+  bottom?: number;
 }
 function textLine(app: GameHudApp, out: InspectorRows, text: string, color: Color, size = 12, bold = false): void {
   const at = out.y,
@@ -633,49 +601,6 @@ function memorialRows(app: GameHudApp, out: InspectorRows): void {
     out.y = f32(out.y + 30);
   }
 }
-function watchRows(app: GameHudApp, building: Building, out: InspectorRows): void {
-  const t = app.theme,
-    keeper = app.town.people().find((p) => p.job === building.id && p.health > 0);
-  out.y = f32(out.y + 4);
-  if (app.town.watchtowerManned(building.id) && keeper)
-    textLine(app, out, `${keeper.name} keeps watch`, t.success, 12, true);
-  else if (keeper) textLine(app, out, `${keeper.name} cannot keep watch now`, t.danger, 12, true);
-  else textLine(app, out, 'No one keeps watch: assign a worker', t.danger, 12, true);
-  if (boon(app.town, Boon.Bulwark)) textLine(app, out, 'Bulwark: its arrows strike harder', t.accent, 11);
-}
-function drillRows(app: GameHudApp, building: Building, out: InspectorRows): void {
-  const t = app.theme,
-    drillers = app.town.people().filter((p) => p.job === building.id && p.health > 0);
-  out.y = f32(out.y + 4);
-  wrappedLines(
-    app,
-    out,
-    `A day of drilling eases stress and gives experience to residents below level ${drillRules.levelCap}.`,
-    t.muted,
-    11,
-    2,
-  );
-  if (!drillers.length) {
-    textLine(app, out, 'No one drills here: assign workers', t.danger, 12, true);
-    return;
-  }
-  textLine(
-    app,
-    out,
-    `Last day: ${Math.round(building.attendance * 100)}% attendance`,
-    t.accent,
-    12,
-    true,
-  );
-  for (const p of drillers)
-    textLine(
-      app,
-      out,
-      `${p.name} · level ${p.level}` + (p.level >= drillRules.levelCap ? ' · learns nothing more here' : ''),
-      p.level >= drillRules.levelCap ? t.muted : t.text,
-      12,
-    );
-}
 function gateRows(app: GameHudApp, gate: number, out: InspectorRows): void {
   const t = app.theme,
     town = app.town,
@@ -723,6 +648,6 @@ export function progressInspector(app: GameHudApp, building: Building | null, ga
   else if (marketTier(building.kind)) marketRows(app, building, out);
   else if (building.kind === Structure.MageTower) riteRows(app, building, out);
   else if (building.kind === Structure.Runestone) memorialRows(app, out);
-  else if (building.kind === Structure.Watchtower) watchRows(app, building, out);
-  else if (building.kind === Structure.TrainingYard) drillRows(app, building, out);
+  else if (building.kind === Structure.Watchtower && boon(app.town, Boon.Bulwark))
+    textLine(app, out, 'Bulwark: its arrows strike harder', app.theme.accent, 11);
 }

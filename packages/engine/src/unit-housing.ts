@@ -4,7 +4,7 @@ import { Person, Role, Activity } from './person';
 import { isLodging, isHome, structureSpec } from './building-catalog';
 import { Point, point, add, sub, scale, normalized, distance } from './geometry';
 import { f32 as f } from './numeric';
-export interface HousingTown extends TownState { assignHomes(): void; shelterOf(p: Person): number; orderLeave(ids: number[]): boolean; setOrder(p: Person, task: Activity, site?: number): void; walkTo(p: Person, to: Point): boolean; arrive(p: Person): void; }
+export interface HousingTown extends TownState { assignHomes(): void; shelterOf(p: Person): number; orderLeave(ids: number[]): boolean; keepAwake(p: Person): void; abed(): number[]; yearFraction(): number; dayFraction(): number; setOrder(p: Person, task: Activity, site?: number): void; walkTo(p: Person, to: Point): boolean; arrive(p: Person): void; }
 export function shelterOf(this: HousingTown, p: Person): number { if (!p.inside && !p.crossingDoorway()) return -1; for (const home of this.placed) if (distance(p.entrance, home.door()) < f(.03) && distance(p.threshold, home.threshold()) < f(.03)) return home.id; for (const home of this.placed) if (home.footprint().contains(p.position, f(.05))) return home.id; return -1; }
 export function enforceGuestLodging(this: HousingTown, p: Person): void { if (p.role !== Role.Resident) return; const lodging = (id: number): boolean => { const place = id < 0 ? null : this.building(id); return !!place && isLodging(place.kind); }, invalidHome = lodging(p.home), staleBed = p.bed >= 0; if (invalidHome) p.home = -1; p.bed = -1; if (invalidHome || staleBed) this.assignHomes(); const invalidOrder = p.task === Activity.Sleeping && lodging(p.taskSite), invalidVisit = lodging(p.target) && [Activity.Sleeping, Activity.Eating, Activity.Relaxing, Activity.Praying, Activity.Shopping].includes(p.activity); if (p.inside && (p.target < 0 || lodging(p.target)) && lodging(this.shelterOf(p))) { const automatic = p.autoMode; this.orderLeave([p.id]); p.autoMode = automatic; return; } if (invalidOrder) { p.task = Activity.Idle; p.taskSite = -1; p.ordered = p.aggressive = p.approachingOrder = false; } if (invalidVisit || invalidOrder && p.activity === Activity.Moving) { p.path = []; p.activity = Activity.Idle; p.target = -1; p.until = this.time; } }
 export function occupants(this: HousingTown, id: number): number[] { const home = this.building(id); if (!home) return []; const out: number[] = []; for (const p of this.folk) { if (p.health <= 0 || p.activity === Activity.Leaving) continue; if (isLodging(home.kind) && p.role !== Role.Guest) continue; const resting = p.task === Activity.Sleeping && p.taskSite === id; if (p.home === id || p.bed === id || resting || this.shelterOf(p) === id) out.push(p.id); } return out; }
@@ -34,6 +34,7 @@ export function orderLeave(this: HousingTown, ids: number[]): boolean {
     }
     if (!goal) continue;
     this.setOrder(p, Activity.Holding);
+    this.keepAwake(p);
     p.autoMode = false;
     p.goal = goal;
     p.activity = Activity.Moving;
@@ -41,4 +42,46 @@ export function orderLeave(this: HousingTown, ids: number[]): boolean {
     any = true;
   }
   return any;
+}
+/** Let an explicit wake order finish before fatigue can call the resident back. */
+export function keepAwake(this: HousingTown, p: Person): void {
+  p.awakeUntil = this.time + 7;
+}
+export function stayingUp(this: HousingTown, p: Person): boolean {
+  return this.time < p.awakeUntil;
+}
+const busyIndoors = [Activity.Working, Activity.Crafting, Activity.Training, Activity.Praying, Activity.Eating, Activity.Drinking, Activity.Treating];
+/** The player's residents who sleep, rest or shelter indoors or are on their way to bed; one at work indoors is not among them. */
+export function abed(this: HousingTown): number[] {
+  return this.folk
+    .filter(
+      (p) =>
+        canControl(p, this.controlFaction) && p.health > 0 && p.downedAt < 0 &&
+        p.activity !== Activity.Leaving && p.activity !== Activity.Expedition &&
+        (p.activity === Activity.Sleeping || p.task === Activity.Sleeping ||
+          // Someone indoors under another order is already on the way out.
+          ((p.inside || p.crossingDoorway()) && !p.ordered && !busyIndoors.includes(p.activity))),
+    )
+    .map((p) => p.id);
+}
+/** One order for the whole settlement: everyone abed comes out and takes up the day's work again. Returns how many. */
+export function wakeAll(this: HousingTown): number {
+  let woken = 0;
+  for (const id of this.abed()) {
+    const p = this.person(id)!,
+      automatic = p.autoMode;
+    if (p.inside || p.crossingDoorway() || p.task === Activity.Sleeping) {
+      if (!this.orderLeave([id])) continue;
+      p.autoMode = automatic;
+    } else {
+      // Still on the road to bed, or asleep on the ground: nothing to walk out of.
+      p.recoveringRest = false;
+      p.path = [];
+      p.activity = Activity.Idle;
+      p.until = p.scheduleAt = this.time;
+      this.keepAwake(p);
+    }
+    ++woken;
+  }
+  return woken;
 }

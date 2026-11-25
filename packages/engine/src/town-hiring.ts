@@ -1,10 +1,12 @@
 import { TownState } from './town-state';
 import { Person, Role, Calling, Activity, callingName } from './person';
-import { Resources, Structure } from './building-catalog';
+import { Resources, Structure, structureSpec } from './building-catalog';
 import type { Building } from './town-models';
 import type { Point } from './geometry';
 import { canControl, sameFaction, belongsToFaction } from './faction';
 import { finishCeremony } from './town-devotion';
+import { callingSchools, guildLevel } from './progression-rules';
+import { completedFacility } from './settlement-progression';
 
 /** Compatibility only: lodging visitors and generated offers cannot be hired. */
 export interface HireOffer {
@@ -18,7 +20,7 @@ export function recruitmentOffers(this: TownState, _village = -1): HireOffer[] {
   return [];
 }
 export function recruitmentReason(this: TownState, _offer: HireOffer): string {
-  return 'Guests are temporary visitors. New residents arrive through an altar prayer.';
+  return 'Guests visit for a while. Prepare food and a free bed to welcome a resident at the altar.';
 }
 export function hireGuest(this: TownState, _key: string): boolean {
   return false;
@@ -33,18 +35,19 @@ export interface GuildTrainingOption {
 }
 export interface TrainingTown extends TownState {
   settlementOf(item: Person | Building): number;
-  stock(village?: number): Resources;
+  inRealm(at: Point): boolean;
   walkTo(p: Person, at: Point): boolean;
   setOrder(p: Person, task: Activity, site?: number): void;
   arrive(p: Person): void;
   trainingReason(personId: number, guildId: number, calling: Calling): string;
 }
 const professions: readonly { calling: Calling; description: string }[] = [
-  { calling: Calling.Warrior, description: 'A close-combat profession that strikes hardest. Equip a crafted weapon for stronger attacks.' },
-  { calling: Calling.Ranger, description: 'A ranged-combat profession that strikes harder. Equip a crafted bow to attack from a distance.' },
-  { calling: Calling.Mage, description: 'A rune-casting profession that strikes harder. Equip a crafted staff to attack from a distance.' },
-  { calling: Calling.Cleric, description: 'A sworn guardian who fights at close range. Monsters hit the cleric and nearby allies softer.' },
-  { calling: Calling.Bard, description: 'A keeper of songs who fights at close range. Nearby allies strike harder.' },
+  { calling: Calling.Warrior, description: 'Draws foes away from allies and sweeps through nearby enemies.' },
+  { calling: Calling.Ranger, description: 'Interrupts heavy blows and rains arrows on groups.' },
+  { calling: Calling.Mage, description: 'Strikes groups with runes and slows them with frost.' },
+  { calling: Calling.Cleric, description: 'Heals the wounded and revives fallen allies.' },
+  { calling: Calling.Bard, description: 'Songs rally allies and weaken nearby foes.' },
+  { calling: Calling.Settler, description: 'Return to the Settler calling.' },
 ];
 function guild(place: Building | null): place is Building {
   return (
@@ -63,7 +66,7 @@ export function guildTrainingOptions(
     calling,
     name: callingName(calling),
     description,
-    cost: new Resources(12, 0, 0, 4),
+    cost: new Resources(),
     reason: this.trainingReason(personId, guildId, calling),
   }));
 }
@@ -81,13 +84,16 @@ export function trainingReason(
     return p?.role === Role.Guest
       ? 'Guests cannot train or become residents.'
       : 'Choose an available resident of this settlement.';
-  if (!sameFaction(p, place) || this.settlementOf(p) !== this.settlementOf(place))
+  if (!sameFaction(p, place) || this.settlementOf(p) !== this.settlementOf(place) ||
+      this.inRealm(p.position) !== this.inRealm(place.center))
     return "Choose a resident who lives in this guild's settlement.";
-  if (p.trained || p.calling !== Calling.Settler) return 'This resident has already chosen a profession.';
   if (!professions.some((option) => option.calling === calling)) return 'Choose a guild profession.';
-  const stock = this.stock(this.settlementOf(place));
-  if (stock.gold < 12) return 'Need 12 gold for the professional oath.';
-  if (stock.food < 4) return 'Need 4 food for the training supplies.';
+  if (p.calling === calling) return 'Current calling';
+  if (p.level < guildLevel) return `Needs level ${guildLevel}`;
+  const school = callingSchools[calling];
+  if (school !== undefined && !completedFacility(this, school)) return 'Complete ' + structureSpec(school).name;
+  if (p.task === Activity.Training && (p.taskSite !== guildId || p.trainingCalling !== calling))
+    return 'Finish or cancel the current training.';
   return '';
 }
 export function orderTrainAtGuild(
@@ -98,7 +104,7 @@ export function orderTrainAtGuild(
 ): boolean {
   const p = this.person(personId),
     place = this.building(guildId);
-  if (!p || !place || this.trainingReason(personId, guildId, calling) || !this.walkTo(p, place.door()))
+  if (!p || !place || p.task === Activity.Training || this.trainingReason(personId, guildId, calling) || !this.walkTo(p, place.door()))
     return false;
   this.setOrder(p, Activity.Training, guildId);
   p.trainingCalling = calling;
@@ -127,12 +133,16 @@ export function completeGuildTraining(this: TrainingTown, p: Person): boolean {
     if (reason) this.notify(reason);
     return false;
   }
-  this.stock(this.settlementOf(place)).subtract(new Resources(12, 0, 0, 4));
+  if (!p.trained) ++place.trainingCount;
   p.calling = calling;
   p.trained = true;
-  ++place.trainingCount;
+  // End the old calling's effects. Keep cooldowns so changing back cannot refresh a skill.
+  p.abilityUntil = p.abilityUntil2 = 0;
+  p.abilityAuto = p.abilityAuto2 = -1;
+  p.cast = '';
+  p.castUntil = p.playingUntil = p.phraseDue = -1;
   finishCeremony(this, p);
-  this.notify(p.name + ' has taken the oath of a ' + callingName(calling) + '.');
+  this.notify(`${p.name} is now a ${callingName(calling)}.`);
   ++this.changes;
   return true;
 }

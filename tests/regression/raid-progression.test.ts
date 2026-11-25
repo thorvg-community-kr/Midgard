@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dungeonThreat, pressureNotice, raidMuster, RaidKind, seatVolley, threatWeeks } from '../../packages/engine/src/raid-progression';
+import { dungeonThreat, pressureNotice, raidMight, raidMuster, raidShape, RaidKind, seatVolley, threatWeeks } from '../../packages/engine/src/raid-progression';
 import { MonsterRank } from '../../packages/engine/src/combat-events';
 import { rankRules } from '../../packages/engine/src/monster-ranks';
 import { Calling, Monster, Role } from '../../packages/engine/src/person';
@@ -12,6 +12,17 @@ import { DungeonKind } from '../../packages/engine/src/world-types';
 import { breedOf } from '../../packages/engine/src/town-monsters';
 
 describe('weekly dungeon pressure', () => {
+  it('keeps an armed young town below the late-game horde and increases the muster each week', () => {
+    const horde = (week: number) => {
+      const wave = raidShape(RaidKind.Horde, raidMight(100, week));
+      return Math.min(Town.maxRaiders, wave.count + wave.brutes + wave.swarm);
+    };
+    expect([0, 1, 2].map(horde)).toEqual([10, 16, 23]);
+    expect(horde(3)).toBeGreaterThan(horde(2));
+    expect(horde(threatWeeks)).toBe(Town.maxRaiders);
+    expect(raidMight(2, 1)).toBeLessThan(raidMight(100, 1));
+    expect(raidMight(100, 100)).toBe(raidMight(100, threatWeeks));
+  });
   it('holds pressure within the week and raises numbers and strength at the next week', () => {
     const camp = new Building(0, Structure.Camp, point(3, 3), 0, 0);
     const opening = dungeonThreat(0, point(), [camp]);
@@ -44,7 +55,7 @@ describe('weekly dungeon pressure', () => {
     expect(pressureNotice(threatWeeks)).toContain('full strength');
     expect(pressureNotice(threatWeeks + 1)).toBe('');
   });
-  it('announces the weekly pressure only while a discovered gate is open', () => {
+  it('announces weekly pressure from an active gate even beyond the fog and stops after sealing', () => {
     const town = new Town(5, 32, false),
       camp = new Building(0, Structure.Camp, town.map().camp(), 0, 0);
     camp.village = 0;
@@ -54,11 +65,11 @@ describe('weekly dungeon pressure', () => {
     town.days = 6;
     town.notices = [];
     town.newDay();
-    expect(town.notices.some((text) => text.startsWith('Week 1:'))).toBe(false);
-    town.map().dungeons().find((d) => d.kind !== DungeonKind.GiantHall)!.discovered = true;
+    expect(town.notices.some((text) => text.startsWith('Week 1:'))).toBe(true);
+    town.depth = town.map().dungeons().map(() => 3);
     town.days = 13;
     town.newDay();
-    expect(town.notices.some((text) => text.startsWith('Week 2:'))).toBe(true);
+    expect(town.notices.some((text) => text.startsWith('Week 2:'))).toBe(false);
   });
   it('lets a fortified seat shoot hard enough to matter', () => {
     const town = new Town(5, 32, false),
@@ -110,7 +121,7 @@ describe('weekly dungeon pressure', () => {
     friend.position = { x: at.x + 9, y: at.y };
     expect(blow()).toBeCloseTo(plainBlow);
     fighter.calling = Calling.Bard;
-    expect(blow()).toBeCloseTo(plainBlow / 1.3);
+    expect(blow()).toBeCloseTo(plainBlow);
   });
   it('applies the weekly increase to actual spawned dungeon raiders', () => {
     const town = new Town(5, 32, false),

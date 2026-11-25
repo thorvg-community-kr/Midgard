@@ -1,5 +1,5 @@
-// New speech catalog entries must reach the worklet after an application update.
-const processorUrl = `${import.meta.env?.BASE_URL ?? '/'}vendor/goldfantasy-audio.js?v=realm-music-1`;
+// The host and cached worklet must agree on cue IDs and the clip catalog.
+const processorUrl = `${import.meta.env?.BASE_URL ?? '/'}vendor/goldfantasy-audio.js?v=altar-offerings-2`;
 import { SoundLibrary } from './sound-library';
 import effectEndings from './data/effect-endings.json';
 import { Playback } from './sound-board';

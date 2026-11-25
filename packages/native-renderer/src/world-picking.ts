@@ -2,8 +2,9 @@ import { Camera, point, project, unproject, type Point } from '../../engine/src/
 import type { Town } from '../../engine/src/town';
 import { Terrain } from '../../engine/src/world-types';
 import { SceneNode, type PaintNode } from './paint';
+import { SceneryBatch } from './scenery-batches';
 import type { WorldRendererState } from './world-renderer-state';
-import { pickSource, type PickSource } from './world-pick-registry';
+import { pickSource, type PickSource, type Stand } from './world-pick-registry';
 import { wornCourse, stretch } from './road-painter';
 import { ghostAreas, ghostTouches, hiddenUnitGhosts, type Ghost } from './hidden-unit-ghosts';
 import {
@@ -21,6 +22,8 @@ interface Candidate {
   bounds: PickBounds;
   rank: number;
   body?: readonly PaintNode[];
+  batch?: SceneryBatch;
+  scenery?: PickSource;
   road?: { line: Point[]; halfWidth: number };
   ghost?: Ghost;
 }
@@ -33,15 +36,21 @@ const boxOf = (points: readonly Point[]): PickBounds => {
   return { x, y, w: Math.max(...points.map((p) => p.x)) - x, h: Math.max(...points.map((p) => p.y)) - y };
 };
 function combine(boxes: readonly PickBounds[]): PickBounds | null {
-  if (!boxes.length) return null;
-  const x = Math.min(...boxes.map((b) => b.x)),
-    y = Math.min(...boxes.map((b) => b.y));
-  return {
-    x,
-    y,
-    w: Math.max(...boxes.map((b) => b.x + b.w)) - x,
-    h: Math.max(...boxes.map((b) => b.y + b.h)) - y,
-  };
+  const first = boxes[0];
+  if (!first) return null;
+  if (boxes.length === 1) return first;
+  let x = first.x,
+    y = first.y,
+    right = x + first.w,
+    bottom = y + first.h;
+  for (let i = 1; i < boxes.length; i++) {
+    const b = boxes[i];
+    x = Math.min(x, b.x);
+    y = Math.min(y, b.y);
+    right = Math.max(right, b.x + b.w);
+    bottom = Math.max(bottom, b.y + b.h);
+  }
+  return { x, y, w: right - x, h: bottom - y };
 }
 function pointSegment(p: Point, a: Point, b: Point): number {
   const dx = b.x - a.x,
@@ -127,11 +136,16 @@ export class WorldPicker {
   private frame = 0;
   private dpr = 1;
   private candidates: Candidate[] = [];
+  private lookup: 'fresh' | 'scanned' | 'indexed' = 'fresh';
   private buckets = new Map<string, number[]>();
   private geometries = new Map<string, WorldHit>();
   private view = new Camera();
   private width = 0;
   private height = 0;
+  private sightMap?: ReturnType<Town['map']>;
+  private sightValues: number[] = [];
+  private sightRevision = 0;
+  private knownFeet = new WeakMap<PickSource, { x: number; y: number; revealed: boolean; revision: number }>();
   private roadCache: { town: Town; revision: bigint; sight: number; spans: RoadSpan[] } | null = null;
   constructor(private readonly state: WorldRendererState) {}
 
@@ -141,8 +155,12 @@ export class WorldPicker {
   invalidate(): void {
     this.ready = false;
     this.candidates = [];
+    this.lookup = 'fresh';
     this.buckets.clear();
     this.geometries.clear();
+    this.sightMap = undefined;
+    this.sightValues.length = 0;
+    this.knownFeet = new WeakMap();
     this.roadCache = null;
   }
   presented(town: Town, dpr: number): void {
@@ -153,11 +171,31 @@ export class WorldPicker {
     this.width = s.viewWidth;
     this.height = s.viewHeight;
     this.candidates = [];
+    this.lookup = 'fresh';
     this.buckets.clear();
     this.geometries.clear();
+    this.syncExploration(town);
     let rank = 0;
     const layer = (root: SceneNode) => {
       for (const paint of root.children) {
+        if (paint instanceof SceneryBatch) {
+          const m = s.world.matrix;
+          for (const { paint: member, bounds } of paint.members) {
+            const source = pickSource(member);
+            if (!source) continue;
+            const order = rank++;
+            if (!this.eligible(town, source, member.alpha, true)) continue;
+            const screen = {
+              x: bounds.x * m[0] + m[2],
+              y: bounds.y * m[4] + m[5],
+              w: bounds.w * m[0],
+              h: bounds.h * m[4],
+            };
+            if (overlap(screen, { x: 0, y: 0, w: this.width, h: this.height }))
+              this.candidates.push({ hit: null, bounds: screen, rank: order, batch: paint, scenery: source });
+          }
+          continue;
+        }
         const source = pickSource(paint);
         if (source) this.addPaint(town, paint, source, rank++);
       }
@@ -175,11 +213,15 @@ export class WorldPicker {
     if (exact) return exact.geometry;
     // Legacy cell selections have no instance. An explicit missing tree instance
     // must disappear instead of jumping to the last tree remaining in that cell.
-    if (ref.kind === 'tree' && ref.instanceIndex === undefined) {
-      let best: WorldHit | undefined;
-      for (const hit of this.geometries.values())
-        if (hit.kind === ref.kind && hit.id === ref.id && (!best || hit.drawRank > best.drawRank)) best = hit;
-      return best?.geometry ?? null;
+    if (ref.kind === 'tree' || ref.kind === 'rock') {
+      for (let i = this.candidates.length - 1; i >= 0; --i) {
+        const candidate = this.candidates[i], object = candidate.scenery?.ref ?? candidate.hit;
+        if (
+          object?.kind === ref.kind && object.id === ref.id &&
+          (ref.instanceIndex === undefined || ref.instanceIndex === object.instanceIndex)
+        )
+          return this.hitOf(candidate)?.geometry ?? null;
+      }
     }
     return null;
   }
@@ -237,7 +279,10 @@ export class WorldPicker {
     }
     if (scan)
       for (const layer of [s.farmland, s.ornaments, s.objects])
-        for (const paint of layer.children) resolve(paint);
+        for (const paint of layer.children) {
+          if (paint instanceof SceneryBatch) for (const member of paint.members) resolve(member.paint);
+          else resolve(paint);
+        }
     if (town && markers.some((marker) => marker.kind === 'road')) {
       for (const span of this.roadSpans(town)) {
         const key = `road:${span.id}`,
@@ -268,21 +313,63 @@ export class WorldPicker {
       w: 1 / this.dpr,
       h: 1 / this.dpr,
     };
-    for (const candidate of this.query(region)) if (this.intersects(candidate, region)) return candidate.hit;
+    for (const candidate of this.query(region)) if (this.intersects(candidate, region)) return this.hitOf(candidate);
     return null;
   }
   querySelection(region: PickBounds): WorldHit[] {
     if (!this.ready || region.w <= 0 || region.h <= 0) return [];
     const hits = new Map<string, WorldHit>();
-    for (const candidate of this.query(region))
-      if (candidate.hit && !hits.has(candidate.hit.key) && this.intersects(candidate, region))
-        hits.set(candidate.hit.key, candidate.hit);
+    for (const candidate of this.query(region)) {
+      if (!candidate.hit && !candidate.scenery?.ref) continue;
+      if (candidate.hit && hits.has(candidate.hit.key)) continue;
+      if (this.intersects(candidate, region)) {
+        const hit = this.hitOf(candidate)!;
+        hits.set(hit.key, hit);
+      }
+    }
     return [...hits.values()];
   }
   private project(p: Point): Point {
     return this.view.toScreen(project(p.x, p.y), this.width, this.height);
   }
-  private eligible(town: Town, source: PickSource, alpha: number): boolean {
+  private standBox(foot: Point, stand: Stand): PickBounds {
+    const zoom = this.view.zoom;
+    return {
+      x: foot.x - stand.half * zoom,
+      y: foot.y - stand.above * zoom,
+      w: 2 * stand.half * zoom,
+      h: (stand.above + stand.below) * zoom,
+    };
+  }
+  /** Exact map-coordinate visibility can be reused until any sight circle changes. */
+  private syncExploration(town: Town): void {
+    const map = town.map(), sights = map.sights(), values = this.sightValues;
+    const previousLength = values.length;
+    let reset = this.sightMap !== map || previousLength > sights.length * 3;
+    for (let i = 0; i < sights.length; i++) {
+      const { center, radius } = sights[i], j = i * 3;
+      if (values[j] === center.x && values[j + 1] === center.y && values[j + 2] === radius) continue;
+      if (j < previousLength) reset = true;
+      values[j] = center.x;
+      values[j + 1] = center.y;
+      values[j + 2] = radius;
+    }
+    if (reset) this.knownFeet = new WeakMap();
+    if (reset || previousLength !== sights.length * 3) this.sightRevision++;
+    values.length = sights.length * 3;
+    this.sightMap = map;
+  }
+  private knownFoot(town: Town, source: PickSource): boolean {
+    const { x, y } = source.foot;
+    const known = this.knownFeet.get(source);
+    // Appending a sight can reveal hidden ground. Previously discovered ground stays known.
+    if (known && known.x === x && known.y === y && (known.revealed || known.revision === this.sightRevision))
+      return known.revealed;
+    const revealed = town.map().revealed(source.foot);
+    this.knownFeet.set(source, { x, y, revealed, revision: this.sightRevision });
+    return revealed;
+  }
+  private eligible(town: Town, source: PickSource, alpha: number, presenting = false): boolean {
     if (!alpha) return false;
     const ref = source.ref;
     if (ref?.kind === 'landmark' && ref.id === 0) return !!town.map().giant();
@@ -291,15 +378,19 @@ export class WorldPicker {
       return (
         !!p &&
         p.health > 0 &&
-        p.visibility() > 0 &&
-        (this.state.sceneView || this.state.currentVisibility.sample(p.position) >= 119)
+        (p.visibility() > 0 || !!this.state.figures.get(p.id)?.arrival?.rising) &&
+        (this.state.sceneView || this.state.currentVisibility.sample(source.foot) >= 119)
       );
     }
     if (ref?.kind === 'monster' || ref?.kind === 'animal') {
       const p = town.creature(ref.id);
       return !!p && p.health > 0 && !p.insideLair && this.state.currentVisibility.sample(p.position) >= 119;
     }
-    if (!town.map().revealed(source.foot)) return false;
+    // With zero or one sight, a direct check costs less than a cache lookup.
+    const revealed = presenting && this.sightValues.length > 3
+      ? this.knownFoot(town, source)
+      : town.map().revealed(source.foot);
+    if (!revealed) return false;
     if (ref?.kind === 'tree') {
       const x = ref.id % town.map().width(),
         y = Math.floor(ref.id / town.map().width());
@@ -310,12 +401,18 @@ export class WorldPicker {
     return true;
   }
   private addPaint(town: Town, paint: PaintNode, source: PickSource, rank: number): void {
-    if (!this.eligible(town, source, paint.alpha)) return;
-    const body = source.body.filter((node) => node.alpha > 0);
-    body.forEach((node) => this.state.adapter.prepareHitTest(node));
-    const bounds = combine(
-      body.map((node) => this.state.adapter.renderedBounds(node)).filter((b): b is PickBounds => !!b),
-    );
+    if (!this.eligible(town, source, paint.alpha, true)) return;
+    let body = source.body;
+    let bounds: PickBounds | null;
+    if (body.length === 1) {
+      if (!(body[0].alpha > 0)) return;
+      bounds = this.state.adapter.renderedBounds(body[0]);
+    } else {
+      body = body.filter((node) => node.alpha > 0);
+      bounds = combine(
+        body.map((node) => this.state.adapter.renderedBounds(node)).filter((b): b is PickBounds => !!b),
+      );
+    }
     if (!bounds) return;
     const screen = {
       x: bounds.x / this.dpr,
@@ -324,21 +421,30 @@ export class WorldPicker {
       h: bounds.h / this.dpr,
     };
     if (!overlap(screen, { x: 0, y: 0, w: this.width, h: this.height })) return;
+    this.candidates.push({ hit: this.makeHit(source, screen, rank, paint.alpha), bounds: screen, rank, body });
+  }
+  /** Distant scenery is immutable. Only a queried member needs its full selection geometry. */
+  private hitOf(candidate: Candidate): WorldHit | null {
+    if (!candidate.hit && candidate.scenery)
+      candidate.hit = this.makeHit(candidate.scenery, candidate.bounds, candidate.rank, 255);
+    return candidate.hit;
+  }
+  private makeHit(source: PickSource, screen: PickBounds, rank: number, alpha: number): WorldHit | null {
+    if (!source.ref) return null;
     const geometry: SelectionGeometry = {
       foot: this.project(source.foot),
       bounds: screen,
       labelAnchor: point(screen.x + screen.w / 2, screen.y),
-      opacity: paint.alpha,
+      opacity: alpha,
       ...(source.groundOutline ? { groundOutline: source.groundOutline.map((p) => this.project(p)) } : {}),
       ...(source.ellipse
         ? { ellipse: { rx: source.ellipse.rx * this.view.zoom, ry: source.ellipse.ry * this.view.zoom } }
         : {}),
     };
-    const hit = source.ref
-      ? { ...source.ref, key: worldObjectKey(source.ref), drawRank: rank, frameId: this.frame, geometry }
-      : null;
-    if (hit) this.geometries.set(hit.key, hit);
-    this.add({ hit, bounds: screen, rank, body });
+    if (source.stand) geometry.stand = this.standBox(geometry.foot, source.stand);
+    const hit = { ...source.ref, key: worldObjectKey(source.ref), drawRank: rank, frameId: this.frame, geometry };
+    this.geometries.set(hit.key, hit);
+    return hit;
   }
   /** A unit hidden behind a tree or peak is picked by its ghost, above everything it stands behind. */
   private addGhosts(town: Town, rank: number): void {
@@ -351,24 +457,25 @@ export class WorldPicker {
         }),
         bounds = combine(parts)!,
         key = worldObjectKey(ghost.ref),
+        foot = this.project(ghost.foot),
         hit = this.geometries.get(key) ?? {
           ...ghost.ref,
           key,
           drawRank: rank,
           frameId: this.frame,
           geometry: {
-            foot: this.project(ghost.foot),
+            foot,
             bounds,
             labelAnchor: point(bounds.x + bounds.w / 2, bounds.y),
+            stand: this.standBox(foot, { above: ghost.height, below: 3, half: 8 }),
             opacity: 255,
           },
         };
       this.geometries.set(key, hit);
-      this.add({ hit, bounds, rank: rank++, ghost });
+      this.candidates.push({ hit, bounds, rank: rank++, ghost });
     }
   }
-  private add(candidate: Candidate): void {
-    const bounds = candidate.bounds;
+  private index(bounds: PickBounds, id: number): void {
     const left = Math.max(0, Math.floor(bounds.x / bucketSize)),
       top = Math.max(0, Math.floor(bounds.y / bucketSize));
     const right = Math.min(
@@ -379,7 +486,6 @@ export class WorldPicker {
       Math.floor(this.height / bucketSize),
       Math.floor((bounds.y + bounds.h) / bucketSize),
     );
-    const id = this.candidates.push(candidate) - 1;
     for (let y = top; y <= bottom; y++)
       for (let x = left; x <= right; x++) {
         const key = `${x}:${y}`,
@@ -389,6 +495,18 @@ export class WorldPicker {
       }
   }
   private query(region: PickBounds): Candidate[] {
+    // One hover query is common. Build buckets only when more queries can reuse them.
+    if (
+      this.lookup === 'fresh' && region.x >= 0 && region.y >= 0 &&
+      region.x + region.w <= this.width && region.y + region.h <= this.height
+    ) {
+      this.lookup = 'scanned';
+      return this.candidates.filter((c) => overlap(c.bounds, region)).sort((a, b) => b.rank - a.rank);
+    }
+    if (this.lookup !== 'indexed') {
+      this.candidates.forEach((candidate, id) => this.index(candidate.bounds, id));
+      this.lookup = 'indexed';
+    }
     const ids = new Set<number>();
     const left = Math.max(0, Math.floor(region.x / bucketSize)),
       top = Math.max(0, Math.floor(region.y / bucketSize));
@@ -430,6 +548,15 @@ export class WorldPicker {
         world(region.x, region.y + region.h),
       ]);
     }
+    if (candidate.batch) {
+      // Only this member's part of the shared native outline can answer a marquee.
+      const b = candidate.bounds, x = Math.max(region.x, b.x), y = Math.max(region.y, b.y);
+      region = {
+        x, y,
+        w: Math.min(region.x + region.w, b.x + b.w) - x,
+        h: Math.min(region.y + region.h, b.y + b.h) - y,
+      };
+    }
     const x = Math.floor(region.x * this.dpr + 1e-8),
       y = Math.floor(region.y * this.dpr + 1e-8);
     const physical = {
@@ -438,6 +565,7 @@ export class WorldPicker {
       w: Math.max(1, Math.ceil((region.x + region.w) * this.dpr - 1e-8) - x),
       h: Math.max(1, Math.ceil((region.y + region.h) * this.dpr - 1e-8) - y),
     };
+    if (candidate.batch) return this.state.adapter.intersectsRendered(candidate.batch, physical);
     return candidate.body?.some((node) => this.state.adapter.intersectsRendered(node, physical)) ?? false;
   }
   private roadSpans(town: Town): RoadSpan[] {
@@ -531,7 +659,7 @@ export class WorldPicker {
       );
       if (hit.geometry.paths!.length === 1) hit.geometry.path = hit.geometry.paths![0];
       this.geometries.set(hit.key, hit);
-      for (const part of parts) this.add(part);
+      for (const part of parts) this.candidates.push(part);
     }
     return rank;
   }

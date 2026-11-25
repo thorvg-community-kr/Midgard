@@ -13,7 +13,7 @@ import type { Town } from '../../../../packages/engine/src/town';
 import { personPortrait, moodOf } from '../../../../packages/native-renderer/src/person-portrait';
 import { portraitBackdrop } from '../../../../packages/native-renderer/src/portrait-background';
 import { Cue, Sound } from '../../../../packages/native-audio/src/sound-types';
-import { floorForecast, floorLevel, partyVerdict, Verdict } from './swarm-hud';
+import { floorForecast, partyVerdict, Verdict } from './swarm-hud';
 import { groupMembers } from './control-groups';
 import { wrapText } from './game-combat-hud';
 import { hudPaint } from './hud-paint';
@@ -46,7 +46,7 @@ export function staysBehind(town: Town, p: Person): string {
   if (town.inRealm(p.position)) return 'Beyond a gate already';
   if (p.activity === Activity.Expedition) return 'On the way to a gate';
   if (p.woundDays > 0) return `Wounded: heals in ${days(Math.ceil(p.woundDays))}`;
-  if (p.stressRecovery) return 'Overwhelmed: resting until calm';
+  if (p.stressRecovery) return 'Exhausted and resting.';
   return canControl(p) ? '' : controlReason(p) || 'This resident is unavailable.';
 }
 /** The player's residents on this side of the gates, fighters first, then by level. */
@@ -291,7 +291,8 @@ export function renderExpedition(this: ExpeditionApp, width: number, height: num
   if (!joining(town, state.gate) && !town.floorOpen(state.gate, state.floor))
     state.floor = town.deepestOpenFloor(state.gate);
   c.setPointerPosition(state.pointer.x, state.pointer.y);
-  c.modal('expedition-set-out', () => closeExpedition(this));
+  const lock = gateLock(town, state.gate), dormant = lock === 'Dormant gate';
+  c.modal(dormant ? 'expedition-close' : 'expedition-set-out', () => closeExpedition(this));
   c.control(
     'expedition-backdrop',
     new Rect(0, 0, width, height),
@@ -303,14 +304,13 @@ export function renderExpedition(this: ExpeditionApp, width: number, height: num
   );
   c.rect(new Rect(0, 0, width, height), veil);
   const touch = this.touchMode,
-    w = Math.min(860, f32(width - 16)),
-    h = Math.min(width >= 640 ? 660 : 860, f32(height - 16)),
+    w = Math.min(dormant ? 360 : 860, f32(width - 16)),
+    h = Math.min(dormant ? 110 : width >= 640 ? 660 : 860, f32(height - 16)),
     panel = new Rect(f32(f32(width - w) / 2), f32(f32(height - h) / 2), w, h),
     wide = w >= 640,
     pad = wide ? 18 : 12,
     buttonH = touch ? 44 : 32,
     rowH = touch ? 52 : 46,
-    lock = gateLock(town, state.gate),
     locked = !!lock,
     fixed = joining(town, state.gate);
   c.control('expedition-panel', panel, undefined, true, false);
@@ -331,6 +331,10 @@ export function renderExpedition(this: ExpeditionApp, width: number, height: num
     () => closeExpedition(this),
     ButtonStyle.Quiet,
   );
+  if (dormant) {
+    c.text(new Rect(f32(panel.x + pad), f32(panel.y + 68), f32(w - 2 * pad), 24), lock, t.text, 14, true);
+    return;
+  }
   const header = 68,
     footer = (wide ? 58 : 64) + buttonH,
     body = new Rect(f32(panel.x + pad), f32(panel.y + header), f32(w - pad * 2), f32(h - header - footer)),
@@ -361,6 +365,8 @@ export function renderExpedition(this: ExpeditionApp, width: number, height: num
   if (!locked) {
     info(forecast[0] ?? '', t.text, 11, false, wide ? 3 : 2);
     info(forecast[1] ?? '', t.muted, 11, false, 2);
+    if (!fixed && town.chronicle.partiesLed === 0)
+      info('Optional goal · Destroy one den and return alive', t.accent, 11, true, 2);
   }
   // The roster: the right column, or below on a phone.
   const list = wide
@@ -379,8 +385,7 @@ export function renderExpedition(this: ExpeditionApp, width: number, height: num
   const bottom = f32(panel.y + h - footer + 8),
     verdict = party.length ? forecast[2] ?? '' : '',
     problem = setOutProblem(this),
-    average = party.length ? Math.round(party.reduce((s, p) => s + p.level, 0) / party.length) : 0,
-    grade = party.length ? partyVerdict(party.length, average, floorLevel(state.floor)) : Verdict.TooFew,
+    grade = partyVerdict(party, state.floor),
     tone = grade === Verdict.Ready ? t.success : grade === Verdict.Hard ? t.accent : t.danger;
   groove(c, f32(panel.x + pad), f32(bottom - 8), f32(w - pad * 2));
   const lineW = f32(w - pad * 2),

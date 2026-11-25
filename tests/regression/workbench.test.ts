@@ -64,7 +64,7 @@ const step = (town: Town) => {
 
 describe('the workbench building', () => {
   it('is a small, cheap, unstaffed timber bench, appended to the catalog and open with the camp', () => {
-    expect(Structure.Workbench).toBe(Structure.Count - 1);
+    expect(Structure.Workbench).toBe(38);
     expect(toolStructure(Tool.Workbench)).toBe(Structure.Workbench);
     const spec = structureSpec(Structure.Workbench);
     expect(spec.size).toBeLessThanOrEqual(1);
@@ -103,7 +103,25 @@ describe('the workbench building', () => {
 });
 
 describe('crafting at the bench', () => {
-  it('walks to the bench, works in the open at its door, then puts the tool to work from the pack', () => {
+  it('reaches the open edge of a rotated workbench even when its grid cell contains the bench', () => {
+    for (const angle of [0, Math.PI / 4, Math.PI * 0.75, Math.PI, Math.PI * 1.5]) {
+      const { town, bench, a } = fixture();
+      bench.angle = angle;
+      bench.center = point(17.5, 15.5);
+      town.changes++;
+      town.tick(0);
+      const spot = town.craftSpot(bench);
+      expect(town.grid.walkable(spot)).toBe(true);
+      expect(distance(spot, bench.center)).toBeLessThan(distance(bench.door(), bench.center));
+      expect(town.orderCraft(a.id, bench.id, 'wooden-axe')).toBe(true);
+      for (let i = 0; i < 600 && a.activity !== Activity.Crafting; i++) step(town);
+      expect(a.activity).toBe(Activity.Crafting);
+      expect(distance(a.position, spot)).toBeLessThan(0.05);
+      town.orderMove([a.id], town.camp()!.door());
+      expect(a.task).toBe(Activity.Moving);
+    }
+  });
+  it('walks up to the bench, works in the open at its edge, then puts the tool to work from the pack', () => {
     const { town, bench, a } = fixture();
     expect(town.orderCraft(a.id, bench.id, 'wooden-axe')).toBe(true);
     expect(a.activity).toBe(Activity.Moving);
@@ -124,7 +142,7 @@ describe('crafting at the bench', () => {
     expect(workItem(a, 'woodcutting')?.id).toBe('wooden-axe');
     expect(town.notices.slice(-2)).toEqual([
       'Asa crafted Wooden axe',
-      'Wooden axe in the pack · Fells trees faster',
+      'Wooden axe in the pack · Felling efficiency +1 · Attack as a weapon +1',
     ]);
     expect(town.craftingAt(bench.id)).toBeNull();
   });
@@ -219,10 +237,10 @@ describe('what gear is made of', () => {
       if (item.category === 'tool' || item.category === 'weapon')
         expect(item.material, item.id).not.toBeNull();
       if (/^Wooden /.test(item.name)) expect(item.material, item.id).toBe('wood');
-      if (/^Iron /.test(item.name)) expect(item.material, item.id).toBe('iron');
+      if (item.category !== 'resource' && /^Iron /.test(item.name)) expect(item.material, item.id).toBe('iron');
       if (/^(Stone|Flint) /.test(item.name)) expect(item.material, item.id).toBe('stone');
       // A level-1 bench works wood; stone and iron need it upgraded.
-      if (item.workshop === Structure.Workbench && item.material) expect(item.stationLevel, item.id).toBe(item.tier);
+      if (item.workshop === Structure.Workbench && item.material) expect(item.stationLevel, item.id).toBe(Math.min(3, item.tier));
     }
     expect(itemMaterial('shield')).toBe('wood');
     expect(itemMaterial('mace')).toBe('stone');

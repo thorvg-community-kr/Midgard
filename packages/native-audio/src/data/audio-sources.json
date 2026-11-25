@@ -530,6 +530,10 @@
       "sha256": "4a381a0078542a2ab28020e1f67c9731b18d34ba132071a4584a917d6016b764"
     },
     {
+      "path": "sfx/offering/altar.ogg",
+      "sha256": "be3dbaaffafae3647f9f1364c9e846f91ce3bd7868ab607e55a07f4f1c35936a"
+    },
+    {
       "path": "ui/cancel_01.ogg",
       "sha256": "2bbfd483caa4a626573edf41c7ad44a26e9f26abb67d7afa842dcf68cde2885a"
     },
@@ -1766,7 +1770,7 @@
       "sha256": "a7c37187b3de0e3fd216c375aacf97554acd8915b4201a56a93776c058fddf0d"
     }
   ],
-  "endingsSha256": "a80580b997994aeffe3fdcec07f6ce747d8daf65954b1c47a6eb5dfe566e173b",
+  "endingsSha256": "da5055940423c0b05c3cb8b399880d936ba046feacf4e1c60c290c777ddddc8b",
   "weatherVoiceProvenance": {
     "source": "Synthetic speech generated offline; no human voice recordings or model runtime shipped",
     "model": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
@@ -2905,5 +2909,72 @@
         "processedSha256": "5894eb47af90ea208ea76fd3fd3d6d01246fa13423695a6275c4fe7afdf038c9"
       }
     ]
+  },
+  "offeringProvenance": {
+    "repository": "GoldFantasy loach worktree",
+    "revision": "f1046aec01fdaebfa74edfec6ab3bc1e342ab921",
+    "pack": "Loach Norse procedural Foley and tabletop UI. Original synthesis without recorded samples.",
+    "encoding": {
+      "codec": "libvorbis",
+      "quality": 3,
+      "rate": 22050,
+      "channels": 1
+    },
+    "clips": {
+      "food": {
+        "source": "output/norse/ui/ui_scroll_close.wav",
+        "sha256": "33a37f6abb762595b1012082b458dc03bf13c86de743316ffa0e8aa67446ffc8",
+        "filter": "atrim=start=0.085:end=0.278,asetpts=PTS-STARTPTS,lowpass=f=2100,afade=t=in:d=0.012,afade=t=out:st=0.164:d=0.027,volume=1.15924432",
+        "windowSeconds": [
+          0,
+          0.2
+        ]
+      },
+      "water": {
+        "source": "output/norse/sfx/sfx_oar_stroke.wav",
+        "sha256": "c5488c6ec8327b8866a1613802daffa158dba849e848e3d356a1f64f6cee3a15",
+        "filter": "atrim=start=0.392:end=1.05,asetpts=PTS-STARTPTS,highpass=f=230,lowpass=f=5700,afade=t=in:d=0.021,afade=t=out:st=0.47:d=0.183,volume=0.67686261",
+        "windowSeconds": [
+          0.26,
+          0.93
+        ]
+      },
+      "bones": {
+        "source": "output/norse/ui/ui_rune_select.wav",
+        "sha256": "264d937d495470db585c01c4a0cc1b784d2d303f5c040e346a34f48610af3366",
+        "filter": "atrim=start=0.154:end=0.225,asetpts=PTS-STARTPTS,asetrate=39000,aresample=48000,highpass=f=570,afade=t=in:d=0.002,afade=t=out:st=0.067:d=0.018,volume=1.45764386",
+        "windowSeconds": [
+          0.99,
+          1.08
+        ]
+      },
+      "gold": {
+        "source": "output/norse/sfx/sfx_coin_pickup_3.wav",
+        "sha256": "5e2cf7dcedd6f7927ab85d0aba817ac7994e8b9b020900bbac0161277fdc8ecc",
+        "filter": "atrim=start=0.0:end=0.32,asetpts=PTS-STARTPTS,asetrate=42680,aresample=48000,lowpass=f=6800,afade=t=out:st=0.27:d=0.085,volume=0.98944364",
+        "windowSeconds": [
+          1.14,
+          1.51
+        ]
+      },
+      "stone": {
+        "source": "output/norse/sfx/sfx_footsteps_stone.wav",
+        "sha256": "fc0963ba6b951e7b3e58222f4afeced699daf01cbdf2c9ef713a305beb9517d7",
+        "filter": "atrim=start=0.085:end=0.33,asetpts=PTS-STARTPTS,asetrate=39800,aresample=48000,lowpass=f=2000,afade=t=in:d=0.002,afade=t=out:st=0.19:d=0.10,volume=0.67482417",
+        "windowSeconds": [
+          1.57,
+          1.87
+        ]
+      },
+      "accepted": {
+        "source": "output/norse/sfx/sfx_rune_activate.wav",
+        "sha256": "38fed7e06b57fec79227ecfe0db42ce0c5edcd70a0621c1051eb6f215f9ccc1e",
+        "filter": "atrim=start=0.985:end=2.125,asetpts=PTS-STARTPTS,lowpass=f=3200,afade=t=in:d=0.10,afade=t=out:st=0.72:d=0.41,volume=0.42044556",
+        "windowSeconds": [
+          1.93,
+          3.08
+        ]
+      }
+    }
   }
 }

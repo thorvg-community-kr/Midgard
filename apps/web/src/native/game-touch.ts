@@ -1,4 +1,4 @@
-import { PointerButton, Tool, toolStructure } from '../../../../packages/engine/src/game-tools';
+import { PointerButton, Tool, drawsArea, toolStructure } from '../../../../packages/engine/src/game-tools';
 import { point, distance, project, unproject, type Point } from '../../../../packages/engine/src/geometry';
 import { clamp, f32 } from '../../../../packages/engine/src/numeric';
 import type { AppEvent } from './application-contracts';
@@ -19,7 +19,7 @@ export function moveTouchPlacement(this: TouchApp, screen: Point): void {
   this.cursor = { ...this.touchPlacement };
 }
 export function confirmTouchPlacement(this: TouchApp): void {
-  if (!this.touchMode || !this.touchPlacement || toolStructure(this.tool) === undefined) return;
+  if (!this.touchMode || !this.touchPlacement || toolStructure(this.tool) === undefined || drawsArea(this.tool)) return;
   this.cursor = { ...this.touchPlacement };
   this.press();
 }
@@ -60,10 +60,10 @@ export function handleTouchEvent(this: TouchApp, event: AppEvent): boolean {
     const ui = this.context.controlAt(at.x, at.y),
       mode = ui
         ? 'ui'
-        : toolStructure(this.tool) !== undefined
-          ? 'place'
-          : this.tool === Tool.Road || this.tool === Tool.Field
-            ? 'draw'
+        : this.tool === Tool.Road || drawsArea(this.tool)
+          ? 'draw'
+          : toolStructure(this.tool) !== undefined
+            ? 'place'
             : 'tap';
     this.touchGesture = { start: at, last: at, mode };
     if (mode === 'ui' || mode === 'draw') this.pointerDown(at.x, at.y, PointerButton.Primary);

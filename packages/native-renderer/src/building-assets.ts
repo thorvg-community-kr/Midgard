@@ -49,9 +49,12 @@ const ids = [
   'training-yard',
   'runestone',
   'workbench',
+  'foundry',
+  'ranch',
 ];
 const slots = [
-  1, 12, 6, 6, 6, 4, 12, 4, 1, 1, 1, 1, 1, 1, 1, 1, 3, 4, 3, 3, 1, 1, 4, 3, 3, 3, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3,
+  1, 12, 6, 6, 6, 4, 12, 4, 1, 1, 1, 1, 1, 1, 1, 1, 3, 4, 3, 3, 1, 1, 4, 3, 3, 3, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3, 1,
+  1,
 ];
 const originals = Object.values(BUILDING_ASSETS);
 let assets: BuildingAsset[] = [];
@@ -160,6 +163,9 @@ export function riseAnimation(
       dy: stage.dy,
     })),
     angle,
+    undefined,
+    // The open pasture shows the grass and livestock between its rails.
+    kind !== Structure.Ranch,
   );
 }
 

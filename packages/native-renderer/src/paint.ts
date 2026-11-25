@@ -1,3 +1,4 @@
+import type { Rings } from './outline-rings';
 export type Rgb = readonly [number, number, number];
 export type Rgba = readonly [number, number, number, number];
 export type Matrix = readonly [number, number, number, number, number, number, number, number, number];
@@ -14,6 +15,14 @@ export interface Gradient {
   stops: { offset: number; color: Rgba }[];
 }
 export type Blend = 'normal' | 'softLight' | 'add' | 'multiply' | 'screen';
+/** A flat tone mixed into every colour under a scene: how the mist dims a thing whole. */
+export interface Shade {
+  readonly tone: Rgb;
+  /** 0 leaves the colours alone, 255 leaves only the tone. */
+  readonly strength: number;
+  /** Laid over the scene as one picture, for what cannot be recoloured shape by shape (a Lottie building). */
+  readonly whole?: boolean;
+}
 export const identity: Matrix = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 const f = Math.fround;
 export abstract class PaintNode {
@@ -78,6 +87,8 @@ export class ShapeNode extends PaintNode {
   join?: 'miter' | 'round' | 'bevel';
   dash?: number[];
   rule?: 'winding' | 'evenOdd';
+  /** Closed outlines drawn after the commands, sent in one call: for a big path redrawn many times a second. */
+  rings?: Rings;
   moveTo(x: number, y: number): this {
     this.commands.push(['M', f(x), f(y)]);
     this.pathVersion++;
@@ -170,10 +181,25 @@ export class ShapeNode extends PaintNode {
     this.version++;
     return this;
   }
+  /** Takes its outlines from `rings`, as they are now; call again whenever they change. */
+  outline(rings: Rings): this {
+    this.rings = rings;
+    this.pathVersion++;
+    this.version++;
+    return this;
+  }
 }
 export class SceneNode extends PaintNode {
   readonly type = 'scene' as const;
   children: PaintNode[] = [];
+  shade?: Shade;
+  /** Dims everything under this scene toward a tone; with nothing, shows it plain again. */
+  shaded(shade?: Shade): this {
+    if (shade === this.shade) return this;
+    this.shade = shade;
+    this.version++;
+    return this;
+  }
   add(paint: PaintNode): this {
     this.children.push(paint);
     this.version++;
@@ -183,6 +209,14 @@ export class SceneNode extends PaintNode {
     this.children = paint ? this.children.filter((child) => child !== paint) : [];
     this.version++;
     return this;
+  }
+}
+/** Owns finished vector shapes. Their geometry, style and visibility stay fixed for this layer's lifetime.
+ * Its shapes have no clip or mask dependencies. The layer itself can move, fade, or inherit a new shade. */
+export class StaticShapeLayer extends SceneNode {
+  constructor(shapes: ShapeNode[]) {
+    super();
+    this.children = shapes;
   }
 }
 export class TextNode extends PaintNode {

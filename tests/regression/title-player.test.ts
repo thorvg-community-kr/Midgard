@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { Town } from '../../packages/engine/src/town';
-import { Calling, Role } from '../../packages/engine/src/person';
+import { Activity, Calling, Role } from '../../packages/engine/src/person';
 import { altarCap } from '../../packages/engine/src/altar-cap';
+import { Structure } from '../../packages/engine/src/building-catalog';
 import { GoalBranch, currentGoal, settlementGoals } from '../../packages/engine/src/settlement-progression';
 import { TitlePlayer } from '../../apps/web/src/native/title-player';
 import { TitleDirector, watchable } from '../../apps/web/src/native/title-director';
@@ -86,8 +87,21 @@ interface Run {
   /** Residents and altar cap when the first party set out. */
   peopleAtSend: number;
   capAtSend: number;
+  /** The day the first road was ordered, and the tiles of road laid by the third day and by the end. */
+  roadDay: number;
+  roadEarly: number;
+  road: number;
+  /** Finished buildings, and how many of them stand at a road. */
+  doors: number;
+  joined: number;
+  /** Times a resident was back, within half a game minute, at the very task and site they had just been taken off. */
+  quickReturns: number;
+  /** Game days the returns were counted over. */
+  watched: number;
 }
 const playerCost = { ms: 0, steps: 0 };
+/** Game days each run is watched for residents sent back and forth. */
+const returnDays = 5;
 function play(world: number, seed: number, days: number, stopAfterExpedition = true, deep = true): Run {
   const town = new Town(world),
     calls: Call[] = [],
@@ -100,9 +114,13 @@ function play(world: number, seed: number, days: number, stopAfterExpedition = t
   const run: Run = {
     seed, world, days: 0, coreDay: -1, population: 0, cap: 0, fighters: [], raids: 0, sentDay: -1, endedDay: -1,
     cleared: 0, withdrew: 0, fallenAtHome: 0, fallenBeyond: 0, calls, badFrames, refusedTwice: [], digest: '', ms: 0, core: '', peopleAtSend: 0, capAtSend: 0,
+    roadDay: -1, roadEarly: -1, road: 0, doors: 0, joined: 0, quickReturns: 0, watched: 0,
   };
   const started = performance.now(),
     sentIds = new Set<number>();
+  const ownRoads = () => town.roads().roads().filter((r) => r.faction === 0),
+    laid = () => ownRoads().reduce((sum, r) => sum + r.length() * Math.min(1, r.built), 0);
+  const tasks = new Map<number, { now: string; before: string; leftAt: number }>();
   let frame = 0;
   while (town.clock() < days * 300) {
     // A quarter-second title frame at the session's pace.
@@ -130,6 +148,29 @@ function play(world: number, seed: number, days: number, stopAfterExpedition = t
     for (const id of player.party.members) sentIds.add(id);
     const day = town.clock() / 300;
     if (run.coreDay < 0 && currentGoal(town, GoalBranch.Core) < 0) run.coreDay = day;
+    if (run.roadDay < 0 && ownRoads().length) run.roadDay = day;
+    // Counted at home in the first days, before raids and the party start calling residents away by the hour.
+    if (day < returnDays) {
+      run.watched = day;
+      for (const p of town.people()) {
+        if (p.faction !== 0) continue;
+        const now = `${Activity[p.task]}:${p.taskSite}`,
+          seen = tasks.get(p.id) ?? { now, before: '', leftAt: -1 };
+        tasks.set(p.id, seen);
+        if (now === seen.now) continue;
+        if (now === seen.before && town.clock() - seen.leftAt < 30) {
+          const [kind, target] = seen.now.split(':');
+          const road = kind === 'Roadwork' ? town.roads().road(Number(target)) : null;
+          const site = kind === 'Building' ? town.building(Number(target)) : null;
+          // Returning to a regular job after finishing a short construction order is expected.
+          const finished = (road && road.built >= 1 && road.paving < 0 && road.wear === 0) ||
+            (site && site.built() && site.health >= 1);
+          if (!finished) ++run.quickReturns;
+        }
+        Object.assign(seen, { before: seen.now, leftAt: town.clock(), now });
+      }
+    }
+    if (run.roadEarly < 0 && day >= 3) run.roadEarly = laid();
     if (run.sentDay < 0 && player.party.sent) {
       run.sentDay = day;
       run.peopleAtSend = town.population();
@@ -138,8 +179,12 @@ function play(world: number, seed: number, days: number, stopAfterExpedition = t
     if (run.endedDay < 0 && player.party.cleared + player.party.withdrew > 0) run.endedDay = day;
     if (stopAfterExpedition && run.endedDay >= 0 && day > run.endedDay + 0.5) break;
   }
-  const folk = town.people().filter((p) => p.role === Role.Resident && p.faction === 0 && p.health > 0);
+  const folk = town.people().filter((p) => p.role === Role.Resident && p.faction === 0 && p.health > 0),
+    doors = town.buildings().filter((b) => b.faction === 0 && b.built() && b.kind !== Structure.Torch);
   Object.assign(run, {
+    road: laid(),
+    doors: doors.length,
+    joined: doors.filter((b) => town.roadAccess(b.footprint())).length,
     days: town.clock() / 300,
     population: folk.length,
     cap: altarCap(town),
@@ -167,23 +212,20 @@ function play(world: number, seed: number, days: number, stopAfterExpedition = t
 }
 
 const runs: Run[] = [];
+// Each complete settlement has its own simulation budget. A deep read-only view also checks the first run.
+for (const [world, seed, deep] of [[5, 101, true], [5, 202, false], [11, 303, false]] as const) {
+  beforeAll(() => { runs.push(play(world, seed, 22, true, deep)); }, 600000);
+}
 beforeAll(() => {
-  // The first run reads through a deep read-only view; the others only record their calls, to keep the suite quick.
-  for (const [world, seed, deep] of [
-    [5, 101, 1],
-    [5, 202, 0],
-    [11, 303, 0],
-  ])
-    runs.push(play(world, seed, 22, true, deep === 1));
   console.log(
     runs
       .map(
         (r) =>
-          `world ${r.world} seed ${r.seed}: refused twice ${r.refusedTwice.join(' ')}; founding chain day ${r.coreDay.toFixed(1)} (now ${r.core}), ${r.peopleAtSend}/${r.capAtSend} residents when the party left, ${r.population}/${r.cap} at the end, fighters [${r.fighters.join(', ')}], ${r.raids} raids, party sent day ${r.sentDay.toFixed(1)} ended day ${r.endedDay.toFixed(1)} (cleared ${r.cleared}, withdrew ${r.withdrew}), fallen ${r.fallenAtHome} at home and ${r.fallenBeyond} beyond, ${r.calls.length} calls, ${(r.ms / 1000).toFixed(1)} s`,
+          `world ${r.world} seed ${r.seed}: refused twice ${r.refusedTwice.join(' ')}; founding chain day ${r.coreDay.toFixed(1)} (now ${r.core}), ${r.peopleAtSend}/${r.capAtSend} residents when the party left, ${r.population}/${r.cap} at the end, fighters [${r.fighters.join(', ')}], ${r.raids} raids, party sent day ${r.sentDay.toFixed(1)} ended day ${r.endedDay.toFixed(1)} (cleared ${r.cleared}, withdrew ${r.withdrew}), fallen ${r.fallenAtHome} at home and ${r.fallenBeyond} beyond, ${r.quickReturns} quick returns in ${r.watched.toFixed(1)} days, first road day ${r.roadDay.toFixed(2)}, ${r.roadEarly.toFixed(1)} tiles of road by day 3 and ${r.road.toFixed(1)} at the end, ${r.joined}/${r.doors} buildings at a road, ${r.calls.length} calls, ${(r.ms / 1000).toFixed(1)} s`,
       )
       .join('\n') + `\nplayer decision: ${(playerCost.ms / Math.max(1, playerCost.steps)).toFixed(3)} ms a step over ${playerCost.steps} steps`,
   );
-}, 600000);
+});
 
 describe('the title player', () => {
   it('completes the founding chain, fills the altar cap and survives the raids', () => {
@@ -195,6 +237,20 @@ describe('the title player', () => {
       // A raid may claim one resident; the settlement lives on.
       expect(r.fallenAtHome).toBeLessThanOrEqual(1);
     }
+  });
+  it('lays its main street on the first day and more road where its people walk', () => {
+    for (const r of runs) {
+      expect(r.roadDay, `world ${r.world} seed ${r.seed}`).toBeGreaterThan(0);
+      expect(r.roadDay).toBeLessThan(1.5);
+      expect(r.roadEarly).toBeGreaterThanOrEqual(8);
+      expect(r.road).toBeGreaterThanOrEqual(30);
+      // The village grows along its streets: at most a building or two still wait for theirs.
+      expect(r.joined).toBeGreaterThanOrEqual(r.doors - 2);
+    }
+  });
+  it('lets an order stand: residents are not sent back and forth between two jobs', () => {
+    // What is left is the town's own doing: everyone near a new site lends a hand for a moment.
+    for (const r of runs) expect(r.quickReturns, `world ${r.world} seed ${r.seed}`).toBeLessThanOrEqual(12);
   });
   it('sends a party the forecast calls ready, which clears its floor or comes home alive', () => {
     for (const r of runs) {
@@ -220,5 +276,5 @@ describe('the title player', () => {
       b = play(5, 404, 3, false);
     expect(a.digest).toBe(b.digest);
     expect(a.calls.map((c) => c.name + c.key)).toEqual(b.calls.map((c) => c.name + c.key));
-  });
+  }, 120000); // Two fresh worlds and three simulated days in each.
 });

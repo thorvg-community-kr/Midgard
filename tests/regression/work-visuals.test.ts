@@ -27,7 +27,7 @@ import { Tool, toolStructure } from '../../packages/engine/src/game-tools';
 import { Building, Season } from '../../packages/engine/src/town-models';
 import { point } from '../../packages/engine/src/geometry';
 import { Traffic } from '../../packages/engine/src/traffic';
-import { harvestTiming, hammerTiming, workElapsed } from '../../packages/engine/src/work-timing';
+import { harvestTiming, harvestDuration, harvestSwingPeriod, hammerTiming, workElapsed } from '../../packages/engine/src/work-timing';
 import type { Town } from '../../packages/engine/src/town';
 class Pixels {
   constructor(
@@ -347,7 +347,7 @@ for (const activity of [Activity.Felling, Activity.Mining, Activity.Building, Ac
         );
         p.activity = activity;
         p.tree = 11 + 10 * 32;
-        p.until = 6;
+        p.until = harvestDuration(p, activity === Activity.Mining);
         const time = phase * period + (harvest ? 0 : period * 3 - workElapsed(0, p.id));
         const town = {
           people: () => [p],
@@ -356,6 +356,7 @@ for (const activity of [Activity.Felling, Activity.Mining, Activity.Building, Ac
           monsters: () => [],
           wildlife: () => [],
           hits: () => [],
+          roads: () => ({ road: () => null }),
           clock: () => time,
           map: () => ({
             giant: () => null,
@@ -501,7 +502,7 @@ for (const stone of [false, true])
       expect(figure.facing).toBe(-1);
       expect(parts.body!.matrix[5]).toBe(0);
       expect(parts.body!.matrix[4]).toBeCloseTo(
-        1 - workPose(harvestTiming.impact + 0.02, harvestTiming.period, harvestTiming.impact, tool).crouch,
+        1 - workPose(harvestTiming.impact + 0.02, harvestSwingPeriod(harvestDuration(p, stone)), harvestTiming.impact, tool).crouch,
         6,
       );
       for (const foot of parts.feet) expect(foot!.matrix[5]).toBe(0);

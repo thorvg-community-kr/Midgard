@@ -18,6 +18,7 @@ import { appearanceOf, defaultAppearance, mixColor, rgb, scaleColor } from './pe
 import {
   faceBaseCount,
   hairAssetCount,
+  savedHairAssetCount,
   eyeReferenceCount,
   outfitAssetCount,
   earAssetCount,
@@ -95,7 +96,7 @@ const ranges: Partial<Record<keyof Appearance, readonly [number, number]>> = {
 };
 const enumRanges: Partial<Record<keyof Appearance, number>> = {
   hairStyle: HairStyle.Straight,
-  headwear: Headwear.WideBrim,
+  headwear: Headwear.BandedKerchief,
   nose: Nose.Hooked,
   whiskers: Whiskers.LongBeard,
   eyeStyle: EyeStyle.Reflective,
@@ -105,7 +106,7 @@ const enumRanges: Partial<Record<keyof Appearance, number>> = {
   hairFinish: HairFinish.Halftone,
   bodyType: BodyType.Female,
   faceAsset: faceBaseCount - 1,
-  hairAsset: hairAssetCount - 1,
+  hairAsset: savedHairAssetCount - 1,
   eyeReference: eyeReferenceCount - 1,
   outfitAsset: outfitAssetCount - 1,
   earAsset: earAssetCount - 1,
@@ -188,7 +189,8 @@ export function encodeCharacter(p: CharacterPreset): string {
       .join(' ');
   return (
     [
-      'hearthold-character 9',
+      'hearthold-character ' +
+        (a.hairAsset >= hairAssetCount || a.headwear === Headwear.BandedKerchief ? 10 : 9),
       'name ' + quoted(p.name),
       row('identity', p.race, p.calling, p.seed, a.seed),
       row('colors', ...colors.flatMap((key) => [a[key].r, a[key].g, a[key].b])),
@@ -243,7 +245,7 @@ export function encodeCharacter(p: CharacterPreset): string {
   );
 }
 export function decodeCharacter(text: string): CharacterPreset {
-  const error = 'Invalid character preset (expected version 1 through 9).';
+  const error = 'Invalid character preset (expected version 1 through 10).';
   if (utf8Bytes(text) > maxPresetBytes) throw new Error('Character preset exceeds 8 KiB.');
   const input = new NativeReader(text, error);
   const floats = (name: string, keys: readonly (keyof Appearance)[]) => {
@@ -252,7 +254,7 @@ export function decodeCharacter(text: string): CharacterPreset {
   };
   const color = (): Rgb => rgb(input.integer(0, 255), input.integer(0, 255), input.integer(0, 255));
   input.key('hearthold-character');
-  const version = input.integer(1, 9);
+  const version = input.integer(1, 10);
   input.key('name');
   const name = input.token();
   input.key('identity');
@@ -266,7 +268,7 @@ export function decodeCharacter(text: string): CharacterPreset {
   for (const key of colors) a[key] = color();
   input.key('styles');
   a.hairStyle = input.integer(0, HairStyle.Straight);
-  a.headwear = input.integer(0, 7);
+  a.headwear = input.integer(0, version >= 10 ? Headwear.BandedKerchief : Headwear.WideBrim);
   a.nose = input.integer(0, 3);
   a.whiskers = input.integer(0, 4);
   a.eyeStyle = input.integer(0, EyeStyle.Reflective);
@@ -307,7 +309,7 @@ export function decodeCharacter(text: string): CharacterPreset {
         0,
         (version >= 9 ? faceBaseCount : version === 8 ? 4 : referenceHeadCount) - 1,
       ),
-      hair = input.integer(0, (version >= 9 ? hairAssetCount : 20) - 1),
+      hair = input.integer(0, (version >= 10 ? savedHairAssetCount : version >= 9 ? hairAssetCount : 20) - 1),
       eye = input.integer(0, (version >= 9 ? eyeReferenceCount : referenceHeadCount) - 1),
       outfit = input.integer(0, outfitAssetCount - 1);
     let ear = face;

@@ -1,9 +1,12 @@
-// The gates to the other worlds, drawn flat and lineless; each hints at the world behind it.
+// The gates to the other worlds: caves, barrows and standing gates of weathered stone, drawn flat in two tones
+// with every outline a curve; each hints at the world behind it.
 import { point, project, type Point } from '../../engine/src/geometry';
 import { DungeonKind, World, type Dungeon } from '../../engine/src/world-types';
 import { PaintNode, SceneNode, ShapeNode, type Rgb } from './paint';
 import { glow, mix, opaque } from './vector-paint';
-import { appendBlob, appendFacet, arch, blob, facet, stone, duskShade, type Local } from './flat-forms';
+import { appendBlob, blob, duskShade, type Local } from './flat-forms';
+import { moved, pen, shapeOf, type Contour, type Form } from './outline-form';
+import { paintForm } from './form-paint';
 import { worldGlimpse } from './realm-palette';
 import { Rect } from '../../native-ui/src/types';
 const f = Math.fround;
@@ -12,8 +15,6 @@ const stoneLit: Rgb = [81, 76, 75],
   mouth: Rgb = [8, 8, 28],
   turfLit: Rgb = [44, 66, 40],
   turfShade: Rgb = [16, 34, 40],
-  woodLit: Rgb = [101, 69, 40],
-  woodShade: Rgb = [48, 32, 40],
   slabLit: Rgb = [92, 86, 82],
   slabShade: Rgb = [52, 50, 70],
   carved: Rgb = [24, 22, 50],
@@ -22,6 +23,7 @@ export interface GateLook {
   site: Dungeon;
   world: World;
   sealed: boolean;
+  dormant?: boolean;
 }
 const gateBodies = new WeakMap<SceneNode, readonly PaintNode[]>(),
   gateBoxes = new WeakMap<SceneNode, Rect>();
@@ -29,27 +31,139 @@ export const gateBody = (paint: SceneNode): readonly PaintNode[] => gateBodies.g
 /** Everything a gate draws, for culling. */
 export const gateBounds = (paint: SceneNode): Rect | undefined => gateBoxes.get(paint);
 export const gateCenter = (site: Dungeon): Point => project(f(site.origin.x + 1), f(site.origin.y + 1));
-/** A two-tone pair of shapes: everything appended to `shade` reads as the unlit side. */
-function pair(lit: Rgb, shade: Rgb = mix(lit, duskShade, f(0.5))): [ShapeNode, ShapeNode] {
-  return [new ShapeNode().fill(...opaque(lit)), new ShapeNode().fill(...opaque(shade))];
+
+/** Outlines about the gate's centre, in two tones lit from the upper left. */
+function tone(objects: SceneNode, c: Point, form: Form, lit: Rgb, shade: Rgb, rim: number): void {
+  paintForm(objects, moved(form, c.x, c.y), lit, { ink: 0, rim }, shade);
 }
-/** The slab and rune that close a sealed gate for good. */
-function seal(objects: SceneNode, c: Point, shape: readonly Local[], rune: Point): void {
-  const [lit, shade] = pair(slabLit, slabShade),
-    x = f(rune.x - c.x),
-    y = f(rune.y - c.y),
-    carving = new ShapeNode();
-  appendFacet(lit, c, shape);
-  // The right half of the slab, folded onto the rune's axis, is its unlit face.
-  appendFacet(shade, c, shape.map(([px, py]): Local => [Math.max(px, f(x + 3)), py]));
-  objects.add(lit).add(shade);
-  // Tiwaz over a crossbar: a binding rune cut into the slab.
-  appendFacet(carving, c, [[f(x - 0.9), f(y + 7)], [f(x + 0.9), f(y + 7)], [f(x + 0.9), f(y - 7)], [f(x - 0.9), f(y - 7)]]);
-  appendFacet(carving, c, [[x, f(y - 9)], [f(x + 6), f(y - 3)], [f(x + 5), f(y - 2)], [x, f(y - 6.5)], [f(x - 5), f(y - 2)], [f(x - 6), f(y - 3)]]);
-  appendFacet(carving, c, [[f(x - 5), f(y + 2)], [f(x + 5), f(y + 2)], [f(x + 5), f(y + 3.6)], [f(x - 5), f(y + 3.6)]]);
-  objects.add(carving.fill(...opaque(carved)));
+/** Outlines about the gate's centre in one flat colour. */
+const plain = (c: Point, form: Form, color: Rgb): ShapeNode => shapeOf(moved(form, c.x, c.y)).fill(...opaque(color));
+
+/** A dome of earth or rock on the ground line `y`. */
+const mound = (x: number, y: number, w: number, h: number): Contour =>
+  pen(x - w / 2, y)
+    .curve([x - w * 0.43, y - h * 0.58], [x - w * 0.22, y - h * 0.93], [x, y - h], [x + w * 0.22, y - h * 0.93], [x + w * 0.43, y - h * 0.58], [x + w / 2, y])
+    .curve([x, y + h * 0.16], [x - w / 2, y])
+    .close();
+/** One of the two stones a doorway stands on: a slab set on end, leaning in by `lean` of its height. */
+const jamb = (x: number, y: number, w: number, h: number, lean: number): Contour =>
+  pen(x - w / 2, y)
+    .curve(
+      [x - w * 0.54 + lean * h * 0.5, y - h * 0.5],
+      [x - w * 0.42 + lean * h, y - h * 0.96],
+      [x + lean * h, y - h],
+      [x + w * 0.42 + lean * h, y - h * 0.96],
+      [x + w * 0.54 + lean * h * 0.5, y - h * 0.5],
+      [x + w / 2, y],
+    )
+    .curve([x, y + w * 0.14], [x - w / 2, y])
+    .close();
+/** The stone laid across them: one long boulder, thickest a little left of its middle. */
+const lintel = (x: number, y: number, w: number, h: number): Contour =>
+  pen(x - w * 0.5, y)
+    .curve(
+      [x - w * 0.42, y - h * 0.62],
+      [x - w * 0.14, y - h],
+      [x + w * 0.18, y - h * 0.94],
+      [x + w * 0.44, y - h * 0.56],
+      [x + w * 0.5, y],
+      [x + w * 0.42, y + h * 0.5],
+      [x, y + h * 0.62],
+      [x - w * 0.42, y + h * 0.5],
+      [x - w * 0.5, y],
+    )
+    .close();
+/** The way in: straight-sided below and arched above, standing on the line `y`. */
+const way = (x: number, y: number, w: number, h: number): Contour =>
+  pen(x - w / 2, y)
+    .curve([x - w * 0.5, y - h * 0.62], [x - w * 0.34, y - h * 0.93], [x, y - h], [x + w * 0.34, y - h * 0.93], [x + w * 0.5, y - h * 0.62], [x + w / 2, y])
+    .close();
+/** A boulder half sunk in the ground: low and uneven, never a ball. */
+const boulder = (x: number, y: number, w: number, h: number, lean = 0): Contour =>
+  pen(x - w * 0.54, y)
+    .curve(
+      [x - w * 0.5, y - h * 0.34],
+      [x - w * 0.3 + lean * w, y - h * 0.86],
+      [x + w * 0.06 + lean * w, y - h],
+      [x + w * 0.36 + lean * w, y - h * 0.74],
+      [x + w * 0.52, y - h * 0.26],
+      [x + w * 0.56, y],
+    )
+    .curve([x, y + h * 0.14], [x - w * 0.54, y])
+    .close();
+/** Boulders at the foot of a gate, each `[x, y, width, height, lean]`. */
+function boulders(objects: SceneNode, c: Point, at: readonly (readonly [number, number, number, number, number])[]): void {
+  tone(objects, c, at.map(([x, y, w, h, lean]) => boulder(x, y, w, h, lean)), stoneLit, stoneShade, 2);
 }
-/** Small props at the foot of a gate that tell which world lies behind it. */
+/**
+ * A rune stone: a broad slab set on end, one shoulder higher than the other, cut with a serpent band that loops
+ * inside its edge and turns in on its own tail. `turnTo` (-1 or 1) says which shoulder is the high one.
+ */
+function runeStone(objects: SceneNode, c: Point, x: number, y: number, w: number, h: number, tilt: number, turnTo: number): void {
+  const at = (u: number, v: number): [number, number] => [x + (u * turnTo + tilt * v) * w, y - v * h],
+    to = (u: number, v: number): [number, number] => [f(c.x + at(u, v)[0]), f(c.y + at(u, v)[1])];
+  tone(
+    objects,
+    c,
+    [
+      pen(...at(-0.46, 0))
+        .curve(at(-0.56, 0.36), at(-0.5, 0.78), at(-0.3, 0.97), at(0, 1), at(0.32, 0.86), at(0.5, 0.6), at(0.58, 0.32), at(0.48, 0))
+        .curve(at(0, -0.05), at(-0.46, 0))
+        .close(),
+    ],
+    stoneLit,
+    stoneShade,
+    2.5,
+  );
+  objects.add(
+    new ShapeNode()
+      .moveTo(...to(-0.2, 0.16))
+      .cubicTo(...to(-0.42, 0.34), ...to(-0.4, 0.74), ...to(-0.04, 0.82))
+      .cubicTo(...to(0.36, 0.86), ...to(0.4, 0.42), ...to(0.2, 0.2))
+      .cubicTo(...to(0.06, 0.06), ...to(-0.1, 0.3), ...to(0.04, 0.42))
+      .strokeWidth(f(w * 0.07))
+      .strokeCap('round')
+      .strokeJoin('round')
+      .strokeFill(...mix(stoneLit, [255, 246, 226], f(0.26)), 210),
+  );
+}
+/** A braid cut along a lintel: two bands that cross and cross again between `from` and `to`. */
+function braid(objects: SceneNode, c: Point, from: number, to: number, y: number, rise: number): void {
+  const turns = 4,
+    step = (to - from) / turns;
+  for (const first of [-1, 1]) {
+    const band = new ShapeNode().moveTo(f(c.x + from), f(c.y + y + rise * first));
+    for (let k = 0; k < turns; k++) {
+      const x = c.x + from + k * step,
+        here = c.y + y + rise * first * (k % 2 ? -1 : 1),
+        next = c.y + y - rise * first * (k % 2 ? -1 : 1);
+      band.cubicTo(f(x + step * 0.44), f(here), f(x + step * 0.56), f(next), f(x + step), f(next));
+    }
+    objects.add(band.strokeWidth(1).strokeCap('round').strokeJoin('round').strokeFill(...mix(stoneLit, [255, 246, 226], f(0.24)), 200));
+  }
+}
+/** The door stone and the rune that close a sealed gate for good: Tiwaz over a crossbar, cut into the slab. */
+function shutDoor(objects: SceneNode, c: Point, door: Contour, rune: Local, sealed: boolean): void {
+  tone(objects, c, [door], slabLit, slabShade, 3);
+  if (!sealed) return;
+  const x = f(c.x + rune[0]),
+    y = f(c.y + rune[1]);
+  objects.add(
+    new ShapeNode()
+      .moveTo(x, f(y + 7))
+      .lineTo(x, f(y - 8))
+      .moveTo(f(x - 5.5), f(y - 2.5))
+      .lineTo(x, f(y - 8))
+      .lineTo(f(x + 5.5), f(y - 2.5))
+      .moveTo(f(x - 5), f(y + 3))
+      .lineTo(f(x + 5), f(y + 3))
+      .strokeWidth(1.8)
+      .strokeCap('round')
+      .strokeJoin('round')
+      .strokeFill(...carved, 255),
+  );
+}
+/** Small things at the foot of a gate that tell which world lies behind it, in that world's own light. */
 function hint(objects: SceneNode, c: Point, world: World, sealed: boolean): void {
   const spots: Local[] = [
       [-46, 14],
@@ -58,31 +172,42 @@ function hint(objects: SceneNode, c: Point, world: World, sealed: boolean): void
       [-56, 4],
     ],
     glimpse = worldGlimpse(world),
-    [lit, shade] = pair(glimpse, mix(glimpse, duskShade, f(0.55)));
+    dim = mix(glimpse, duskShade, f(0.55)),
+    form: Form = [],
+    lit = new ShapeNode().fill(...opaque(glimpse)),
+    shade = new ShapeNode().fill(...opaque(dim));
   for (const [i, [x, y]] of spots.entries()) {
-    const k = f(1 - f(i * f(0.12)));
+    const k = 1 - i * 0.12;
     switch (world) {
       case World.Jotunheim:
+        // Humps of old ice.
+        form.push(boulder(x, y, 8 * k, 11 * k, i % 2 ? 0.08 : -0.08));
+        break;
       case World.Niflheim:
-        appendFacet(lit, c, [[f(x - 4 * k), y], [f(x - 1), f(y - 15 * k)], [x, y]]);
-        appendFacet(shade, c, [[x, y], [f(x - 1), f(y - 15 * k)], [f(x + 4 * k), y]]);
+        // Low banks of mist.
+        form.push(boulder(x, y, 14 * k, 5 * k, 0));
         break;
       case World.Svartalfheim:
-        appendFacet(lit, c, [[f(x - 4 * k), y], [f(x - 3 * k), f(y - 9 * k)], [f(x + 1), f(y - 14 * k)], [x, y]]);
-        appendFacet(shade, c, [[x, y], [f(x + 1), f(y - 14 * k)], [f(x + 4 * k), f(y - 7 * k)], [f(x + 4 * k), y]]);
+        // Lumps of ore.
+        form.push(boulder(x, y, 9 * k, 7 * k, i % 2 ? -0.1 : 0.1));
         break;
       case World.Muspelheim:
+        // Small flames, each a soft tongue; a sealed gate has none.
         if (sealed) break;
-        appendFacet(lit, c, [[f(x - 2), f(y - 4)], [f(x + 1), f(y - 12 * k)], [f(x + 2), f(y - 3)]]);
-        appendFacet(shade, c, [[f(x + 3), f(y - 2)], [f(x + 6), f(y - 7 * k)], [f(x + 5), f(y - 1)]]);
+        form.push(
+          pen(x - 3 * k, y)
+            .curve([x - 3.6 * k, y - 5 * k], [x - 0.6 * k, y - 8 * k], [x + 0.4 * k, y - 12.5 * k], [x + 3.2 * k, y - 6 * k], [x + 3 * k, y])
+            .curve([x, y + 1.6 * k], [x - 3 * k, y])
+            .close(),
+        );
         break;
       case World.Helheim:
-        appendBlob(lit, c, [[f(x - 6), f(y - 1)], [f(x + 5), f(y - 3)], [f(x + 6), f(y - 1.5)], [f(x - 5), f(y + 0.5)]]);
-        appendBlob(shade, c, [[f(x - 4), f(y + 1)], [f(x + 3), f(y + 3)], [f(x + 2), f(y + 4)], [f(x - 4), f(y + 2.5)]]);
+        // Low grave mounds.
+        form.push(boulder(x, y, 11 * k, 6.5 * k, 0));
         break;
       case World.Asgard:
-        appendFacet(lit, c, [[f(x - 3), y], [f(x - 3), f(y - 9 * k)], [x, f(y - 11 * k)], [x, y]]);
-        appendFacet(shade, c, [[x, y], [x, f(y - 11 * k)], [f(x + 3), f(y - 9 * k)], [f(x + 3), y]]);
+        // Small slabs of gold-lit stone.
+        form.push(boulder(x, y, 6.5 * k, 10 * k, i % 2 ? 0.05 : -0.05));
         break;
       default:
         // Vanaheim and Alfheim: leafy tufts.
@@ -90,97 +215,106 @@ function hint(objects: SceneNode, c: Point, world: World, sealed: boolean): void
         appendBlob(shade, c, [[f(x + 1), y], [f(x + 2), f(y - 8 * k)], [f(x + 6 * k), f(y - 5 * k)], [f(x + 6 * k), y]]);
     }
   }
-  objects.add(lit).add(shade);
+  if (form.length) tone(objects, c, form, glimpse, dim, 1.6);
+  else objects.add(lit).add(shade);
 }
-function rubble(objects: SceneNode, c: Point, at: readonly [number, number, number][]): void {
-  const [lit, shade] = pair(stoneLit, stoneShade);
-  for (const [x, y, s] of at) stone(lit, shade, c, x, y, s);
-  objects.add(lit).add(shade);
-}
+/** A cave: a hump of bare rock with moss on its back and a low mouth worn round by the weather. */
 function cave(objects: SceneNode, c: Point, look: GateLook): PaintNode | null {
-  const [rockLit, rockShade] = pair(stoneLit, stoneShade);
-  appendBlob(rockShade, c, [[-58, 12], [-52, -16], [-34, -38], [-6, -50], [22, -44], [46, -24], [58, 8], [30, 22], [-30, 22]]);
-  appendBlob(rockLit, c, [[-58, 12], [-52, -16], [-34, -38], [-8, -50], [4, -32], [-2, 0], [-12, 22], [-30, 22]]);
-  objects.add(rockShade).add(rockLit);
-  const [moss, mossShade] = pair(turfLit, turfShade);
-  appendBlob(mossShade, c, [[-34, -36], [-8, -50], [22, -45], [38, -33], [14, -37], [-12, -41]]);
-  appendBlob(moss, c, [[-36, -35], [-10, -50], [6, -48], [-4, -42], [-20, -36]]);
-  objects.add(mossShade).add(moss);
-  const door = arch(-6, 18, 17, 34);
-  objects.add(facet(c, door, mouth));
-  if (look.world === World.Jotunheim) {
-    const ice = new ShapeNode();
-    for (let k = 0; k < 3; ++k) {
-      const x = f(-14 + k * 8);
-      appendFacet(ice, c, [[f(x - 2), f(-18 - (k % 2) * 1.5)], [f(x + 2), f(-18 - (k % 2) * 1.5)], [x, f(-11 - (k % 2) * 3)]]);
-    }
-    objects.add(ice.fill(...opaque(rime)));
-  }
-  rubble(objects, c, [[30, 20, 6], [40, 14, 4], [-44, 18, 5]]);
-  hint(objects, c, look.world, look.sealed);
-  if (look.sealed) {
-    seal(objects, c, arch(-6, 18, 18, 35), point(f(c.x - 6), f(c.y)));
+  tone(
+    objects,
+    c,
+    [pen(-58, 14).curve([-55, -14], [-37, -38], [-8, -50], [22, -44], [46, -24], [58, 10]).curve([30, 22], [-30, 22], [-58, 14]).close()],
+    stoneLit,
+    stoneShade,
+    6,
+  );
+  tone(
+    objects,
+    c,
+    [pen(-38, -33).curve([-23, -45], [-7, -51], [12, -48], [29, -40], [39, -31], [28, -33], [14, -38], [0, -36], [-14, -40], [-28, -33], [-38, -33]).close()],
+    turfLit,
+    turfShade,
+    3,
+  );
+  const opening = (grow: number): Contour =>
+    pen(-22 - grow, 20)
+      .curve([-23 - grow, 2], [-16 - grow * 0.6, -12 - grow], [-6, -17 - grow], [5 + grow * 0.6, -12 - grow], [11 + grow, 2], [10 + grow, 20])
+      .close();
+  objects.add(plain(c, [opening(0)], mouth));
+  // In the giants' world rime lies along the lip of the mouth.
+  if (look.world === World.Jotunheim)
+    objects.add(plain(c, [pen(-20, -7).curve([-13, -17], [-6, -20], [3, -16], [9, -7], [3, -12], [-6, -15], [-14, -12], [-20, -7]).close()], rime));
+  boulders(objects, c, [
+    [32, 21, 15, 9, 0.05],
+    [45, 15, 10, 6, -0.05],
+    [-45, 19, 12, 7, 0.04],
+  ]);
+  hint(objects, c, look.world, look.sealed || !!look.dormant);
+  if (look.sealed || look.dormant) {
+    shutDoor(objects, c, opening(1), [-6, 3], look.sealed);
     return null;
   }
-  const pulse = facet(c, arch(-6, 18, 11, 24), worldGlimpse(look.world));
+  const pulse = plain(c, [pen(-16, 20).curve([-17, 6], [-12, -6], [-6, -10], [1, -6], [5, 6], [4, 20]).close()], worldGlimpse(look.world));
   objects.add(pulse);
   return pulse;
 }
+/** A barrow: a turfed mound with a doorway of three great stones, and a rune stone on either hand. */
 function crypt(objects: SceneNode, c: Point, look: GateLook): PaintNode | null {
-  const [turf, turfDark] = pair(turfLit, turfShade);
-  appendBlob(turfDark, c, [[-60, 16], [-44, -14], [-8, -30], [30, -26], [56, -4], [60, 16], [0, 30]]);
-  appendBlob(turf, c, [[-60, 16], [-44, -14], [-10, -30], [8, -29], [-6, -8], [-14, 28], [-40, 24]]);
-  objects.add(turfDark).add(turf);
-  const [lit, shade] = pair(stoneLit, stoneShade);
-  appendFacet(lit, c, [[-24, 22], [-24, -16], [-15, -18], [-15, 22]]);
-  appendFacet(shade, c, [[15, 22], [15, -18], [24, -16], [24, 22]]);
-  appendFacet(lit, c, [[-30, -16], [-4, -24], [30, -18], [30, -12], [-30, -10]]);
-  appendFacet(shade, c, [[-30, -10], [30, -12], [30, -9], [-30, -6]]);
-  objects.add(lit).add(shade);
-  objects.add(facet(c, [[-15, 22], [-15, -9], [15, -9], [15, 22]], mouth));
-  rubble(objects, c, [[-46, 12, 4], [44, 10, 5]]);
-  const [tall, tallShade] = pair(stoneLit, stoneShade);
-  for (const [x, h] of [
-    [-52, 26],
-    [52, 34],
-  ] as const) {
-    appendBlob(tall, c, [[f(x - 5), 8], [f(x - 5), f(8 - h)], [f(x - 1), f(4 - h)], [x, 9]]);
-    appendBlob(tallShade, c, [[x, 9], [f(x - 1), f(4 - h)], [f(x + 4), f(6 - h)], [f(x + 5), 7]]);
-  }
-  objects.add(tall).add(tallShade);
-  hint(objects, c, look.world, look.sealed);
-  if (look.sealed) {
-    seal(objects, c, [[-16, 22], [-16, -10], [16, -10], [16, 22]], point(c.x, f(c.y + 6)));
+  tone(objects, c, [mound(0, 18, 120, 48)], turfLit, turfShade, 6);
+  objects.add(plain(c, [way(0, 21, 20, 34)], mouth));
+  tone(objects, c, [jamb(-13, 22, 9, 35, 0.03), jamb(13, 22, 9, 35, -0.03), lintel(0, -15, 46, 9)], stoneLit, stoneShade, 2.5);
+  braid(objects, c, -15, 15, -15.5, 2.2);
+  runeStone(objects, c, -43, 17, 19, 27, 0.06, 1);
+  runeStone(objects, c, 45, 15, 21, 22, -0.05, -1);
+  boulders(objects, c, [
+    [-27, 23, 9, 5, 0],
+    [29, 23, 10, 6, 0.05],
+  ]);
+  hint(objects, c, look.world, look.sealed || !!look.dormant);
+  if (look.sealed || look.dormant) {
+    shutDoor(objects, c, way(0, 21, 21, 35), [0, 6], look.sealed);
     return null;
   }
-  const pulse = facet(c, [[-10, 22], [-10, -3], [10, -3], [10, 22]], worldGlimpse(look.world));
+  const pulse = plain(c, [way(0, 21, 12, 25)], worldGlimpse(look.world));
   objects.add(pulse);
   return pulse;
 }
+/** A gate standing free in a ring of low stones: two tall slabs and the one laid across them. */
 function portal(objects: SceneNode, c: Point, look: GateLook, home: boolean): PaintNode | null {
-  const [ringLit, ringShade] = pair(stoneLit, stoneShade);
-  for (let i = 0; i < 6; ++i) {
-    const a = f(f(i * f(1.047)) + f(0.3)),
-      x = f(f(Math.cos(a)) * 46),
-      y = f(f(Math.sin(a)) * 23),
-      h = f(12 + (i % 3) * 3);
-    appendBlob(ringLit, c, [[f(x - 4), y], [f(x - 3.5), f(y - h)], [f(x - 0.5), f(y - h - 2)], [x, f(y + 1)]]);
-    appendBlob(ringShade, c, [[x, f(y + 1)], [f(x - 0.5), f(y - h - 2)], [f(x + 3), f(y - h)], [f(x + 4), y]]);
-  }
-  objects.add(ringLit).add(ringShade);
-  const [lit, shade] = pair(home ? [96, 90, 84] : stoneLit, stoneShade);
-  appendFacet(lit, c, [[-22, 6], [-22, -40], [-13, -42], [-13, 6]]);
-  appendFacet(shade, c, [[13, 6], [13, -42], [22, -40], [22, 6]]);
-  appendBlob(lit, c, [[-27, -40], [-24, -49], [0, -52], [10, -50], [8, -43], [-26, -38]]);
-  appendBlob(shade, c, [[8, -43], [10, -50], [24, -49], [27, -40], [10, -40]]);
-  objects.add(lit).add(shade);
-  objects.add(blob(c, [[-13, 4], [-13, -26], [0, -38], [13, -26], [13, 4]], mouth));
-  if (home) {
-    // The way home: a hearth-lit doorway with a turf lintel, the warm colour of Midgard.
-    objects.add(blob(c, [[-26, -45], [0, -55], [26, -45], [8, -47]], turfLit));
-  } else hint(objects, c, look.world, look.sealed);
-  if (look.sealed) {
-    seal(objects, c, [[-14, 5], [-14, -26], [-6, -36], [6, -36], [14, -26], [14, 5]], point(c.x, f(c.y - 14)));
+  const ring = (near: boolean): (readonly [number, number, number, number, number])[] => {
+    const out: (readonly [number, number, number, number, number])[] = [];
+    for (let i = 0; i < 6; ++i) {
+      const a = i * 1.047 + 0.3,
+        y = Math.sin(a) * 23;
+      if (y >= 0 === near) out.push([Math.cos(a) * 46, y + 3, 11 + (i % 3) * 2, 7 + (i % 2) * 2, i % 2 ? 0.06 : -0.06]);
+    }
+    return out;
+  };
+  boulders(objects, c, ring(false));
+  objects.add(plain(c, [way(0, 6, 26, 42)], mouth));
+  tone(
+    objects,
+    c,
+    [jamb(-17, 7, 10, 47, 0.03), jamb(17, 7, 10, 47, -0.03), lintel(0, -43, 56, 11)],
+    home ? [96, 90, 84] : stoneLit,
+    stoneShade,
+    3,
+  );
+  braid(objects, c, -18, 18, -43.5, 2.6);
+  // The way home has turf lying on its lintel, the green of Midgard.
+  if (home)
+    tone(
+      objects,
+      c,
+      [pen(-27, -48).curve([-14, -55], [0, -57], [14, -55], [27, -48], [16, -50], [0, -52], [-16, -50], [-27, -48]).close()],
+      turfLit,
+      turfShade,
+      2,
+    );
+  else hint(objects, c, look.world, look.sealed || !!look.dormant);
+  boulders(objects, c, ring(true));
+  if (look.sealed || look.dormant) {
+    shutDoor(objects, c, way(0, 6, 27, 43), [0, -14], look.sealed);
     return null;
   }
   const glimpse: Rgb = home ? [150, 108, 54] : worldGlimpse(look.world),
@@ -191,45 +325,100 @@ function portal(objects: SceneNode, c: Point, look: GateLook, home: boolean): Pa
   objects.add(swirl);
   return swirl;
 }
+/** A ruin: what is left of a great wall, worn down to a rolling top, with a doorway still in it. */
 function ruin(objects: SceneNode, c: Point, look: GateLook): PaintNode | null {
   const b = project(f(look.site.origin.x + 1), f(look.site.origin.y + f(1.2))),
-    at = point(f(b.x - c.x), f(b.y - c.y)),
-    [lit, shade] = pair(stoneLit, stoneShade),
-    x = at.x,
-    y = at.y;
-  appendFacet(lit, c, [[f(x - 22), f(y - 4)], [f(x - 22), f(y - 56)], [f(x - 14), f(y - 50)], [f(x - 8), f(y - 60)], [x, f(y - 52)], [x, f(y + 6)], [f(x - 12), f(y + 4)]]);
-  appendFacet(shade, c, [[x, f(y + 6)], [x, f(y - 52)], [f(x + 7), f(y - 44)], [f(x + 14), f(y - 36)], [f(x + 22), f(y - 38)], [f(x + 22), f(y - 4)], [f(x + 12), f(y + 4)]]);
-  objects.add(lit).add(shade);
-  // A band of courses lit by the world behind the door.
-  const glimpse = worldGlimpse(look.world);
-  objects.add(facet(c, [[f(x - 22), f(y - 30)], [f(x + 22), f(y - 30)], [f(x + 22), f(y - 27)], [f(x - 22), f(y - 27)]], mix(glimpse, duskShade, f(0.35))));
-  const door = arch(f(x - 10), f(y + 4), 7, 20);
-  objects.add(facet(c, door, mouth));
-  rubble(objects, c, [[f(x + 26), f(y + 10), 5], [f(x + 34), f(y + 4), 4], [f(x - 30), f(y + 8), 5], [f(x + 18), f(y + 16), 3]]);
-  hint(objects, c, look.world, look.sealed);
-  if (look.sealed) {
-    seal(objects, c, arch(f(x - 10), f(y + 4), 8, 21), point(f(c.x + x - 10), f(c.y + y - 4)));
+    x = f(b.x - c.x),
+    y = f(b.y - c.y),
+    glimpse = worldGlimpse(look.world);
+  tone(
+    objects,
+    c,
+    [
+      pen(x - 23, y + 5)
+        .curve(
+          [x - 24, y - 26],
+          [x - 22, y - 51],
+          [x - 15, y - 57],
+          [x - 8, y - 51],
+          [x - 1, y - 55],
+          [x + 7, y - 46],
+          [x + 15, y - 40],
+          [x + 22, y - 37],
+          [x + 24, y - 14],
+          [x + 23, y + 5],
+        )
+        .curve([x, y + 9], [x - 23, y + 5])
+        .close(),
+    ],
+    stoneLit,
+    stoneShade,
+    5,
+  );
+  // One course of the wall still takes the light of the world behind the door.
+  objects.add(
+    plain(
+      c,
+      [
+        pen(x - 20, y - 31)
+          .curve([x, y - 32.5], [x + 20, y - 31], [x + 21, y - 29.5], [x + 20, y - 28], [x, y - 29.5], [x - 20, y - 28], [x - 21, y - 29.5], [x - 20, y - 31])
+          .close(),
+      ],
+      mix(glimpse, duskShade, f(0.35)),
+    ),
+  );
+  objects.add(plain(c, [way(x - 9, y + 5, 15, 21)], mouth));
+  boulders(objects, c, [
+    [x + 27, y + 11, 13, 8, 0.05],
+    [x + 36, y + 5, 9, 6, -0.05],
+    [x - 31, y + 9, 12, 7, 0.04],
+    [x + 18, y + 16, 8, 5, 0],
+  ]);
+  hint(objects, c, look.world, look.sealed || !!look.dormant);
+  if (look.sealed || look.dormant) {
+    shutDoor(objects, c, way(x - 9, y + 5, 16, 22), [x - 9, y - 5], look.sealed);
     return null;
   }
-  const pulse = facet(c, arch(f(x - 10), f(y + 4), 4.5, 15), glimpse);
+  const pulse = plain(c, [way(x - 9, y + 5, 9.5, 16)], glimpse);
   objects.add(pulse);
   return pulse;
 }
+/** The giants' hall: a long low wall under a heavy back of turf, and a door tall enough for them. */
 function giantHall(objects: SceneNode, c: Point): PaintNode | null {
-  const [lit, shade] = pair(stoneLit, stoneShade);
-  appendFacet(lit, c, [[-50, 12], [-50, -20], [-10, -30], [-10, 16]]);
-  appendFacet(shade, c, [[-10, 16], [-10, -30], [50, -18], [50, 12], [20, 18]]);
-  objects.add(lit).add(shade);
-  const [roof, roofShade] = pair(turfLit, turfShade);
-  appendBlob(roof, c, [[-56, -18], [-40, -36], [-14, -46], [-6, -38], [-14, -26]]);
-  appendBlob(roofShade, c, [[-14, -26], [-6, -38], [-14, -46], [20, -42], [54, -24], [52, -14], [10, -22]]);
-  objects.add(roofShade).add(roof);
-  objects.add(facet(c, [[-18, 14], [-18, -12], [-10, -20], [10, -20], [16, -12], [16, 16]], mouth));
-  objects.add(facet(c, [[-22, -16], [-10, -24], [12, -24], [22, -16], [20, -13], [-20, -13]], mix(stoneLit, [255, 246, 226], f(0.15))));
-  const frost = new ShapeNode();
-  for (const x of [-40, -24, 26, 42]) appendFacet(frost, c, [[f(x - 3), -4], [f(x + 3), -6], [x, 4]]);
-  objects.add(frost.fill(...opaque(rime)));
-  rubble(objects, c, [[-46, 18, 6], [44, 18, 7]]);
+  tone(
+    objects,
+    c,
+    [pen(-52, 14).curve([-54, -6], [-49, -19], [-30, -25], [-8, -29], [20, -25], [47, -18], [53, -4], [51, 14]).curve([0, 21], [-52, 14]).close()],
+    stoneLit,
+    stoneShade,
+    5,
+  );
+  tone(
+    objects,
+    c,
+    [pen(-59, -15).curve([-44, -35], [-15, -47], [20, -43], [57, -22], [44, -17], [18, -22], [-10, -25], [-38, -20], [-59, -15]).close()],
+    turfLit,
+    turfShade,
+    4,
+  );
+  objects.add(plain(c, [way(-1, 16, 34, 37)], mouth));
+  tone(objects, c, [jamb(-19, 17, 8, 35, 0.02), jamb(17, 17, 8, 35, -0.02)], stoneLit, stoneShade, 2.5);
+  tone(objects, c, [lintel(-1, -19, 46, 8)], mix(stoneLit, [255, 246, 226], f(0.15)), stoneShade, 2.5);
+  // Rime lies on the back of the roof.
+  objects.add(
+    plain(
+      c,
+      [
+        pen(-46, -27).curve([-36, -36], [-24, -41], [-12, -44], [-22, -38], [-34, -31], [-46, -27]).close(),
+        pen(14, -43.5).curve([28, -39], [42, -31], [52, -24], [40, -30], [26, -36], [14, -43.5]).close(),
+      ],
+      rime,
+    ),
+  );
+  boulders(objects, c, [
+    [-46, 19, 14, 9, 0.05],
+    [45, 19, 16, 10, -0.05],
+  ]);
   return null;
 }
 /** Draws a gate into `objects`; returns the paint whose opacity the renderer pulses, if any. */

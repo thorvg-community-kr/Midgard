@@ -56,35 +56,6 @@ export function fitToView(s: WorldRendererState, force = false): void {
   s.fitted = rect;
   for (const pass of s.sunPasses) pass.reset().appendRect(rect[0], rect[1], rect[2], rect[3]);
   s.darkVeil?.reset().appendRect(rect[0], rect[1], rect[2], rect[3]);
-  const lo = [1e9, 1e9],
-    hi = [-1e9, -1e9];
-  for (const [sx, sy] of [
-    [rect[0], rect[1]],
-    [f32(rect[0] + rect[2]), rect[1]],
-    [rect[0], f32(rect[1] + rect[3])],
-    [f32(rect[0] + rect[2]), f32(rect[1] + rect[3])],
-  ]) {
-    const t = unproject(sx, sy);
-    lo[0] = Math.min(lo[0], t.x);
-    lo[1] = Math.min(lo[1], t.y);
-    hi[0] = Math.max(hi[0], t.x);
-    hi[1] = Math.max(hi[1], t.y);
-  }
-  if (s.fogBorder) {
-    const b = s.exploredVisibility.bounds(),
-      [x0, y0] = lo,
-      [x1, y1] = hi;
-    s.fogBorder.reset();
-    const rectangle = (x: number, y: number, w: number, h: number) => {
-      if (w > 0 && h > 0) s.fogBorder!.appendRect(x, y, w, h);
-    };
-    rectangle(x0, y0, f32(Math.min(x1, b.x) - x0), f32(y1 - y0));
-    rectangle(Math.max(x0, f32(b.x + b.w)), y0, f32(x1 - Math.max(x0, f32(b.x + b.w))), f32(y1 - y0));
-    const left = Math.max(x0, b.x),
-      right = Math.min(x1, f32(b.x + b.w));
-    rectangle(left, y0, f32(right - left), f32(Math.min(y1, b.y) - y0));
-    rectangle(left, Math.max(y0, f32(b.y + b.h)), f32(right - left), f32(y1 - Math.max(y0, f32(b.y + b.h))));
-  }
 }
 export function paintMapName(s: WorldRendererState, map: WorldMap, zoom: number): void {
   s.mapName.opacity(Math.trunc(f32(clamp(f32(f32(f32(0.9) - zoom) / f32(0.5)), 0, 1) * 255)));
@@ -130,15 +101,21 @@ export function paintMapName(s: WorldRendererState, map: WorldMap, zoom: number)
     ]);
 }
 export function paintOrnaments(s: WorldRendererState, map: WorldMap, climate: Readonly<Climate>): void {
+  s.groundCover.remove();
   s.ornaments.remove();
   const snowy = climate.snow > f32(0.3),
     blooms = Array.from({ length: 4 }, () => new ShapeNode()),
-    cracks = new ShapeNode();
+    cracks = new ShapeNode(), drifts = new ShapeNode();
   for (let y = 0; y < map.height(); y++)
     for (let x = 0; x < map.width(); x++) {
       const tile = map.at(x, y);
       if (!tile.revealed) continue;
       const middle = point(f32(x + f32(0.5)), f32(y + f32(0.5)));
+      if (map.deepSnow.has(y * map.width() + x)) {
+        const p = project(middle.x, middle.y), shift = hash01(map.seed(), x, y, 94) * 6 - 3;
+        appendPolygon(drifts, [point(p.x - 12, p.y + shift), point(p.x - 2, p.y + shift - 3), point(p.x + 9, p.y + shift - 2), point(p.x + 1, p.y + shift)]);
+        continue;
+      }
       if (tile.terrain === Terrain.Ice) {
         if (hash01(map.seed(), x, y, 93) < f32(0.5)) {
           let at = point(
@@ -195,7 +172,8 @@ export function paintOrnaments(s: WorldRendererState, map: WorldMap, climate: Re
       }
     }
   fill(cracks, [92, 120, 142, 170]);
-  s.ornaments.add(cracks);
+  s.groundCover.add(cracks);
+  if (map.deepSnow.size) s.groundCover.add(drifts.fill(224, 233, 229));
   const flowers: Rgb[] = [
     [226, 120, 150],
     [236, 206, 90],
@@ -204,7 +182,7 @@ export function paintOrnaments(s: WorldRendererState, map: WorldMap, climate: Re
   ];
   for (let i = 0; i < 4; i++) {
     fill(blooms[i], opaque(flowers[i]));
-    s.ornaments.add(blooms[i]);
+    s.groundCover.add(blooms[i]);
   }
   const spring = map.hvergelmir();
   if (
@@ -267,6 +245,14 @@ export function buildPreview(s: WorldRendererState, preview: Preview): void {
             .strokeFill(20, 16, 12);
         s.overlay.add(knob);
       }
+  }
+  if (preview.house.length) {
+    const walls = new ShapeNode().moveTo(preview.house[0].x, preview.house[0].y);
+    for (let i = 1; i < preview.house.length; i++) walls.lineTo(preview.house[i].x, preview.house[i].y);
+    walls.close();
+    fill(walls, [tint[0], tint[1], tint[2], 170]);
+    walls.strokeWidth(f32(0.06)).strokeJoin('round').strokeFill(tint[0], tint[1], tint[2], 230);
+    layer.add(walls);
   }
   if (preview.brush) {
     const at = project(preview.cursor.x, preview.cursor.y),

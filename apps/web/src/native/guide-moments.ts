@@ -1,5 +1,5 @@
 // Every first-time moment of the guide in one table: its key, title and text, how it is spotted,
-// where the camera looks, and what an older save counts as already met.
+// where the camera looks, the thing it introduces if any, and what an older save counts as already met.
 import type { Town } from '../../../../packages/engine/src/town';
 import type { Point } from '../../../../packages/engine/src/geometry';
 import { centroid } from '../../../../packages/engine/src/geometry';
@@ -10,7 +10,7 @@ import { CombatCue, MonsterRank, type CombatEvent } from '../../../../packages/e
 import { Weather } from '../../../../packages/engine/src/climate';
 import { Season } from '../../../../packages/engine/src/town-models';
 import { isPlayerBuilding, isPlayerResident } from '../../../../packages/engine/src/faction';
-import { burdenStart, carriedWeight } from '../../../../packages/engine/src/carried-resources';
+import { burdenFrom, carriedWeight } from '../../../../packages/engine/src/carried-resources';
 import { carriedTools, equipmentSlots, equippedItem } from '../../../../packages/engine/src/equipment';
 import { gateSealed, sealFloors, sealProgress, sealable } from '../../../../packages/engine/src/gate-seals';
 import { completedFacility, deedCount } from '../../../../packages/engine/src/settlement-progression';
@@ -19,6 +19,7 @@ import { playing } from '../../../../packages/engine/src/bard-phrases';
 import type { DevotionEvent } from '../../../../packages/engine/src/town-devotion';
 import type { Building } from '../../../../packages/engine/src/town-models';
 import { serpentSighting } from '../../../../packages/native-renderer/src/serpent-ring';
+import type { WorldObjectRef } from '../../../../packages/native-renderer/src/world-picking-types';
 
 /** A sentence for the phrase tables: `text` is the key, `values` fill its `{0}`, `{1}`... */
 export type Line = string | { readonly text: string; readonly values: readonly (string | number)[] };
@@ -27,9 +28,15 @@ export const line = (text: string, ...values: (string | number)[]): Line => ({ t
 export const fill = (value: Line): string =>
   typeof value === 'string' ? value : value.text.replace(/\{(\d+)\}/g, (_, n: string) => String(value.values[Number(n)] ?? ''));
 
-/** What a moment saw this frame: where to look (or nowhere), lines worth adding, notices it replaces. */
+/** What a moment saw this frame: where to look (or nowhere), the thing it introduces, lines worth adding, notices it replaces. */
 export interface GuideSpot {
   at: Point | null;
+  /**
+   * The thing the note introduces: something seen for the first time, or someone who waits for the player. It is
+   * selected and the note hangs on it (the first, when there are several). None for a first deed (the first tree,
+   * kill, level or piece of gear), which is told on a plain card.
+   */
+  about?: WorldObjectRef[];
   detail?: string[];
   fold?: string[];
 }
@@ -70,6 +77,12 @@ const resident = (town: Town, id: number) => {
 };
 const fresh = (scan: GuideScan, cue: CombatCue, mine = true) =>
   scan.combat.find((e) => e.cue === cue && (!mine || resident(scan.town, e.person)));
+const who = (id: number): WorldObjectRef => ({ kind: 'person', id });
+const house = (b: Building): WorldObjectRef => ({ kind: 'building', id: b.id });
+const gateOf = (index: number): WorldObjectRef => ({ kind: 'dungeon', id: index });
+const beast = (id: number): WorldObjectRef => ({ kind: 'monster', id });
+/** The renderer's landmarks: Odin's statue, Fire Mountain, Hvergelmir, Thor. */
+const landmark = (id: 0 | 1 | 2 | 3): WorldObjectRef => ({ kind: 'landmark', id });
 const felled = (scan: GuideScan, kind: TreeWorkKind) => {
   const e = scan.trees.find((event) => event.kind === kind && resident(scan.town, event.person));
   return e ? { at: e.worker } : null;
@@ -102,7 +115,7 @@ const realmSpot = (town: Town): Point | null => town.realmParty()[0]?.position ?
 const craftedNotice = /^(.+) crafted (.+)$/,
   inHandNotice = /^(.+) in hand · /,
   huntedNotice = / hunted \((carrying \d+|\+\d+) food\)$/,
-  raidNotice = / will come (tonight|from both sides tonight)$/;
+  raidNotice = / will raid Camp #(\d+) tonight$/;
 
 const moments: GuideMoment[] = [
   {
@@ -112,7 +125,7 @@ const moments: GuideMoment[] = [
       'The founders stand where they woke and do nothing until you act.',
       'Select them and give an order, or found a camp from the Quests panel. Once you do, they go about their work by themselves.',
     ],
-    spot: (scan) => (scan.town.awaiting ? { at: null } : null),
+    spot: (scan) => (scan.town.awaiting ? { at: null, about: residents(scan.town).map((p) => who(p.id)) } : null),
     met: () => true,
   },
   // Gathering
@@ -140,7 +153,7 @@ const moments: GuideMoment[] = [
     key: 'food',
     title: 'Food from the hunt',
     text: () => [
-      'Food comes from hunting, and from fields once a farmhouse stands. Residents eat from the stores.',
+      'Hunt for early meals. At a ranch, residents collect eggs from chickens and raise pairs of pigs or cows for meat. A farmhouse grows crops.',
       'Game grows scarce in winter, so lay food by before it comes.',
     ],
     spot: (scan) => {
@@ -156,7 +169,7 @@ const moments: GuideMoment[] = [
     title: 'Bones',
     text: () => [
       'Hunted animals and slain monsters leave bones, which go straight to storage.',
-      'Offered at the Altar of Odin, bones raise the starting level of the newcomer and lean them toward the Warrior\'s calling.',
+      'Bones can go on the altar alongside food. Every four extra goods give the new settler a point in strength or vitality.',
     ],
     spot: (scan) => (bones(scan.town) > 0 ? { at: null } : null),
     met: (town) => bones(town) > 0 || town.chronicle.monstersSlain > 0,
@@ -169,7 +182,7 @@ const moments: GuideMoment[] = [
       'They empty the pack at storage, so a store near the work saves long walks.',
     ],
     spot: (scan) => {
-      const p = residents(scan.town).find((r) => carriedWeight(r) > burdenStart);
+      const p = residents(scan.town).find((r) => carriedWeight(r) > burdenFrom(r));
       return p ? { at: p.position } : null;
     },
     met: played,
@@ -185,8 +198,8 @@ const moments: GuideMoment[] = [
     spot: (scan) => {
       const made = notice(scan, craftedNotice);
       if (!made) return null;
-      const who = named(scan.town, craftedNotice.exec(made)?.[1] ?? '');
-      return { at: who?.position ?? null, detail: [made], fold: [made] };
+      const maker = named(scan.town, craftedNotice.exec(made)?.[1] ?? '');
+      return { at: maker?.position ?? null, detail: [made], fold: [made] };
     },
     met: (town) =>
       town.chronicle.weaponsForged > 0 ||
@@ -196,8 +209,8 @@ const moments: GuideMoment[] = [
     key: 'equip',
     title: 'Gear in hand',
     text: () => [
-      'Gear works at once: a tool in the pack speeds the work it is made for, a weapon in hand hits harder, a shield turns blows aside and armor takes part of every blow.',
-      'A resident\'s window shows what they carry and lets you change it.',
+      'Tools speed their work from the pack. A resident with no weapon equipped fights with their strongest tool. Shields block blows and armor reduces damage.',
+      'Compare attack before and after equipping a weapon. A higher scaling bonus means more of that attribute counts toward the attack.',
     ],
     spot: (scan) => {
       const held = notice(scan, inHandNotice),
@@ -243,14 +256,14 @@ const moments: GuideMoment[] = [
     key: 'gate',
     title: 'A gate to another world',
     text: () => [
-      'Each gate leads down, floor by floor, into a world beyond Midgard. Click a gate to choose a party and a floor, then destroy every den and the guardian of a floor to clear it.',
+      'At an open gate, choose a party and a floor. Destroy its dens and guardian to clear the floor.',
       'Clear the last floor and the gate is sealed: its raids stop and the settlement keeps a boon of that world.',
     ],
     // A gate the map already knows of is no news until the player has it in front of them.
     spot: (scan) => {
       for (const { site, index } of sealableGates(scan.town)) {
         const at = gateFront(scan.town, index);
-        if (site.discovered && at && scan.shows(at)) return { at };
+        if (site.discovered && at && scan.shows(at)) return { at, about: [gateOf(index)] };
       }
       return null;
     },
@@ -265,11 +278,11 @@ const moments: GuideMoment[] = [
     title: 'Odin\'s statue',
     text: () => [
       'The Allfather\'s likeness in stone stands by the founding shore, where the first two woke.',
-      'Once a tent and a farmhouse stand, raise an Altar of Odin at home: offerings there shape every new resident.',
+      'Once a tent and a farmhouse stand, build an altar at home. Set aside four food and a bed to welcome another settler.',
     ],
     spot: (scan) => {
       const at = statue(scan.town);
-      return at && scan.shows(at) ? { at } : null;
+      return at && scan.shows(at) ? { at, about: [landmark(0)] } : null;
     },
     met: (town) => !!statue(town),
     where: statue,
@@ -283,7 +296,7 @@ const moments: GuideMoment[] = [
     ],
     spot: (scan) => {
       const thor = scan.town.thor;
-      return thor.present && scan.shows(thor.position) ? { at: { ...thor.position } } : null;
+      return thor.present && scan.shows(thor.position) ? { at: { ...thor.position }, about: [landmark(3)] } : null;
     },
     met: (town) => town.thor.visits > 0,
   },
@@ -306,7 +319,7 @@ const moments: GuideMoment[] = [
     text: () => ['A volcano smokes in the south of Midgard. Its slopes are bare mountain rock that no one can cross or build on.'],
     spot: (scan) => {
       const at = volcano(scan.town);
-      return at && scan.shows(at) ? { at } : null;
+      return at && scan.shows(at) ? { at, about: [landmark(1)] } : null;
     },
     met: (town) => !!volcano(town),
     where: volcano,
@@ -320,7 +333,7 @@ const moments: GuideMoment[] = [
     ],
     spot: (scan) => {
       const at = spring(scan.town);
-      return at && scan.shows(at) ? { at } : null;
+      return at && scan.shows(at) ? { at, about: [landmark(2)] } : null;
     },
     met: (town) => !!spring(town),
     where: spring,
@@ -329,8 +342,8 @@ const moments: GuideMoment[] = [
     key: 'night',
     title: 'Night falls',
     text: () => [
-      'Residents on Auto stop work and go to sleep; one you send to a workplace keeps at it through the dark.',
-      'Sleep under a roof restores them faster than sleep in the open. Raids come at night.',
+      'Residents keep working after dark and take a break when they are tired.',
+      'Resting under a roof restores energy faster. Raids come at night.',
     ],
     spot: (scan) => (scan.town.climate().night > 0.5 ? { at: null } : null),
     met: (town) => town.days >= 1,
@@ -369,14 +382,14 @@ const moments: GuideMoment[] = [
     key: 'born',
     title: 'A newcomer from the altar',
     text: () => [
-      'Every new resident is shaped by an offering at the Altar of Odin: water, bones, gold, food and stone each lean them a different way.',
-      'Make room in a home for them.',
+      'Each newcomer starts as a settler. Give them a tool and a job to gain experience.',
+      'When the guild is ready, you can send a settler there to learn a fighting calling.',
     ],
     spot: (scan) => {
       const birth = scan.births.find((e) => resident(scan.town, e.person));
       if (!birth) return null;
-      const who = resident(scan.town, birth.person);
-      return { at: birth.position, detail: who ? [line('{0} joins the settlement', who.name)].map(fill) : [] };
+      const newcomer = resident(scan.town, birth.person);
+      return { at: birth.position, detail: newcomer ? [line('{0} joins the settlement', newcomer.name)].map(fill) : [] };
     },
     met: (town) => residents(town).length + town.fallen.length > 2,
   },
@@ -390,7 +403,7 @@ const moments: GuideMoment[] = [
     ],
     spot: (scan) => {
       const foe = scan.town.monsters().find((m) => hostile(m) && m.rank !== MonsterRank.Den && scan.sees(m.position));
-      if (foe) return { at: foe.position };
+      if (foe) return { at: foe.position, about: [beast(foe.id)] };
       // One that came and fell between two looks was still met.
       const kill = scan.combat.find((e) => e.cue === CombatCue.Kill && !scan.animals.has(e.creature) && resident(scan.town, e.person));
       return kill ? { at: kill.position } : null;
@@ -402,7 +415,7 @@ const moments: GuideMoment[] = [
     title: 'The first kill',
     text: () => [
       'A kill gives experience to the killer and to every ally fighting nearby, and many leave bones.',
-      'Each level makes a resident hit harder and hold out longer.',
+      'Levels improve endurance and unlock gear. Match a weapon to the resident’s strongest attribute for harder hits.',
     ],
     spot: (scan) => {
       const kill = scan.combat.find(
@@ -423,7 +436,7 @@ const moments: GuideMoment[] = [
       const e = scan.combat.find(
         (event) => event.cue === CombatCue.Downed && (resident(scan.town, event.person) || fallenOf(scan.town, event.person)),
       );
-      return e ? { at: e.position } : null;
+      return e ? { at: e.position, about: resident(scan.town, e.person) ? [who(e.person)] : [] } : null;
     },
     met: (town) => town.chronicle.rescues > 0 || town.fallen.length > 0,
   },
@@ -444,14 +457,14 @@ const moments: GuideMoment[] = [
     key: 'raid',
     title: 'A raid is coming',
     text: () => [
-      'Raiders come out of an open gate after dark, as many as the settlement looks able to fight.',
-      'Gather fighters by the camp before nightfall. A manned watchtower shoots raiders that come near.',
+      'Each open gate sends raiders toward the nearest camp. Their numbers and strength grow week by week.',
+      'Gather fighters at the camp named in the warning before nightfall. A watchtower shoots approaching raiders.',
     ],
     spot: (scan) => {
       const warning = notice(scan, raidNotice);
       if (!warning) return null;
-      const gate = sealableGates(scan.town).find(({ site }) => site.discovered && warning.includes(site.name));
-      return { at: gate ? gateFront(scan.town, gate.index) : null };
+      const camp = scan.town.building(Number(raidNotice.exec(warning)![1]) - 1);
+      return { at: camp?.center ?? null, about: camp ? [house(camp)] : [] };
     },
     met: (town) => town.raids() > 0,
   },
@@ -487,7 +500,7 @@ const moments: GuideMoment[] = [
     ],
     spot: (scan) => {
       const den = scan.town.dens().find((d) => scan.sees(d.position));
-      return den ? { at: den.position } : null;
+      return den ? { at: den.position, about: [beast(den.id)] } : null;
     },
     met: (town) => town.chronicle.partiesLed > 0,
   },
@@ -513,7 +526,7 @@ const moments: GuideMoment[] = [
     ],
     spot: (scan) => {
       const g = scan.town.realmActive() ? scan.town.creature(scan.town.realmGuardian) : null;
-      return g && g.health > 0 && scan.sees(g.position) ? { at: g.position } : null;
+      return g && g.health > 0 && scan.sees(g.position) ? { at: g.position, about: [beast(g.id)] } : null;
     },
     met: (town) => town.chronicle.guardiansSlain > 0 || deedCount(town, 'floors') > 0,
   },
@@ -548,13 +561,13 @@ const moments: GuideMoment[] = [
     key: 'level',
     title: 'A new level',
     text: () => [
-      'Experience from fighting raises a resident\'s level. Each level makes them hit harder and hold out longer.',
+      'Experience from fighting raises a resident\'s level. Levels improve endurance and unlock gear. Larger weapon bonuses mean that attribute adds more to each attack.',
       line('Callings learn their second skill at level {0}.', secondSkillLevel),
     ],
     spot: (scan) => {
       const e = fresh(scan, CombatCue.LevelUp);
-      const who = e ? resident(scan.town, e.person) : null;
-      return e && who ? { at: e.position, detail: [line('{0} reached level {1}!', who.name, e.amount)].map(fill) } : null;
+      const hero = e ? resident(scan.town, e.person) : null;
+      return e && hero ? { at: e.position, detail: [line('{0} reached level {1}!', hero.name, e.amount)].map(fill) } : null;
     },
     met: (town) => residents(town).some((p) => p.level > 1),
   },
@@ -567,8 +580,8 @@ const moments: GuideMoment[] = [
     ],
     spot: (scan) => {
       const e = scan.combat.find((event) => event.cue === CombatCue.Ability && event.skill && resident(scan.town, event.person));
-      const who = e ? resident(scan.town, e.person) : null;
-      return e && who ? { at: e.position, detail: [fill(line('{0} used {1}', who.name, e.text))] } : null;
+      const caster = e ? resident(scan.town, e.person) : null;
+      return e && caster ? { at: e.position, detail: [fill(line('{0} used {1}', caster.name, e.text))] } : null;
     },
     met: (town) => fighters(town) && town.chronicle.monstersSlain > 0,
   },
@@ -593,13 +606,13 @@ const moments: GuideMoment[] = [
     title: 'A bard plays',
     text: () => [
       'Now and then a bard takes up the lyre while idle, strolling or resting, and plays a short tune.',
-      'Residents who listen by the fire in the evening let go of a little stress.',
+      'Residents who listen by the fire in the evening recover some energy.',
     ],
     spot: (scan) => {
       const bard = scan.town
         .people()
         .find((p) => p.calling === Calling.Bard && playing(p, scan.town.clock()) && scan.shows(p.position));
-      return bard ? { at: bard.position } : null;
+      return bard ? { at: bard.position, about: [who(bard.id)] } : null;
     },
     met: () => false,
   },
@@ -639,7 +652,8 @@ function buildingText(_town: Town, kind: Structure): Line[] {
     out: Line[] = [spec.description];
   if (spec.jobs > 0) out.push(spec.jobs === 1 ? 'One resident works here.' : line('Up to {0} residents work here.', spec.jobs));
   if (kind === Structure.Camp) out.push('Roads open with it: lay one with the Road tool in the build menu.');
-  if (kind === Structure.Farm) out.push('Fields open with it: stake one out with the Field tool in the build menu.');
+  if (kind === Structure.Farm) out.push('It needs more fields as the settlement grows: drag another area beside it with the Farm tool.');
+  if (kind === Structure.Foundry) out.push('Gather ore and frostwood with a stone pick and axe. An iron pick opens the cinder veins on volcanic ground.');
   return out;
 }
 const buildingMoments: GuideMoment[] = Array.from({ length: Structure.Count }, (_, kind: Structure) => ({
@@ -648,7 +662,7 @@ const buildingMoments: GuideMoment[] = Array.from({ length: Structure.Count }, (
   text: (town: Town) => buildingText(town, kind),
   spot: (scan: GuideScan) => {
     const b = scan.built.get(kind);
-    return b ? { at: b.center } : null;
+    return b ? { at: b.center, about: [house(b)] } : null;
   },
   met: (town: Town) => completedFacility(town, kind),
   where: (town: Town) => builtOf(town, kind)?.center ?? null,

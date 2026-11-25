@@ -142,11 +142,59 @@ describe('incremental audio loading', () => {
       }
     }
     expect(library.hasClip('sfx/hammer_01')).toBe(true);
+    expect(requests.filter((name) => name.startsWith('sfx/offering/'))).toEqual(['sfx/offering/altar']);
     expect(cueClips[Cue.Mine]).toBeUndefined();
     expect(requests.every((name) => initialEffectPrefixes.some((prefix) => name.startsWith(prefix)))).toBe(
       true,
     );
     expect(requests.length).toBeLessThan(20);
+  });
+
+  it('keeps each offering gesture in its own window and admits the ritual over busy effects', async () => {
+    const { offeringClipWindows } = await import('../../packages/native-audio/src/sound-catalog');
+    const { Cue, Sound } = await import('../../packages/native-audio/src/sound-types');
+    const { EffectManager } = await import('../../packages/native-audio/src/effect-manager');
+    const { SoundLibrary } = await import('../../packages/native-audio/src/sound-library');
+    const { SoundBoard } = await import('../../packages/native-audio/src/sound-board');
+    const gestures = [
+      [Cue.OfferFood, Cue.OfferTakeFood],
+      [Cue.OfferWater, Cue.OfferTakeWater],
+      [Cue.OfferBones, Cue.OfferTakeBones],
+      [Cue.OfferGold, Cue.OfferTakeGold],
+      [Cue.OfferStone, Cue.OfferTakeStone],
+      [Cue.OfferAccepted],
+    ];
+    const bank = manifest.find((entry) => entry.name === 'sfx/offering/altar')!;
+    const samples = new Int16Array(bank.frames);
+    for (const [index, [cue]] of gestures.entries()) {
+      const [{ from, to }] = offeringClipWindows[cue]!;
+      samples.fill((index + 1) * 2000, Math.round(from * bank.rate), Math.round(to * bank.rate));
+    }
+    const library = new SoundLibrary();
+    library.setClip(bank.name, samples, bank.rate);
+    for (const [index, cues] of gestures.entries()) {
+      const effects = new EffectManager(() => 0);
+      const [{ from, to }] = offeringClipWindows[cues[0]]!;
+      const frames = Math.ceil((to - from + 0.12) * 44100);
+      for (const cue of cues) {
+        expect(effects.request(new Sound(cue))).toBeTruthy();
+        expect(effects.request(new Sound(cue))).toBe(0n);
+        const board = new SoundBoard(library);
+        const out = new Float32Array(2 * frames);
+        board.play(new Sound(cue));
+        board.render(out, frames);
+        expect(out[128]).toBeCloseTo(((index + 1) * 2000 / 32768) * Math.SQRT1_2, 2);
+        expect(board.effectStatistics().effects).toBe(0);
+      }
+    }
+    const effects = new EffectManager(() => 0);
+    for (const cue of [Cue.Mine, Cue.Chop, Cue.Hammer, Cue.Slam, Cue.Growth, Cue.Place, Cue.Coins, Cue.Raven]) {
+      expect(effects.request(new Sound(cue))).toBeTruthy();
+    }
+    expect(effects.request(new Sound(Cue.OfferStone))).toBeTruthy();
+    expect(effects.request(new Sound(Cue.OfferStone))).toBe(0n);
+    expect(effects.request(new Sound(Cue.OfferAccepted))).toBeTruthy();
+    expect(effects.statistics().effects).toBe(EffectManager.maxEffects);
   });
 
   it('installs background clips in the running device and keeps cached clips', async () => {

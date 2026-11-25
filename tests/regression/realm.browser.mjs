@@ -79,6 +79,7 @@ try {
       gate = wanted >= 0 ? wanted : town.map().dungeons().findIndex(sealable),
       site = town.map().dungeons()[gate];
     site.discovered = true;
+    town.open[gate] = 1;
     const camp = new Building(0, Structure.Camp, town.map().camp(), 0, 0);
     camp.village = 0;
     town.placed.push(camp);
@@ -206,10 +207,10 @@ try {
   await page.evaluate(() => realmProbe.run(4, () => realmProbe.heart()));
   const before = await snapshot();
   await page.evaluate(() => realmProbe.reload());
+  assert.equal((await snapshot()).foes, before.foes, 'Loading preserves every living foe before combat resumes');
   await frames(4);
   state = await snapshot();
   assert(state.active && state.party === 5, 'The delve survives a reload');
-  assert.equal(state.foes, before.foes);
   assert.equal(state.chosen.length, 5, 'The party is selected after a reload');
   assert(state.controls.some((c) => c.id === 'realm-panel'));
   const member = await page.evaluate(() => {

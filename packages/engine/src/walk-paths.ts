@@ -8,6 +8,17 @@ import { RoadGraph } from './road-graph';
 import { footBlockedBy, footSegmentBlockedBy, footBounds } from './person-collision';
 import { PairMinHeap } from './priority-queue';
 const pavedCost = f32(.3), roadCost = f32(.4), forestCost = f32(1.4), rockCost = f32(1.8), searchLimit = 60000;
+const roadReach = f32(.75);
+// Hazard costs make ordinary residents prefer a safe detour. Protected feet treat the same cells as open ground.
+const lavaCost = 96, driftCost = 32;
+type Footing = { lavaProof: boolean; snowGrip: number } | null;
+function footingCost(cost: number, boots: Footing): number {
+    if ((cost === lavaCost && boots?.lavaProof) || (cost === driftCost && boots?.snowGrip)) return 1;
+    return cost;
+}
+export const lavaHealthPerSecond = 0.035;
+/** Tiles a second on each kind of ground. */
+export const walkSpeed = { paved: f32(2.6), road: f32(2.1), forest: f32(.85), rock: f32(.75), open: f32(1.1) };
 const equal = (a: Point, b: Point) => a.x === b.x && a.y === b.y;
 class Search {
     score = new Float32Array();
@@ -66,24 +77,31 @@ export class WalkGrid {
         const x = Math.floor(at.x), y = Math.floor(at.y);
         return x >= 0 && y >= 0 && x < this.columns && y < this.rows && this.cost(x, y) <= 0 && this.groundCost(x, y) > 0;
     }
+    /** Connect the walkable edge of an obstructed cell to the ordinary grid by its laid road. */
+    private roadEntry(at: Point, checkTerrainCorners: boolean, boots: Footing): Point | null {
+        if (!this.rasterGap(at)) return at;
+        const snap = this.roadGraph.snap(at), on = snap.point;
+        if (snap.distance >= roadReach || this.cost(Math.floor(on.x), Math.floor(on.y)) <= 0) return null;
+        return this.clear(at, on, Infinity, checkTerrainCorners, boots) ? on : null;
+    }
     private crossesRasterGap(a: Point, b: Point): boolean {
         const steps = Math.max(1, Math.ceil(distance(a, b) / .25));
         for (let i = 0; i <= steps; ++i) if (this.rasterGap(lerp(a, b, i / steps))) return true;
         return false;
     }
-    private travelCost(path: readonly Point[]): number {
+    private travelCost(path: readonly Point[], boots: Footing): number {
         let total = 0;
         for (let i = 1; i < path.length; ++i) {
             const a = path[i - 1], b = path[i], span = distance(a, b), steps = Math.max(1, Math.ceil(span / .25));
             for (let k = 0; k < steps; ++k) {
                 const p = lerp(a, b, (k + .5) / steps);
-                total += span / steps * this.groundCost(Math.floor(p.x), Math.floor(p.y));
+                total += span / steps * footingCost(this.groundCost(Math.floor(p.x), Math.floor(p.y)), boots);
             }
         }
         return total;
     }
     /** Admit the authored road centerline before coarse regions can reject it. */
-    private corridorPath(from: Point, to: Point): Point[] {
+    private corridorPath(from: Point, to: Point, checkTerrainCorners: boolean, boots: Footing): Point[] {
         if (!this.obstacles.length) return [];
         let candidate: Point[] = [];
         if (this.narrowRoads) {
@@ -95,19 +113,19 @@ export class WalkGrid {
                 const route = graph.route(from, to);
                 let crossed = false, valid = route.length > 0;
                 for (let i = 1; i < route.length; ++i) {
-                    if (!this.clear(route[i - 1], route[i], Infinity)) { valid = false; break; }
+                    if (!this.clear(route[i - 1], route[i], Infinity, checkTerrainCorners, boots)) { valid = false; break; }
                     crossed ||= this.crossesRasterGap(route[i - 1], route[i]);
                 }
-                if (valid && crossed && (!candidate.length || this.travelCost(route) < this.travelCost(candidate)))
+                if (valid && crossed && (!candidate.length || this.travelCost(route, boots) < this.travelCost(candidate, boots)))
                     candidate = route.filter((p, i) => !i || !equal(p, route[i - 1]));
             }
         }
         // Construction fronts and door aprons may be in the same partial cells
         // before any road has been laid. This is an exact clear segment, not an
         // exemption for crossing buildings or impassable terrain.
-        if (this.crossesRasterGap(from, to) && this.clear(from, to, Infinity)) {
+        if (this.crossesRasterGap(from, to) && this.clear(from, to, Infinity, checkTerrainCorners, boots)) {
             const direct = [from, to];
-            if (!candidate.length || this.travelCost(direct) <= this.travelCost(candidate)) return direct;
+            if (!candidate.length || this.travelCost(direct, boots) <= this.travelCost(candidate, boots)) return direct;
         }
         return candidate;
     }
@@ -119,10 +137,15 @@ export class WalkGrid {
         this.costs = new Float32Array(f32(this.columns * this.rows)).fill(1);
         this.blocked = new BigUint64Array(Math.floor(f32((f32(this.costs.length + 63)) / 64)));
         const block = (i: number): void => { this.blocked[Math.floor(f32(i / 64))] |= 1n << BigInt(i % 64); };
+        const passage = map.passageCells;
         for (let y = 0; y < this.rows; ++y)
             for (let x = 0; x < this.columns; ++x) {
                 const tile = map.at(x, y), i = f32(f32(y * this.columns) + x);
-                if (isWater(tile.terrain) || impassable(tile.terrain)) {
+                if (passage?.deepSnow.has(i))
+                    this.costs[i] = driftCost;
+                else if (tile.terrain === Terrain.Lava)
+                    this.costs[i] = lavaCost;
+                else if (isWater(tile.terrain) || impassable(tile.terrain) || (i === passage?.basaltCell && !tile.quarried)) {
                     this.costs[i] = 0;
                     block(i);
                 }
@@ -146,7 +169,9 @@ export class WalkGrid {
                         if (x < 0 || y < 0 || x >= this.columns || y >= this.rows)
                             continue;
                         const cell = f32(f32(y * this.columns) + x), c = this.costs[cell];
-                        if (distance(point(f32(x + f32(.5)), f32(y + f32(.5))), p) >= f32(.75))
+                        // The edge of a laid road cannot cool a neighboring lava cell.
+                        if (c === lavaCost || c === driftCost || (cell === passage?.basaltCell && !map.tiles[cell].quarried)) continue;
+                        if (distance(point(f32(x + f32(.5)), f32(y + f32(.5))), p) >= roadReach)
                             continue;
                         if (c <= 0)
                             this.blocked[Math.floor(f32(cell / 64))] &= ~(1n << BigInt(cell % 64));
@@ -213,8 +238,19 @@ export class WalkGrid {
         }
     }
     walkable(p: Point): boolean { const x = Math.floor(p.x), y = Math.floor(p.y); return x >= 0 && y >= 0 && x < this.columns && y < this.rows && this.groundCost(x, y) > 0 && !this.blockedBy(p); }
-    speedAt(p: Point): number { const x = Math.floor(p.x), y = Math.floor(p.y); if (x < 0 || y < 0 || x >= this.columns || y >= this.rows)
-        return f32(1.1); const c = this.groundCost(x, y); return c === pavedCost ? f32(2.6) : c === roadCost ? f32(2.1) : c === forestCost ? f32(.85) : c === rockCost ? f32(.75) : f32(1.1); }
+    speedAt(p: Point, boots: Footing = null): number {
+        const x = Math.floor(p.x), y = Math.floor(p.y);
+        if (x < 0 || y < 0 || x >= this.columns || y >= this.rows) return walkSpeed.open;
+        switch (footingCost(this.groundCost(x, y), boots)) {
+            case lavaCost: return walkSpeed.open * 0.5;
+            case driftCost: return walkSpeed.open * 0.55;
+            case pavedCost: return walkSpeed.paved;
+            case roadCost: return walkSpeed.road;
+            case forestCost: return walkSpeed.forest;
+            case rockCost: return walkSpeed.rock;
+            default: return walkSpeed.open;
+        }
+    }
     nearestWalkable(p: Point): Point { if (this.walkable(p))
         return p; let nearest = p, gap = 1e30; for (let dy = -4; dy <= 4; ++dy)
         for (let dx = -4; dx <= 4; ++dx) {
@@ -224,16 +260,37 @@ export class WalkGrid {
                 gap = candidate;
             }
         } return nearest; }
-    clear(a: Point, b: Point, limit: number): boolean { if (this.blockedBy(a, b))
-        return false; const steps = Math.max(1, Math.trunc(f32(distance(a, b) / f32(.25)))); for (let i = 0; i <= steps; ++i) {
-        const p = lerp(a, b, f32(i / steps)), x = Math.floor(p.x), y = Math.floor(p.y);
-        if (x < 0 || y < 0 || x >= this.columns || y >= this.rows)
-            return false;
-        const c = this.groundCost(x, y);
-        if (c <= 0 || c > f32(limit + f32(1e-4)))
-            return false;
-    } return true; }
-    path(from: Point, to: Point): Point[] {
+    clear(a: Point, b: Point, limit: number, checkTerrainCorners = false, boots: Footing = null): boolean {
+        if (this.blockedBy(a, b)) return false;
+        const steps = Math.max(1, Math.trunc(f32(distance(a, b) / f32(.25))));
+        for (let i = 0; i <= steps; ++i) {
+            const p = lerp(a, b, f32(i / steps)), x = Math.floor(p.x), y = Math.floor(p.y);
+            if (x < 0 || y < 0 || x >= this.columns || y >= this.rows) return false;
+            const cost = footingCost(this.groundCost(x, y), boots);
+            if (cost <= 0 || cost > f32(limit + f32(1e-4))) return false;
+        }
+        return !checkTerrainCorners || this.crossesOnlyWalkableTiles(a, b, limit, boots);
+    }
+    /** Quarter-tile cost samples can miss a sliver of impassable ground on a resident's route. */
+    private crossesOnlyWalkableTiles(a: Point, b: Point, limit: number, boots: Footing): boolean {
+        let x = Math.floor(a.x), y = Math.floor(a.y);
+        const endX = Math.floor(b.x), endY = Math.floor(b.y);
+        const dx = b.x - a.x, dy = b.y - a.y, stepX = Math.sign(dx), stepY = Math.sign(dy);
+        // clear() has checked both endpoints. Walk the grid lines between them in order.
+        while (x !== endX || y !== endY) {
+            const crossX = x === endX ? Infinity : ((stepX > 0 ? x + 1 : x) - a.x) / dx;
+            const crossY = y === endY ? Infinity : ((stepY > 0 ? y + 1 : y) - a.y) / dy;
+            // A point exactly on a vertex belongs to the positive side of both grid lines.
+            if (crossX === crossY && stepX !== stepY && this.groundCost(Math.max(x, x + stepX), Math.max(y, y + stepY)) <= 0)
+                return false;
+            if (crossX <= crossY) x += stepX;
+            if (crossY <= crossX) y += stepY;
+            const cost = this.groundCost(x, y);
+            if (cost <= 0 || ((cost === lavaCost || cost === driftCost) && footingCost(cost, boots) > limit)) return false;
+        }
+        return true;
+    }
+    path(from: Point, to: Point, checkTerrainCorners = false, boots: Footing = null): Point[] {
         if (!this.costs.length)
             return [];
         const origin = from;
@@ -248,10 +305,22 @@ export class WalkGrid {
                 return [];
             return equal(origin, from) ? [from, to] : [origin, from, to];
         }
-        const corridor = this.corridorPath(from, to);
+        const corridor = this.corridorPath(from, to, checkTerrainCorners, boots);
         const fallback = corridor.length && !equal(origin, from) ? [origin, ...corridor] : corridor;
         const index = (x: number, y: number): number => f32(f32(y * this.columns) + x), start = index(sx, sy), goal = index(gx, gy);
-        if (this.costs[start] <= 0 || this.costs[goal] <= 0 || this.regions[start] !== this.regions[goal])
+        if (this.costs[start] <= 0 || this.costs[goal] <= 0) {
+            if (fallback.length) return fallback;
+            // Two streets may meet only by walking over open land. Start that search on a clear road cell.
+            const entry = this.roadEntry(from, checkTerrainCorners, boots), exit = this.roadEntry(to, checkTerrainCorners, boots);
+            if (!entry || !exit) return [];
+            const route = this.path(entry, exit, checkTerrainCorners, boots);
+            if (!route.length) return [];
+            if (!equal(from, entry)) route.unshift(from);
+            if (!equal(origin, from)) route.unshift(origin);
+            if (!equal(to, exit)) route.push(to);
+            return route;
+        }
+        if (this.regions[start] !== this.regions[goal])
             return fallback;
         const state = search;
         state.begin(f32(this.columns * this.rows));
@@ -280,7 +349,7 @@ export class WalkGrid {
                     const m = index(nx, ny), a = x === sx && y === sy ? from : point(f32(x + f32(.5)), f32(y + f32(.5))), b = nx === gx && ny === gy ? to : point(f32(nx + f32(.5)), f32(ny + f32(.5)));
                     if ((this.nearObstacle[n] || this.nearObstacle[m]) && this.blockedBy(a, b))
                         continue;
-                    const step = f32(f32((dx && dy ? f32(1.4142) : 1) * (f32(this.cost(x, y) + this.cost(nx, ny)))) / 2);
+                    const step = f32(f32((dx && dy ? f32(1.4142) : 1) * f32(footingCost(this.costs[n], boots) + footingCost(this.costs[m], boots))) / 2);
                     if (f32(g + step) < state.scoreAt(m)) {
                         state.set(m, f32(g + step), n);
                         open.push([f32(f32(g + step) + guess(nx, ny)), m]);
@@ -295,7 +364,7 @@ export class WalkGrid {
         cellsOnPath.reverse();
         cellsOnPath[0] = from;
         cellsOnPath[f32(cellsOnPath.length - 1)] = to;
-        const costAt = (p: Point): number => this.cost(Math.floor(p.x), Math.floor(p.y)), smooth: Point[] = [];
+        const costAt = (p: Point): number => footingCost(this.cost(Math.floor(p.x), Math.floor(p.y)), boots), smooth: Point[] = [];
         if (!equal(origin, from))
             smooth.push(origin);
         smooth.push(from);
@@ -313,7 +382,7 @@ export class WalkGrid {
                     let length = 0, valid = !!route.length;
                     for (let k = 1; k < route.length; ++k) {
                         length = f32(length + distance(route[f32(k - 1)], route[k]));
-                        if (!this.clear(route[f32(k - 1)], route[k], roadCost)) {
+                        if (!this.clear(route[f32(k - 1)], route[k], roadCost, checkTerrainCorners, boots)) {
                             valid = false;
                             break;
                         }
@@ -325,14 +394,14 @@ export class WalkGrid {
                         // preceding/following ground legs directly when they are clear.
                         if (smooth.length > 1 && route.length > 2) {
                             const previous = smooth[smooth.length - 2];
-                            if (this.clear(previous, route[1], Math.max(costAt(previous), roadCost))) {
+                            if (this.clear(previous, route[1], Math.max(costAt(previous), roadCost), checkTerrainCorners, boots)) {
                                 smooth.pop();
                                 route[0] = previous;
                             }
                         }
                         if (end + 1 < cellsOnPath.length && route.length > 2) {
                             const next = cellsOnPath[end + 1], exit = route[route.length - 2];
-                            if (this.clear(exit, next, Math.max(costAt(next), roadCost))) {
+                            if (this.clear(exit, next, Math.max(costAt(next), roadCost), checkTerrainCorners, boots)) {
                                 route.pop();
                                 cellsOnPath[end] = exit;
                             }
@@ -353,7 +422,7 @@ export class WalkGrid {
                                     split = k;
                                 }
                             }
-                            if (split === first && last > f32(first + 1) && !this.clear(route[first], route[last], roadCost))
+                            if (split === first && last > f32(first + 1) && !this.clear(route[first], route[last], roadCost, checkTerrainCorners, boots))
                                 split = Math.floor(f32((f32(first + last)) / 2));
                             if (split !== first) {
                                 keep[split] = 1;
@@ -372,7 +441,7 @@ export class WalkGrid {
             for (let j = f32(i + 1); j < cellsOnPath.length && f32(j - i) <= 24; ++j) {
                 if (costAt(cellsOnPath[j]) !== ground)
                     break;
-                if (this.clear(cellsOnPath[i], cellsOnPath[j], ground))
+                if (this.clear(cellsOnPath[i], cellsOnPath[j], ground, checkTerrainCorners, boots))
                     best = j;
             }
             smooth.push(cellsOnPath[best]);
@@ -380,6 +449,6 @@ export class WalkGrid {
         }
         // A narrow road is another valid route, not a reason to ignore a much
         // shorter ordinary route. Compare using the existing terrain/road costs.
-        return corridor.length && this.travelCost(corridor) <= this.travelCost(smooth) ? fallback : smooth;
+        return corridor.length && this.travelCost(corridor, boots) <= this.travelCost(smooth, boots) ? fallback : smooth;
     }
 }

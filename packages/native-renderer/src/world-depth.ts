@@ -4,9 +4,11 @@ import { Giant, Volcano } from '../../engine/src/world-types';
 import { WorldMap } from '../../engine/src/world-map';
 import { Town } from '../../engine/src/town';
 import { structureSpec } from '../../engine/src/building-catalog';
-import type { PaintNode } from './paint';
+import { SceneNode, type PaintNode, type Shade } from './paint';
 import type { WorldRendererState } from './world-renderer-state';
+import { mistRules, mistTones, type MistField } from './mist-bands';
 import { Rect } from '../../native-ui/src/types';
+import { batchScenery } from './scenery-batches';
 
 export interface GroundBaseline {
   left: Point;
@@ -14,14 +16,20 @@ export interface GroundBaseline {
 }
 interface DepthItem {
   paint: PaintNode;
+  centerY: number;
+  /** A previously cached entry no longer describes the registered paint. */
+  superseded?: boolean;
   baseline: GroundBaseline;
   key: string;
   bounds?: Rect;
   /** The box used for culling: `bounds`, or a generous one round the baseline. */
   box?: Rect;
-  /** Explored-fog revision this item was last tested against, and whether the veil hid all of it. */
-  veilAt?: number;
-  veiled?: boolean;
+  /** The tiles under the middle and the two ends of the baseline: where it stands in the mist. */
+  feet?: Point[];
+  /** The redraw of the mist this was last told from, whether the bank hides it, and how dim it is drawn. */
+  mistAt?: number;
+  hidden?: boolean;
+  dim?: number;
 }
 const depthItems = new WeakMap<PaintNode, DepthItem>();
 
@@ -60,7 +68,8 @@ export function registerDepth(paint: PaintNode, at: Point | Footprint, key: stri
     old.bounds?.h === bounds?.h
   )
     return;
-  depthItems.set(paint, { paint, baseline, key, bounds });
+  if (old) old.superseded = true;
+  depthItems.set(paint, { paint, baseline, key, bounds, centerY: (baseline.left.y + baseline.right.y) / 2 });
 }
 export const baselineDepthAt = (line: GroundBaseline, x: number): number => {
   const width = line.right.x - line.left.x;
@@ -74,12 +83,32 @@ export function compareBaselines(a: GroundBaseline, b: GroundBaseline): number {
   return (a.left.y + a.right.y - b.left.y - b.right.y) / 2;
 }
 const centerOrder = (a: DepthItem, b: DepthItem) =>
-  (a.baseline.left.y + a.baseline.right.y - b.baseline.left.y - b.baseline.right.y) / 2 ||
+  a.centerY - b.centerY ||
   (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 const orderCache = new WeakMap<WorldRendererState, { entries: DepthItem[]; order: PaintNode[] }>();
+/** Horizontal baselines already agree with the center sort. Only a tilted footprint can reverse a pair. */
+function followsCenterOrder(entries: readonly DepthItem[]): boolean {
+  let tilted = 0;
+  for (let i = 0; i < entries.length; i++) {
+    const item = entries[i],
+      line = item.baseline;
+    if (i && centerOrder(entries[i - 1], item) === 0) return false;
+    if (line.left.y === line.right.y) continue;
+    // For a settlement with many tilted buildings, the spatial sweep is cheaper.
+    if (++tilted > 4) return false;
+    for (let j = 0; j < entries.length; j++) {
+      const other = entries[j].baseline;
+      if (line.right.x < other.left.x || other.right.x < line.left.x) continue;
+      const delta = compareBaselines(line, other) || centerOrder(item, entries[j]);
+      if ((j < i && delta < 0) || (j > i && delta > 0)) return false;
+    }
+  }
+  return true;
+}
 function orderedPaints(items: readonly DepthItem[]): PaintNode[] {
   const entries = [...items].sort(centerOrder),
     count = entries.length;
+  if (followsCenterOrder(entries)) return entries.map((item) => item.paint);
   const boxes = entries.map(
     (item) =>
       item.bounds ??
@@ -175,65 +204,138 @@ export function cullAround(paint: PaintNode, at: Point): void {
   const item = depthItems.get(paint);
   if (item) item.box = standingBox(groundBaseline(at));
 }
-/** True when land nobody has seen, whose veil is opaque, covers every part of a box. */
-function underVeil(s: WorldRendererState, box: Rect): boolean {
-  // The veil's edge is soft, so test a little beyond the box, at its corners, edges and middle.
-  const pad = 24;
-  for (const across of [0, 0.5, 1])
-    for (const down of [0, 0.5, 1]) {
-      const tile = unproject(
-        box.x - pad + (box.w + pad * 2) * across,
-        box.y - pad + (box.h + pad * 2) * down,
-      );
-      if (s.exploredVisibility.sample(tile) > 0) return false;
-    }
-  return true;
+/** The veil's tone on a thing, a step stronger each redraw until it is as dim as the ground it stands on. */
+const dimmed = (whole: boolean): (Shade | undefined)[] =>
+  Array.from({ length: mistRules.steps + 1 }, (_, step) =>
+    step ? { tone: mistTones.veil, strength: (mistTones.memory * step) / mistRules.steps, whole } : undefined,
+  );
+const shades = { own: dimmed(false), whole: dimmed(true) };
+/**
+ * Tells a thing from the ground it stands on: gone in the bank, dimmed in the veil, plain in sight. It is
+ * told whole, by its foot, so a tree in sight keeps its top against the mist behind it and nothing shows on
+ * the black. A landmark is too wide for one foot: it is gone only when the bank has all of its baseline.
+ */
+function standInMist(s: WorldRendererState, item: DepthItem, mist: MistField): void {
+  if (!item.feet) {
+    const { left, right } = item.baseline;
+    item.feet = [unproject((left.x + right.x) / 2, (left.y + right.y) / 2)];
+    if (item.key.startsWith('landmark:')) item.feet.push(unproject(left.x, left.y), unproject(right.x, right.y));
+  }
+  const foot = item.feet[0];
+  let bank = mist.depth('bank', foot.x, foot.y);
+  for (let i = 1; i < item.feet.length; i++) {
+    const edge = item.feet[i],
+      depth = mist.depth('bank', edge.x, edge.y);
+    if (!Number.isNaN(depth) && (Number.isNaN(bank) || depth < bank)) bank = depth;
+  }
+  // If every foot lies outside the sampled field, keep the last known appearance.
+  if (Number.isNaN(bank)) return;
+  const tick = s.mistTick,
+    hidden = bank > 0,
+    // As dim as the ground under it is tinted, so a thing fades with the mist instead of changing colour at its edge.
+    veil = hidden ? 0 : mist.tint(foot.x, foot.y),
+    want = hidden ? 0 : Number.isNaN(veil) ? (item.dim ?? 0) : Math.round(veil * mistRules.steps),
+    // What comes into view, or out of the bank, is at once as the land round it; the rest goes by steps.
+    sudden = s.reducedMotion || item.hidden !== false || item.mistAt !== tick - 1,
+    dim = sudden ? want : (item.dim ?? 0) + Math.sign(want - (item.dim ?? 0));
+  item.mistAt = tick;
+  item.hidden = hidden;
+  shadeItem(item, dim);
+  // A landmark once seen is known whole: the bank then keeps off all of its ground, so it never stands on black.
+  if (!hidden && item.feet.length > 1 && !s.mistKnown.has(item.key))
+    s.mistKnown.set(item.key, { center: item.feet[0], radius: distance(item.feet[1], item.feet[2]) / 2 + 0.5 });
+}
+function shadeItem(item: DepthItem, dim: number): void {
+  if (item.dim === dim) return;
+  item.dim = dim;
+  // A building is a Lottie picture: its colours are not ours to change one by one.
+  if (item.paint instanceof SceneNode)
+    item.paint.shaded((item.key.startsWith('building:') ? shades.whole : shades.own)[dim]);
+}
+function rowItem(paint: PaintNode, row: number, category: number, order: number): DepthItem {
+  let item = depthItems.get(paint);
+  if (!item) {
+    const y = (row + 1) * 16;
+    item = {
+      paint,
+      baseline: { left: { x: -1e8, y }, right: { x: 1e8, y } },
+      centerY: y,
+      key: `row:${row}:${category}:${order}`,
+    };
+    depthItems.set(paint, item);
+  }
+  return item;
+}
+const treeItems = new WeakMap<SceneNode, { source: DepthItem[]; order: DepthItem[] }>();
+/** Tree rows keep their depth order while the viewport and the mist move past them. */
+function treeOrder(row: SceneNode, index: number): DepthItem[] {
+  const cached = treeItems.get(row),
+    children = row.children;
+  if (
+    cached &&
+    cached.source.length === children.length &&
+    cached.source.every((item, i) => !item.superseded && item.paint === children[i])
+  )
+    return cached.order;
+  const source = children.map((paint, i) => rowItem(paint, index, 2, i)),
+    order = source.slice().sort(centerOrder);
+  treeItems.set(row, { source, order });
+  return order;
 }
 export function sortWorldObjects(s: WorldRendererState): void {
   const visible = viewRect(s),
-    // Fog only exists once vision has run; the editors and scene views show everything.
-    foggy = !s.editorView && !!s.visibilityPicture,
+    right = Math.fround(visible.x + visible.w),
+    bottom = Math.fround(visible.y + visible.h),
+    // Mist only exists once vision has run; the editors and scene views show everything.
+    mist = !s.editorView && s.fogged && !s.mistLifted ? s.mistField : null,
     // Without a camera nothing is known to be off screen; only registered bounds are trusted.
-    framed = s.viewWidth > 0 && s.viewHeight > 0,
-    explored = foggy ? s.exploredVisibility.revision() : -1;
+    framed = s.viewWidth > 0 && s.viewHeight > 0;
   const entries: DepthItem[] = [];
-  for (const [category, rows] of [s.rowBuildings, s.rowLamps, s.rowTrees, s.rows].entries())
-    rows.forEach((row, index) => {
-      if (!row.alpha) return;
-      row.children.forEach((paint, order) => {
-        const item = depthItems.get(paint) ?? {
-          paint,
-          baseline: { left: { x: -1e8, y: (index + 1) * 16 }, right: { x: 1e8, y: (index + 1) * 16 } },
-          key: `row:${index}:${category}:${order}`,
-        };
-        if (!depthItems.has(paint)) depthItems.set(paint, item);
-        // Switched off (a figure out of sight, a spent effect): nothing to draw or to keep in step.
-        if (!paint.alpha) return;
-        // Landmarks tower over any box; they are few and stay in.
-        if (!item.key.startsWith('landmark:')) {
-          const box = (item.box ??= item.bounds ?? standingBox(item.baseline));
-          if (item.bounds || framed) {
-            const overlap = box.intersect(visible);
-            if (overlap.w <= 0 || overlap.h <= 0) return;
-          }
-          if (foggy) {
-            if (item.veilAt !== explored) {
-              item.veilAt = explored;
-              item.veiled = underVeil(s, box);
-            }
-            if (item.veiled) return;
-          }
-        }
-        entries.push(item);
-      });
-    });
+  const collect = (item: DepthItem, category: number) => {
+    // Switched off (a figure out of sight, a spent effect): nothing to draw or to keep in step.
+    if (!item.paint.alpha) return;
+    // Landmarks tower over any box; they are few and stay in.
+    if (!item.key.startsWith('landmark:')) {
+      const box = (item.box ??= item.bounds ?? standingBox(item.baseline));
+      if (item.bounds || framed) {
+        if (
+          Math.min(Math.fround(box.x + box.w), right) <= Math.max(box.x, visible.x) ||
+          Math.min(Math.fround(box.y + box.h), bottom) <= Math.max(box.y, visible.y)
+        )
+          return;
+      }
+    }
+    // Figures and effects are shown by sight itself; everything else by the ground it stands on.
+    if (mist && category !== 3) {
+      if (item.mistAt !== s.mistTick) standInMist(s, item, mist);
+      if (item.hidden) return;
+    } else if (item.dim || item.hidden) {
+      item.hidden = false;
+      item.mistAt = undefined;
+      shadeItem(item, 0);
+    }
+    entries.push(item);
+  };
+  for (const [category, rows] of [s.rowBuildings, s.rowLamps, s.rowTrees, s.rows].entries()) {
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index];
+      if (!row.alpha || !row.children.length) continue;
+      if (category === 2) {
+        for (const item of treeOrder(row, index)) collect(item, category);
+      } else {
+        for (let i = 0; i < row.children.length; i++)
+          collect(rowItem(row.children[i], index, category, i), category);
+      }
+    }
+  }
   const cached = orderCache.get(s),
     unchanged =
       cached &&
       cached.entries.length === entries.length &&
       entries.every((item, i) => item === cached.entries[i]);
-  const next = unchanged ? cached.order : orderedPaints(entries);
-  if (!unchanged) orderCache.set(s, { entries, order: next });
+  const order = unchanged ? cached.order : orderedPaints(entries);
+  if (!unchanged) orderCache.set(s, { entries, order });
+  const next = mist ? batchScenery(order, s.view.zoom) : order;
   if (next.length !== s.objects.children.length || next.some((paint, i) => s.objects.children[i] !== paint)) {
     s.objects.children = next;
     s.objects.version++;

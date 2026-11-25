@@ -2,7 +2,9 @@
 import type { Town } from '../../../../packages/engine/src/town';
 import { Activity, Role, type Person } from '../../../../packages/engine/src/person';
 import { canControl, isPlayerResident } from '../../../../packages/engine/src/faction';
+import type { WorkEfficiency } from '../../../../packages/engine/src/work-efficiency';
 import type { OrderLedger } from './title-orders';
+import type { Traffic } from './title-traffic';
 
 export interface TitleContext {
   town: Town;
@@ -17,6 +19,10 @@ export interface TitleContext {
   later: Map<string, number>;
   /** Staff counts the player last set per workplace; the town may move workers between them on its own. */
   staffed: Map<number, number>;
+  /** What each piece of work is worth; the behaviours pick by it. */
+  efficiency: WorkEfficiency;
+  /** The rounds the residents have been walking lately. */
+  traffic: Traffic;
 }
 /** True while `key` is put off. */
 export const waiting = (ctx: TitleContext, key: string): boolean => (ctx.later.get(key) ?? -1) > ctx.step;

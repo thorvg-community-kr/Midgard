@@ -36,11 +36,6 @@ export const ramp = (v: number, from: number, to: number): number => clamp01((v 
 export const easeOut = (v: number): number => 1 - (1 - clamp01(v)) ** 3;
 /** Slow away and a quick arrival: something that gathers speed. */
 export const easeIn = (v: number): number => clamp01(v) ** 3;
-/** Past the mark and back: a thing set down, a light that catches. */
-export const settle = (v: number): number => {
-  const t = clamp01(v) - 1;
-  return 1 + 2.70158 * t * t * t + 1.70158 * t * t;
-};
 /**
  * Seconds held on drawn frames. Figures act on twos or threes (12 or 8 drawings a second) while
  * the camera and the light stay smooth, as in hand-drawn film.
@@ -111,15 +106,20 @@ export function stars(count: number, bottom: number): SceneNode {
     );
   return scene;
 }
-/** A long low bank with a gently lobed top: mist, cloud, far hills. */
-export function bank(x: number, y: number, w: number, h: number, lobes: number, depth = h): Form {
-  return [
-    pen(x, y)
-      .lobes(x + w, y, lobes, h * 0.42)
-      .line(x + w, y + depth)
-      .line(x, y + depth)
-      .close(),
-  ];
+/**
+ * Points along a level line from `from` to `to` that rolls in uneven swells, no two alike (downward where
+ * `height` is negative), ending on the line: the edge of cloud, mist and driven snow. Never a row of round lobes.
+ */
+function swells(from: number, to: number, y: number, count: number, height: number, salt: number): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = 0; i < count; i++) {
+    const rise = height * (0.5 + 0.5 * scatter(i, salt + 1));
+    out.push([from + (to - from) * ((i + 0.5 + 0.36 * (scatter(i, salt) - 0.5)) / count), y - rise]);
+    if (i < count - 1)
+      out.push([from + (to - from) * ((i + 1 + 0.24 * (scatter(i, salt + 2) - 0.5)) / count), y - rise * (0.16 + 0.28 * scatter(i, salt + 3))]);
+  }
+  out.push([to, y]);
+  return out;
 }
 /**
  * A bank of driven snow tall enough to hide the whole board, for cutting between two panels:
@@ -128,18 +128,16 @@ export function bank(x: number, y: number, w: number, h: number, lobes: number, 
  */
 export function snowVeil(): { scene: SceneNode; rise(v: number): void } {
   const scene = new SceneNode(),
-    body: Form = [
-      pen(-200, 60)
-        .lobes(sagaWidth + 200, 60, 6, 70)
-        .line(sagaWidth + 200, 1500)
-        .lobes(-200, 1500, 6, 70)
-        .close(),
-    ],
-    crest: Form = [pen(-200, 60).lobes(sagaWidth + 200, 60, 6, 70).line(sagaWidth + 200, 150).lobes(-200, 150, 5, 40).close()];
+    right = sagaWidth + 200,
+    // The same rolling edge for the body and the lighter crest that rides it, above and below.
+    over = (): [number, number][] => swells(-200, right, 60, 6, 78, 71),
+    under = (): [number, number][] => swells(right, -200, 1500, 6, -72, 72),
+    body: Form = [pen(-200, 60).curve(...over()).line(right, 1500).curve(...under()).close()],
+    crest: Form = [pen(-200, 60).curve(...over()).line(right, 150).curve(...swells(right, -200, 150, 5, -40, 73)).close()];
   scene
     .add(flat(body, [216, 230, 246]))
     .add(flat(crest, [240, 250, 255]))
-    .add(flat([pen(-200, 1380).lobes(sagaWidth + 200, 1380, 7, 46).line(sagaWidth + 200, 1500).lobes(-200, 1500, 6, 70).close()], [176, 196, 226]));
+    .add(flat([pen(-200, 1380).curve(...swells(-200, right, 1380, 7, 48, 74)).line(right, 1500).curve(...under()).close()], [176, 196, 226]));
   return {
     scene,
     rise(v) {
@@ -196,54 +194,20 @@ export function fitPicture(picture: PictureNode): boolean {
     .opacity(255);
   return true;
 }
-/** A cloud: a lobed crown over a soft, curved belly. */
-export function cloud(x: number, y: number, w: number, h: number, lobes = 4): Form {
+/** A long streak of haze or high cloud: thickest a little off its middle and drawn out to nothing at both ends. */
+export const hazeStreak = (x: number, y: number, w: number, t: number): Contour =>
+  pen(x - w / 2, y)
+    .curve([x - w * 0.2, y - t * 0.56], [x + w * 0.16, y - t * 0.46], [x + w / 2, y])
+    .curve([x + w * 0.14, y + t * 0.5], [x - w * 0.22, y + t * 0.42], [x - w / 2, y])
+    .close();
+/** A bank of cloud or mist: a long body whose back rolls in uneven swells over a soft, curved belly. */
+export function cloud(x: number, y: number, w: number, h: number, count = 4): Form {
+  const back = swells(x, x + w, y + h * 0.16, count, h * 0.62, Math.round(x * 0.37 + y * 0.11 + w));
   return [
-    pen(x, y)
-      .lobes(x + w, y, lobes, h * 0.5)
-      .curve([x + w * 1.04, y + h * 0.3], [x + w * 0.8, y + h * 0.5])
-      .curve([x + w * 0.5, y + h * 0.62], [x + w * 0.2, y + h * 0.5])
-      .curve([x - w * 0.04, y + h * 0.3], [x, y])
+    pen(x, y + h * 0.16)
+      .curve(...back, [x + w * 1.02, y + h * 0.34], [x + w * 0.8, y + h * 0.52], [x + w * 0.5, y + h * 0.62], [x + w * 0.2, y + h * 0.52], [x - w * 0.02, y + h * 0.34], [x, y + h * 0.16])
       .close(),
   ];
-}
-/** A mass of leaves: a few broad lobes over a rounded underside. */
-export function leafMass(x: number, y: number, w: number, h: number): Form {
-  const lobes = Math.max(2, Math.round(w / (h * 1.1)));
-  return [
-    pen(x, y)
-      .lobes(x + w, y, lobes, h * 0.36)
-      .curve([x + w * 1.03, y + h * 0.34], [x + w * 0.82, y + h * 0.56])
-      .curve([x + w * 0.5, y + h * 0.66], [x + w * 0.18, y + h * 0.56])
-      .curve([x - w * 0.03, y + h * 0.34], [x, y])
-      .close(),
-  ];
-}
-/** A fir of three drooping tiers, its foot at (x, y). */
-export function fir(x: number, y: number, h: number): Form {
-  const form: Form = [];
-  for (let tier = 0; tier < 3; tier++) {
-    const w = h * (0.34 - tier * 0.07),
-      base = y - h * 0.3 * tier,
-      top = base - h * (0.5 - tier * 0.05);
-    form.push(
-      pen(x - w, base)
-        .curve([x - w * 0.5, base - (base - top) * 0.3], [x - w * 0.14, base - (base - top) * 0.7], [x, top])
-        .curve(
-          [x + w * 0.14, base - (base - top) * 0.7],
-          [x + w * 0.5, base - (base - top) * 0.3],
-          [x + w, base],
-        )
-        .curve(
-          [x + w * 0.5, base + h * 0.05],
-          [x, base + h * 0.02],
-          [x - w * 0.5, base + h * 0.05],
-          [x - w, base],
-        )
-        .close(),
-    );
-  }
-  return form;
 }
 export function waves(count: number, top: number, bottom: number, color: Rgb, alpha: number): SceneNode {
   const scene = new SceneNode();
@@ -261,8 +225,11 @@ export const frost: Rgb = [140, 164, 206];
 export const rime: Rgb = [216, 230, 246];
 export const iceGlint: Rgb = [240, 250, 255];
 export const darkEye: Rgb = [30, 28, 44];
-/** A pointed, hooked lock from a root to a tip, all curves: icicles, hair, fingers. */
-export function lock(ax: number, ay: number, tx: number, ty: number, width: number, bend = 0.16): Contour {
+/**
+ * A pointed, hooked lock from a root to a tip, all curves: icicles, hair, fingers. `full` is how much of its
+ * half width it keeps toward the point: at 0 it trails off in a long hair, a little gives it a clean tip.
+ */
+export function lock(ax: number, ay: number, tx: number, ty: number, width: number, bend = 0.16, full = 0): Contour {
   const dx = tx - ax,
     dy = ty - ay,
     length = Math.hypot(dx, dy) || 1,
@@ -271,10 +238,10 @@ export function lock(ax: number, ay: number, tx: number, ty: number, width: numb
     bx = (-dy / length) * length * bend,
     by = (dx / length) * length * bend;
   return pen(ax - nx, ay - ny)
-    .cubic(ax - nx + dx * 0.4 + bx, ay - ny + dy * 0.4 + by, tx - dx * 0.25 + bx, ty - dy * 0.25 + by, tx, ty)
+    .cubic(ax - nx + dx * 0.4 + bx, ay - ny + dy * 0.4 + by, tx - dx * 0.25 + bx - nx * full, ty - dy * 0.25 + by - ny * full, tx, ty)
     .cubic(
-      tx - dx * 0.3 + bx * 0.5,
-      ty - dy * 0.3 + by * 0.5,
+      tx - dx * 0.3 + bx * 0.5 + nx * full,
+      ty - dy * 0.3 + by * 0.5 + ny * full,
       ax + nx + dx * 0.35 + bx * 0.5,
       ay + ny + dy * 0.35 + by * 0.5,
       ax + nx,

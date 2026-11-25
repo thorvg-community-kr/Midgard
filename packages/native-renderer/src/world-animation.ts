@@ -1,6 +1,7 @@
-import { point, add, project } from '../../engine/src/geometry';
+import { point, add, project, unproject } from '../../engine/src/geometry';
 import { f32, clamp, lround } from '../../engine/src/numeric';
 import { Town } from '../../engine/src/town';
+import { clearMarks } from '../../engine/src/town-clearing';
 import { WorldRendererState } from './world-renderer-state';
 import { Flicker, flare, brightest } from './light-flicker';
 import { weather, drift } from './world-weather';
@@ -10,12 +11,23 @@ export function animate(s: WorldRendererState, town: Town, seconds: number): voi
   s.lastAnimate = seconds;
   const eyes = lround(f32(255 * clamp(f32(f32(town.climate().night * f32(1.5)) - f32(0.3)), 0, 1)));
   for (const glint of s.ymirGlints) glint?.opacity(eyes);
+  const marks = clearMarks(town);
   for (const [id, item] of s.visuals) {
     const b = town.building(id),
-      frame =
-        b && !b.built()
-          ? f32(f32(b.progress * item.layout.frames) * f32(0.92))
-          : Math.min(item.layout.frames, f32(item.frame + f32(elapsed * item.layout.frameRate)));
+      stage = b && !b.built() ? f32(f32(b.progress * item.layout.frames) * f32(0.92)) : item.layout.frames,
+      removed = marks.length
+        ? (marks.find((mark) => mark.kind === 'building' && mark.id === id)?.done ?? 0)
+        : 0,
+      // Dismantle only what stands. Keeping even a half-built frame lets it rise smoothly back into place.
+      target = f32(stage * (1 - removed)),
+      frame = Math.min(target, f32(item.frame + f32(Math.max(0, elapsed) * item.layout.frameRate)));
+    if (item.nestEggs) {
+      const eggs = b?.eggs ?? 0;
+      item.nestEggs.forEach((egg, i) => {
+        const alpha = i < eggs ? 255 : 0;
+        if (egg.alpha !== alpha) egg.opacity(alpha);
+      });
+    }
     if (frame !== item.frame) {
       item.picture.frame(Math.min(frame, f32(item.layout.frames - 1)));
       item.frame = frame;
@@ -87,8 +99,11 @@ export function animate(s: WorldRendererState, town: Town, seconds: number): voi
       ]);
     }
     if (!pool.hole) continue;
+    // A light nobody has found yet must not show through the mist at night.
+    const tile = unproject(pool.center.x, pool.center.y),
+      found = !s.fogged || s.mistLifted || !s.mistField || s.mistField.depth('bank', tile.x, tile.y) <= 0;
     pool.hole.transform([reach, 0, at.x, 0, f32(reach * squash), at.y, 0, 0, 1]);
-    pool.hole.opacity(Math.trunc(f32(f32(255 * f.brightness) / brightest)));
+    pool.hole.opacity(found ? Math.trunc(f32(f32(255 * f.brightness) / brightest)) : 0);
     if (!pool.tint) continue;
     pool.tint.transform([
       reach,
@@ -101,7 +116,7 @@ export function animate(s: WorldRendererState, town: Town, seconds: number): voi
       0,
       1,
     ]);
-    pool.tint.opacity(Math.trunc(f32(f32(90 * climate.night) * f.brightness)));
+    pool.tint.opacity(found ? Math.trunc(f32(f32(90 * climate.night) * f.brightness)) : 0);
   }
   if (!s.flame) return;
   const p = s.firePosition,

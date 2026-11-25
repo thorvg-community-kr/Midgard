@@ -4,6 +4,7 @@ import type { Application, AppEvent, LaunchOptions, NativeSound, Property } from
 import type { GameRuntime } from './game-runtime';
 import { Tool, Order, PointerButton } from '../../../../packages/engine/src/game-tools';
 import { Town } from '../../../../packages/engine/src/town';
+import { spotVolcano } from '../../../../packages/engine/src/town-vision';
 import { Camera, project, point } from '../../../../packages/engine/src/geometry';
 import { Weather } from '../../../../packages/engine/src/climate';
 import { encodeTown, encodeTownPayload, decodeTown } from '../../../../packages/engine/src/save-game';
@@ -18,6 +19,7 @@ import { Script } from '../../../../packages/native-ui/src/script';
 import { combatHotkey } from './game-combat-hud';
 import { armyKeyDown, armyKeyUp } from './army-keys';
 import { guideHotkey } from './game-guide';
+import { releaseArrivalCamera } from './resident-arrival';
 export interface ApplicationFiles {
   readSync(path: string, maxBytes?: number): string;
   stage(path: string, text: string): void;
@@ -52,6 +54,11 @@ export function worldSeed(
     ? services.designedWorldSeed
     : (options.seed ?? services.randomDevice());
 }
+export function loadSavedTown(encoded: string): Town {
+  const town = decodeTown(encoded, (map) => new Town(map, 176, false, true));
+  spotVolcano(town, town.map().sights());
+  return town;
+}
 function objectId(object: string, prefix: string): number | undefined {
   if (!object.startsWith(prefix)) return;
   const suffix = object.slice(prefix.length);
@@ -63,7 +70,6 @@ function objectId(object: string, prefix: string): number | undefined {
 const shortcuts = new Map<string, Tool>([
   ['q', Tool.Select],
   ['d', Tool.Road],
-  ['e', Tool.Field],
   ['p', Tool.Pave],
   ['c', Tool.Camp],
   ['t', Tool.Tent],
@@ -326,6 +332,8 @@ export class GameApplication implements Application {
     this.lastHeight = height;
   }
   event(e: AppEvent): void {
+    if (e.type === 'PointerDown' || e.type === 'Wheel' || e.type === 'Gesture' || e.type === 'KeyDown')
+      releaseArrivalCamera(this.game);
     if (this.game.handlePrayerEvent?.(e)) { this.dirty = true; return; }
     if (this.game.handleExpeditionEvent?.(e)) { this.dirty = true; return; }
     if (this.game.handleResultEvent?.(e)) { this.dirty = true; return; }
@@ -465,8 +473,8 @@ export class GameApplication implements Application {
     );
   }
   takesTyping(): boolean {
-    // The offering dialog has number fields of its own.
-    return this.authoringTool() || this.editorAttached || !!this.game.prayer || !!this.scriptContext.focused();
+    if (this.game.prayer) return this.game.context.textFocused();
+    return this.authoringTool() || this.editorAttached || !!this.scriptContext.focused();
   }
   /** Changes whenever the settlement passes a point worth an autosave. */
   private milestoneMark(): string {
@@ -578,10 +586,7 @@ export class GameApplication implements Application {
     }
     if (id === 'session.load') {
       try {
-        const loaded = decodeTown(
-          this.services.files.readSync(argument),
-          (map) => new Town(map, 176, false, true),
-        );
+        const loaded = loadSavedTown(this.services.files.readSync(argument));
         this.game.town = loaded;
         const p = loaded.realmParty()[0]?.position ?? loaded.map().camp(),
           at = project(p.x, p.y);

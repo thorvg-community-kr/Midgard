@@ -1,13 +1,14 @@
 import { Rect, rgba } from '../../../../packages/native-ui/src';
 import type { GameCommandApp } from './game-commands';
 import { selectionReferences } from './selection-targets';
-import { hoveredTarget, worldTarget, targetKey } from './world-targets';
-import { Tool } from '../../../../packages/engine/src/game-tools';
+import { hoveredTarget, struckByAttack, worldTarget, targetKey } from './world-targets';
+import { Tool, Order } from '../../../../packages/engine/src/game-tools';
 import type {
   WorldObjectRef,
   GroundSelectionMarker,
 } from '../../../../packages/native-renderer/src/world-picking-types';
-import { nameplatePlace, paintWorldNameplate } from './world-nameplate';
+import { nameplateAnchor, nameplatePlace, paintWorldNameplate } from './world-nameplate';
+import { guideSubject } from './game-guide';
 
 /** Ground feedback belongs beneath world objects; only nameplates are drawn in the HUD. */
 export function objectSelectionOverlay(app: GameCommandApp): void {
@@ -17,10 +18,22 @@ export function objectSelectionOverlay(app: GameCommandApp): void {
     : !app.touchMode && app.tool === Tool.Select && !app.boxFrom && !app.panFrom
       ? [hoveredTarget(app)].filter((ref): ref is WorldObjectRef => !!ref)
       : [];
-  const hover = selected.length === 0,
-    occupied: Rect[] = [],
-    markers: GroundSelectionMarker[] = [];
-  for (const ref of refs) {
+  const occupied: Rect[] = [],
+    markers: GroundSelectionMarker[] = [],
+    // What the guide's note is about is ringed like a hovered thing, unless the selection is already on it.
+    told = guideSubject(app),
+    marked = refs.map((ref) => ({ ref, hover: selected.length === 0 })),
+    // An aimed attack marks the unit a click would strike, as a hovered one.
+    aimed =
+      selected.length && app.pending === Order.Attack && !app.touchMode && !app.boxFrom && app.targetingCursor()
+        ? hoveredTarget(app)
+        : null;
+  if (aimed && struckByAttack(app, aimed) && !refs.some((ref) => ref.kind === aimed.kind && ref.id === aimed.id)) {
+    marked.push({ ref: aimed, hover: true });
+    refs.push(aimed);
+  }
+  if (told && !refs.some((ref) => ref.kind === told.kind && ref.id === told.id)) marked.push({ ref: told, hover: true });
+  for (const { ref, hover } of marked) {
     const target = worldTarget(app, ref);
     // Ground feedback resolves current model positions even before a new frame is presented.
     markers.push({
@@ -32,7 +45,8 @@ export function objectSelectionOverlay(app: GameCommandApp): void {
     if (!target) continue;
     const g = target.geometry,
       dock = app.dockBounds,
-      center = g.bounds.x + g.bounds.w / 2,
+      anchor = nameplateAnchor(g),
+      center = anchor.x + anchor.w / 2,
       // The name sits under the target, where no health bar or mark is; the bottom panel is its floor.
       floor = dock && dock.h > 0 && center > dock.x - 90 && center < dock.x + dock.w + 90 ? dock.y : app.viewHeight,
       { bounds: r, below } = nameplatePlace(app.context, target.name, g, app.viewWidth, floor, 1.25),

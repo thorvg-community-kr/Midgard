@@ -1,3 +1,4 @@
+import { harvestName, harvestProduct } from '../../../../packages/engine/src/harvest-material';
 import type { GameCommandApp } from './game-commands';
 import type { Point } from '../../../../packages/engine/src/geometry';
 import { structureSpec } from '../../../../packages/engine/src/building-catalog';
@@ -87,11 +88,11 @@ export function worldTarget(app: GameCommandApp, ref: WorldObjectRef): WorldTarg
       break;
     }
     case 'tree':
-      name = 'Tree';
+    case 'rock': {
+      const map = town.map(), x = ref.id % map.width(), y = Math.floor(ref.id / map.width());
+      if (map.inside(x, y)) name = harvestName(harvestProduct(map, x, y, ref.kind === 'rock'), ref.kind === 'rock' && ref.id === map.basaltCell);
       break;
-    case 'rock':
-      name = 'Stone';
-      break;
+    }
     case 'dungeon':
       name = town.map().dungeons()[ref.id]?.name;
       break;
@@ -124,4 +125,14 @@ export function targetsInBox(app: GameCommandApp, box: SelectionBounds): WorldOb
 export function hoveredTarget(app: GameCommandApp): WorldObjectRef | null {
   const hit = cachedWorldHit(app);
   return hit ? reference(hit) : null;
+}
+/** Whether an Attack click on this hit strikes it: a creature, or a person who is no companion. */
+export function struckByAttack(app: Pick<GameCommandApp, 'town'>, hit: WorldObjectRef | null): boolean {
+  if (hit?.kind === 'person') {
+    const person = app.town.person(hit.id);
+    return !!person && !isPlayerResident(person);
+  }
+  if (hit?.kind !== 'animal' && hit?.kind !== 'monster') return false;
+  const creature = app.town.creature(hit.id);
+  return !!creature && !(creature.pen >= 0);
 }

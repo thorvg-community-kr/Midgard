@@ -22,12 +22,23 @@ import {
 import {
   animateCraft,
   animateFieldWork,
+  animateFoundry,
   animateProcessingWork,
   animateTrade,
+  clearWorkProps,
   tradeOf,
 } from '../../packages/native-renderer/src/work-motion';
 import { Structure } from '../../packages/engine/src/building-catalog';
 import { handOf } from '../../packages/native-renderer/src/person-arm';
+import {
+  animateBenchCraft,
+  animateClearing,
+  animateRoadwork,
+  animateStationWork,
+  passLoad,
+  sitePhase,
+} from '../../packages/native-renderer/src/site-work-motion';
+import { appearanceOf } from '../../packages/engine/src/person-look';
 import type { Matrix } from '../../packages/native-renderer/src/paint';
 
 const figure = (calling = Calling.Settler) => {
@@ -84,8 +95,8 @@ const poses: [string, (parts: PersonParts, t: number) => void][] = [
   ['watering', (p, t) => animateFieldWork(p, true, t * 1.25)],
   ['sawing', (p, t) => animateProcessingWork(p, true, t)],
   ['chiselling', (p, t) => animateProcessingWork(p, false, t)],
-  ['paring a piece at the bench', (p, t) => animateCraft(p, 'knife', false, t, 0)],
-  ['beating a piece at the bench', (p, t) => animateCraft(p, 'hammer', true, t * hammerTiming.period, 0)],
+  ['fitting a piece at the smithy', (p, t) => animateCraft(p, null, false, t, 0)],
+  ['beating a piece at the smithy', (p, t) => animateCraft(p, 'hammer', true, t * hammerTiming.period, 0)],
   ['holding up a finished piece', (p, t) => animateCraft(p, 'sword', false, 0, Math.max(0.02, t))],
   ['gathering', (p, t) => animateGather(p, Math.sin(Math.PI * t))],
   ['tending', (p, t) => animateTend(p, t)],
@@ -217,5 +228,119 @@ describe('down and resting', () => {
     animateSip(parts, 1.85, true);
     // The hand has come back down toward where it hangs.
     expect(handOf(parts.arms[1]).y).toBeGreaterThan(raised + 3);
+  });
+});
+
+const sitePoses: [string, (parts: PersonParts, seconds: number) => void][] = [
+  ['pressing and turning a piece on the bench', (p, t) => animateBenchCraft(p, 'wood', null, t, 0)],
+  ['tapping a piece with a carried mallet', (p, t) => animateBenchCraft(p, 'wood', 'wood', t, 0)],
+  ['pulling boards', (p, t) => animateClearing(p, 'building', null, t)],
+  ['breaking a frame', (p, t) => animateClearing(p, 'building', 'hammer', t)],
+  ['pegging a station rail', (p, t) => animateStationWork(p, 'hammer', t)],
+  ['fitting a station rail by hand', (p, t) => animateStationWork(p, null, t)],
+  ['lifting paving', (p, t) => animateClearing(p, 'road', null, t)],
+  ['breaking paving', (p, t) => animateClearing(p, 'road', 'hammer', t)],
+  ['pulling roots', (p, t) => animateClearing(p, 'field', null, t)],
+  ['tamping a road', (p, t) => animateRoadwork(p, null, t)],
+  ['shovelling', (p, t) => animateRoadwork(p, 'shovel', t)],
+  ['reaping', (p, t) => animateFieldWork(p, false, t, 'sickle')],
+  ['watering by hand', (p, t) => animateFieldWork(p, true, t, null)],
+  ['watering with a can', (p, t) => animateFieldWork(p, true, t, 'wateringCan')],
+  ['handling timber', (p, t) => animateProcessingWork(p, true, t, false)],
+  ['turning stone', (p, t) => animateProcessingWork(p, false, t, false)],
+  ['working with a saw', (p, t) => animateProcessingWork(p, true, t)],
+  ['working with a chisel', (p, t) => animateProcessingWork(p, false, t)],
+  ['working the bellows', (p, t) => animateFoundry(p, false, t)],
+  ['binding wood', (p, t) => animateFoundry(p, true, t)],
+  ['giving a blessing', (p, t) => animateTrade(p, 'bless', t)],
+  ['taking a bite', (p, t) => animateSip(p, t, false)],
+  ['drinking from a cup', (p, t) => animateSip(p, t, true)],
+];
+describe('outdoor work and meals', () => {
+  it('passes one visible parcel from the giving hands to the receiving hands', () => {
+    const giver = figure(), taker = figure();
+    for (const progress of [0.25, 0.49, 0.51, 0.75]) {
+      for (const [parts, taking] of [[giver, false], [taker, true]] as const) {
+        stridePose(parts, 0, false);
+        passLoad(parts, taking, progress);
+      }
+      expect(giver.workPieces.parcel!.alpha > 0).toBe(progress < 0.5);
+      expect(taker.workPieces.parcel!.alpha > 0).toBe(progress > 0.5);
+    }
+  });
+  it.each(sitePoses)('keeps wrists, elbows and planted boots continuous while %s', (_, pose) => {
+    for (const [height, width] of [
+      [1, 1],
+      [0.85, 1.2],
+      [1.2, 0.85],
+    ]) {
+      const person = new Person(1, 'Liv', Role.Resident, Calling.Settler, Race.Human, 4242, point());
+      person.customLook = { ...appearanceOf(person), bodyHeight: height, bodyWidth: width };
+      const parts = new PersonParts();
+      personSprite(person, parts);
+      let previous: number[] | undefined, planted: number[] | undefined;
+      let maxStep = 0,
+        maxWrist = 0,
+        footSlip = 0;
+      // Sample the return across a loop seam as well as the contact.
+      for (let frame = 0; frame <= 180; ++frame) {
+        pose(parts, frame / 60);
+        const turns = parts.arms.flatMap((arm) => [arm.turn.upper, arm.turn.elbow, arm.turn.wrist]),
+          at = parts.feet.map((foot) => foot!.matrix[2] + parts.body!.matrix[2]);
+        if (previous) maxStep = Math.max(maxStep, ...turns.map((v, i) => Math.abs(v - previous![i])));
+        if (planted) footSlip = Math.max(footSlip, ...at.map((v, i) => Math.abs(v - planted![i])));
+        else planted = at;
+        maxWrist = Math.max(maxWrist, ...parts.arms.map((a) => Math.abs(a.turn.wrist)));
+        previous = turns;
+      }
+      expect(maxStep).toBeLessThan(0.38);
+      expect(maxWrist).toBeLessThan(0.9);
+      expect(footSlip).toBeLessThan(0.001);
+    }
+  });
+  it('makes contact and releases debris on the same beat as the demolition sound', () => {
+    const parts = figure(),
+      { period, impact } = hammerTiming;
+    for (let beat = 0; beat < 3; beat++) {
+      const hit = period * beat + impact;
+      expect(sitePhase(hit)).toBeCloseTo(0.5);
+      animateClearing(parts, 'building', 'hammer', hit - 0.02);
+      expect(parts.soilDust!.alpha).toBe(0);
+      const before = parts.body!.matrix[2];
+      animateClearing(parts, 'building', 'hammer', hit + 0.001);
+      expect(parts.soilDust!.alpha).toBe(255);
+      expect(parts.body!.matrix[2]).toBeGreaterThan(before);
+    }
+  });
+  it('ties lifted materials to their job and clears the previous grip and props between jobs', () => {
+    const parts = figure();
+    animateClearing(parts, 'road', null, hammerTiming.impact);
+    expect(parts.workPieces.paver!.alpha).toBe(255);
+    clearWorkProps(parts);
+    animateClearing(parts, 'field', null, hammerTiming.impact);
+    expect(parts.workPieces.paver!.alpha).toBe(0);
+    expect(parts.workPieces.roots!.alpha).toBe(255);
+    clearWorkProps(parts);
+    animateRoadwork(parts, 'shovel', hammerTiming.impact);
+    expect(parts.shovel!.matrix[0]).toBeLessThan(0);
+    clearWorkProps(parts);
+    expect(parts.workPieces.roots!.alpha).toBe(0);
+    expect(parts.shovel!.matrix).toEqual([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+  });
+  it('keeps bread and cup in the palm and tips the rim only at the mouth', () => {
+    const parts = figure();
+    for (const drinking of [false, true]) {
+      const prop = drinking ? parts.cup! : parts.bread!;
+      for (const t of [0, 0.4, 0.8, 1.1, 1.8]) {
+        animateSip(parts, t, drinking);
+        const wrist = handOf(parts.arms[1]);
+        expect(prop.matrix[2]).toBeCloseTo(wrist.x, 4);
+        expect(prop.matrix[5]).toBeCloseTo(wrist.y, 4);
+        if (drinking && t === 1.1) {
+          expect(prop.matrix[3]).toBeLessThan(-0.5);
+          expect(wrist.y).toBeLessThan(parts.neck.y);
+        } else if (drinking && (t === 0.4 || t === 1.8)) expect(prop.matrix[3]).toBeCloseTo(0);
+      }
+    }
   });
 });

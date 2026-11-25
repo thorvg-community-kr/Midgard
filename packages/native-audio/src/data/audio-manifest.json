@@ -792,6 +792,12 @@
     "channels": 1
   },
   {
+    "name": "sfx/offering/altar",
+    "rate": 22050,
+    "frames": 68355,
+    "channels": 1
+  },
+  {
     "name": "ui/cancel_01",
     "frames": 5737,
     "rate": 22050,

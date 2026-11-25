@@ -1,4 +1,6 @@
+import { herdLeader, leadLivestock, localRanches, orderRanchHarvest } from './livestock';
 import { drawFromPack } from './carried-resources';
+import { beginMeal } from './resident-meals';
 import { TownState } from './town-state';
 import { Person, Role, Activity, AnimalKind } from './person';
 import { Building } from './town-models';
@@ -26,7 +28,7 @@ function mayVisit(town: NeedsTown, p: Person, place: Building): boolean {
 export function eat(this: NeedsTown, p: Person): boolean {
   // Food already carried is eaten on the spot instead of walking to a pantry.
   if (drawFromPack(p, Product.Food, 1)) {
-    p.food = 1;
+    beginMeal(p, this.time);
     ++this.economy(this.settlementOf(p)).today.eaten;
     return true;
   }
@@ -112,20 +114,25 @@ export function takeBreak(this: NeedsTown, p: Person): boolean {
 // Hunting is an automatic food transaction; the kill yields a meal and carried
 // surplus, not food teleported to the treasury from across the map.
 export function huntFood(this: import('./town').Town, p: Person): boolean {
-  if (p.hunting && this.creature(p.foe)?.health! > 0) return true;
+  if (p.hunting && (this.creature(p.foe)?.health ?? 0) > 0) return true;
   if (p.carrying > 0) {
     if (p.carriedProduct === Product.Food) {
       --p.carrying;
-      p.food = 1;
+      beginMeal(p, this.time);
       ++this.economy(this.settlementOf(p)).today.eaten;
-      return p.carrying && !this.keepCargo(p) ? this.haulCargo(p) : true;
+      if (p.carrying) this.keepCargo(p);
+      return true;
     }
     // A single cargo slot must never silently turn existing wood/stone into meat.
     return this.keepCargo(p) || this.haulCargo(p);
   }
+  if (localRanches(this, p).length) {
+    // A delivery of food can feed a busy resident without cancelling their unfinished order.
+    return !p.ordered && ![Activity.Building, Activity.Roadwork, Activity.Crafting].includes(p.task) && (orderRanchHarvest(this, p) || leadLivestock(this, p));
+  }
   const prey = this.animals.filter(
     (a) =>
-      a.health > 0 &&
+      a.health > 0 && a.pen < 0 && !herdLeader(this, a) &&
       a.animal !== null &&
       [AnimalKind.Chicken, AnimalKind.Pig, AnimalKind.Cow].includes(a.animal) &&
       this.world.revealed(a.position),

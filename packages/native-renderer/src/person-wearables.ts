@@ -128,7 +128,8 @@ export function wearableBody(
     }
     sprite.add(armor);
   }
-  if (equippedItem(person, 'feet')?.id === 'boots') {
+  const boots = equippedItem(person, 'feet');
+  if (boots) {
     parts.feet.forEach((foot, i) => {
       if (!foot) return;
       const sign = i ? 1 : -1,
@@ -147,6 +148,7 @@ export function wearableBody(
           i ? [82, 57, 36] : [123, 88, 52],
         ),
       );
+      if (boots.snowGrip) group.add(stroke([left - 0.5, -0.3], [right + 0.8, -0.3], 0.9, boots.lavaProof ? [188, 118, 77] : [176, 189, 181]));
       group.add(stroke([left + 0.15, -2.5], [right - 0.15, -2.5], 0.45, [177, 140, 85]));
       sprite.remove(foot);
       sprite.add(group);

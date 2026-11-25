@@ -4,7 +4,8 @@ import { hash01 } from '../../engine/src/numeric';
 import { Rect } from '../../native-ui/src/types';
 import { SceneNode, ShapeNode, type PaintNode, type Rgb, type Rgba } from './paint';
 import { opaque, softDisc } from './vector-paint';
-import { region, RESOLUTION, type Sample } from './contours';
+import { RESOLUTION, type Sample } from './contours';
+import type { groundContours } from './ground-contours';
 import { appendBlob, type Local } from './flat-forms';
 import { drift, driftOffset, Liquid, type Drift } from './water-motion';
 import { isoLayer, type WorldRendererState } from './world-renderer-state';
@@ -77,27 +78,21 @@ function spotShape(salt: number, k: number, r: number): ShapeNode {
   }
   return appendBlob(new ShapeNode(), point(), points).fill(...opaque(hot));
 }
-/**
- * Paints the molten bands (base, hot and core) cell by cell into `iso`, after the static crust bands.
- * `lava(inset)` is the field of the flow; the tints take the colours, the cells keep the motion.
- */
-export function paintLava(
-  iso: SceneNode,
-  map: TerrainMap,
-  tints: Tinted[],
-  lava: (inset: number) => Sample,
-  base: Tint,
-  area?: TileRegion,
-): void {
-  const patches: LavaPatch[] = [],
-    // Phases hang on position alone, so a repaint keeps every flow in its own step.
-    seed = 0,
+
+interface LavaCellLayout {
+  cell: TileRegion;
+  zone: TileRegion;
+  center: Point;
+  cores: Point[];
+}
+
+const layouts = new WeakMap<object, LavaCellLayout[]>();
+
+function lavaLayout(map: TerrainMap, lava: (inset: number) => Sample, area?: TileRegion): LavaCellLayout[] {
+  const result: LavaCellLayout[] = [],
     molten = lava(0),
     width = map.width(),
-    height = map.height(),
-    // Band by band across all cells, so the edges where cells overlap blend a colour with itself.
-    layers = [new SceneNode(), new SceneNode(), new SceneNode()],
-    glows = new SceneNode();
+    height = map.height();
   for (let top = 0; top < height; top += lavaCell)
     for (let left = 0; left < width; left += lavaCell) {
       const cell = {
@@ -132,23 +127,6 @@ export function paintLava(
         right: Math.min(area?.right ?? width, cell.right + 1),
         bottom: Math.min(area?.bottom ?? height, cell.bottom + 1),
       };
-      const bands: Band[] = [],
-        index = patches.length;
-      for (const [k, [inset, color, reach, period, salt]] of (
-        [
-          [0, base, 0.04, 34, 31],
-          [0.05, (): Rgba => opaque([204, 92, 34]), 0.07, 29, 32],
-          [0.13, (): Rgba => opaque([240, 150, 56]), 0.09, 24, 33],
-        ] as const
-      ).entries()) {
-        const shape = region(map, 0, lava(inset), { x: 0, y: 0 }, zone);
-        tints.push({ shape, color, stroke: false });
-        layers[k].add(shape);
-        bands.push({ shape, drift: drift(Liquid.Lava, f(reach), period, salt) });
-      }
-      const clip = region(map, 0, lava(0.05), { x: 0, y: 0 }, zone).fill(255, 255, 255),
-        glow = new SceneNode().clip(clip);
-      bands.push({ shape: clip, drift: bands[1].drift });
       // Up to two breathing cores per cell, where the flow runs hottest, a few tiles apart.
       const core = lava(0.13),
         hotter = lava(0.05),
@@ -160,7 +138,7 @@ export function paintLava(
             if (field(i, j) >= f(0.01))
               candidates.push({
                 at: point(f(i / RESOLUTION), f(j / RESOLUTION)),
-                order: hash01(seed, i, j, 873),
+                order: hash01(0, i, j, 873),
               });
         candidates.sort((a, b) => a.order - b.order);
         for (const c of candidates)
@@ -168,48 +146,98 @@ export function paintLava(
             found.push(c.at);
         if (found.length) break;
       }
-      const spots = found.map((at, k) => {
-        const node = spotShape(seed + index, k, f(1.1));
-        glow.add(node);
-        return {
-          node,
-          at,
-          phase: hash01(seed, Math.trunc(at.x), Math.trunc(at.y), 874),
-          period: f(f(5) + f(f(3) * hash01(seed, Math.trunc(at.x), Math.trunc(at.y), 875))),
-        };
-      });
-      glows.add(glow);
-      const center = point(f(sx / count / RESOLUTION), f(sy / count / RESOLUTION)),
-        corners = [
-          project(zone.left, zone.top),
-          project(zone.right, zone.top),
-          project(zone.left, zone.bottom),
-          project(zone.right, zone.bottom),
-        ],
-        x0 = Math.min(...corners.map((c) => c.x)) - lavaLight.rx,
-        y0 = Math.min(...corners.map((c) => c.y)) - lavaLight.ry,
-        x1 = Math.max(...corners.map((c) => c.x)) + lavaLight.rx,
-        y1 = Math.max(...corners.map((c) => c.y)) + lavaLight.ry;
-      glow.opacity(0);
-      patches.push({
-        area: cell,
-        box: new Rect(x0, y0, f(x1 - x0), f(y1 - y0)),
-        center,
-        bands,
-        glow,
-        spots,
-        outline: region(map, 0, lava(-0.03), { x: 0, y: 0 }, zone).fill(255, 255, 255),
-        phase: hash01(seed, cell.left, cell.top, 876),
-        period: f(f(6) + f(f(2.5) * hash01(seed, cell.left, cell.top, 877))),
-        shown: false,
-        cut: false,
-        knownAt: -1,
-        known: false,
-        rested: true,
-        seenAt: -1,
-        seen: false,
+      result.push({
+        cell, zone, center: point(f(sx / count / RESOLUTION), f(sy / count / RESOLUTION)), cores: found,
       });
     }
+  return result;
+}
+
+/**
+ * Paints the molten bands (base, hot and core) cell by cell into `iso`, after the static crust bands.
+ * `lava(inset)` is the field of the flow; the tints take the colours, the cells keep the motion.
+ */
+export function paintLava(
+  iso: SceneNode,
+  map: TerrainMap,
+  tints: Tinted[],
+  lava: (inset: number) => Sample,
+  base: Tint,
+  contour: ReturnType<typeof groundContours>,
+  area?: TileRegion,
+): void {
+  const patches: LavaPatch[] = [],
+    // Phases hang on position alone, so a repaint keeps every flow in its own step.
+    seed = 0,
+    // Band by band across all cells, so the edges where cells overlap blend a colour with itself.
+    layers = [new SceneNode(), new SceneNode(), new SceneNode()],
+    glows = new SceneNode();
+  const key = contour.cacheKey;
+  let layout = key && layouts.get(key);
+  if (!layout) {
+    layout = lavaLayout(map, lava, area);
+    if (key) layouts.set(key, layout);
+  }
+  for (const { cell, zone, center, cores } of layout) {
+    const outline = (inset: number) => contour(`lava-${inset}`, lava(inset), 0, undefined, zone);
+    const bands: Band[] = [],
+      index = patches.length;
+    for (const [k, [inset, color, reach, period, salt]] of (
+      [
+        [0, base, 0.04, 34, 31],
+        [0.05, (): Rgba => opaque([204, 92, 34]), 0.07, 29, 32],
+        [0.13, (): Rgba => opaque([240, 150, 56]), 0.09, 24, 33],
+      ] as const
+    ).entries()) {
+      const shape = outline(inset);
+      tints.push({ shape, color, stroke: false });
+      layers[k].add(shape);
+      bands.push({ shape, drift: drift(Liquid.Lava, f(reach), period, salt) });
+    }
+    const clip = outline(0.05).fill(255, 255, 255),
+      glow = new SceneNode().clip(clip);
+    bands.push({ shape: clip, drift: bands[1].drift });
+    const spots = cores.map((at, k) => {
+      const node = spotShape(seed + index, k, f(1.1));
+      glow.add(node);
+      return {
+        node,
+        at: { ...at },
+        phase: hash01(seed, Math.trunc(at.x), Math.trunc(at.y), 874),
+        period: f(f(5) + f(f(3) * hash01(seed, Math.trunc(at.x), Math.trunc(at.y), 875))),
+      };
+    });
+    glows.add(glow);
+    const corners = [
+        project(zone.left, zone.top),
+        project(zone.right, zone.top),
+        project(zone.left, zone.bottom),
+        project(zone.right, zone.bottom),
+      ],
+      x0 = Math.min(...corners.map((c) => c.x)) - lavaLight.rx,
+      y0 = Math.min(...corners.map((c) => c.y)) - lavaLight.ry,
+      x1 = Math.max(...corners.map((c) => c.x)) + lavaLight.rx,
+      y1 = Math.max(...corners.map((c) => c.y)) + lavaLight.ry;
+    glow.opacity(0);
+    patches.push({
+      area: { ...cell },
+      box: new Rect(x0, y0, f(x1 - x0), f(y1 - y0)),
+      center: { ...center },
+      bands,
+      glow,
+      spots,
+      outline: outline(-0.03).fill(255, 255, 255),
+      phase: hash01(seed, cell.left, cell.top, 876),
+      period: f(f(6) + f(f(2.5) * hash01(seed, cell.left, cell.top, 877))),
+      shown: false,
+      cut: false,
+      knownAt: -1,
+      known: false,
+      rested: true,
+      seenAt: -1,
+      seen: false,
+    });
+  }
   for (const layer of layers) iso.add(layer);
   iso.add(glows);
   patchesOf.set(iso, patches);
@@ -247,6 +275,10 @@ export function lightLava(s: WorldRendererState, lit: SceneNode): void {
     patch.lights = { cut, hole, tint };
     patch.shown = patch.cut = false;
   }
+  lightCrater(s, lit);
+}
+/** The crater can first come into sight while every existing light is still current. */
+export function lightCrater(s: WorldRendererState, lit: SceneNode): void {
   const v = s.fireRow >= 0 ? s.volcanoLight : null;
   if (v?.cut) {
     const hole = softDisc(260, [255, 255, 255], 190).transform([

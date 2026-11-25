@@ -18,6 +18,8 @@ export interface SelectionGeometry {
   foot: Point;
   bounds: PickBounds;
   labelAnchor: Point;
+  /** A unit's box on screen from where it stands, still while its pose moves; the drawn bounds animate. */
+  stand?: PickBounds;
   opacity: number;
   groundOutline?: Point[];
   path?: Point[];

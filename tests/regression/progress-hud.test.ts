@@ -5,6 +5,7 @@ import { parseFontMetrics } from '../../packages/native-ui/src/fonts';
 import { Context, Rect } from '../../packages/native-ui/src';
 import { Structure, Resources, Product, structureSpec } from '../../packages/engine/src/building-catalog';
 import { Building, Field } from '../../packages/engine/src/town-models';
+import { sharpAnchor } from '../../packages/engine/src/road-network';
 import { Town } from '../../packages/engine/src/town';
 import { Calling, Role, type Person } from '../../packages/engine/src/person';
 import { point } from '../../packages/engine/src/geometry';
@@ -22,7 +23,6 @@ import { objectives } from '../../apps/web/src/native/game-objectives';
 import { calendarDetails } from '../../apps/web/src/native/game-sky-hud';
 import { winterOutlookLine } from '../../apps/web/src/native/camp-resource-hud';
 import { trackUnlocks, trackGearUse, freshGroup } from '../../apps/web/src/native/game-progress-hud';
-import { stationCrafter } from '../../apps/web/src/native/craft-station-hud';
 import { setGuidePreference } from '../../apps/web/src/native/guide-preferences';
 import { unlockOf } from '../../apps/web/src/native/game-guide';
 import { questRules } from '../../apps/web/src/native/game-objectives';
@@ -74,14 +74,16 @@ afterEach(() => {
 });
 const goalIndex = (title: string, branch?: GoalBranch): number =>
   settlementGoals().findIndex((goal) => goal.title === title && (branch === undefined || goal.branch === branch));
-/** A founded settlement with a finished camp and no founders. */
+/** A founded settlement with a finished camp, its first road laid (the second quest) and no founders. */
 function settlement(): Town {
   const town = new Town(5, 32, false),
-    camp = new Building(0, Structure.Camp, town.map().camp(), 0, 0);
+    at = town.map().camp(),
+    camp = new Building(0, Structure.Camp, at, 0, 0);
   camp.village = 0;
   town.placed.push(camp);
   town.nextId = 1;
   town.foundSettlement(0);
+  town.roads().road(town.roads().add([sharpAnchor(at), sharpAnchor(point(at.x + 3, at.y))], 1))!.village = 0;
   town.notices = [];
   return town;
 }
@@ -128,7 +130,7 @@ function fixture(town: Town, width = 1024, height = 768) {
   );
   const context = new Context(tvg, metrics);
   // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the HUD functions under test use only GameAppState fields and the stubs below.
-  const app = new GameAppState(town, {} as never, context) as GameHudApp;
+  const app = new GameAppState(town, { buildingRoof: () => null } as never, context) as GameHudApp;
   app.selectTool = vi.fn();
   app.selectBuilding = vi.fn();
   app.selectPeople = vi.fn();
@@ -224,7 +226,28 @@ describe('quest panel', () => {
       ui.dispose();
     }
   });
-  it('leads a crafting goal to a workbench, then to its list with the resident who can start it', () => {
+  it('leads the farm quest to the Farm tool, then to the farmhouse site it staked out', () => {
+    const town = settlement(),
+      ui = fixture(town),
+      goal = goalIndex('Lay out a farm');
+    try {
+      for (const kind of [Structure.Workbench, Structure.Weaponsmith, Structure.Tent]) facility(town, kind);
+      goalPick.branch = (branch) => (branch === GoalBranch.Core ? goal : -1);
+      questPanel(ui);
+      expect(ui.words()).toEqual(expect.arrayContaining(['Lay out a farm', 'No farm yet']));
+      ui.click(`quest-action/${goal}`);
+      expect(ui.app.selectTool).toHaveBeenCalledWith(Tool.Farm);
+      const site = facility(town, Structure.Farm);
+      site.progress = 0.4;
+      questPanel(ui);
+      expect(ui.words()).toEqual(expect.arrayContaining(['Under construction', 'Find construction site']));
+      ui.click(`quest-action/${goal}`);
+      expect(ui.app.selectBuilding).toHaveBeenCalledWith(site.id);
+    } finally {
+      ui.dispose();
+    }
+  });
+  it('leads a crafting goal to a workbench, then to its list, which names who gets the item', () => {
     const town = settlement(),
       ui = fixture(town),
       goal = goalIndex('Craft a wooden tool');
@@ -239,32 +262,27 @@ describe('quest panel', () => {
       ui.click(`quest-action/${goal}`);
       expect(ui.app.selectTool).toHaveBeenCalledWith(Tool.Workbench);
       const bench = facility(town, Structure.Workbench);
-      // Wood in a pack counts: the farther resident carries it, so the quest picks them.
+      // Wood in any pack counts; the item goes to whoever stands nearest the bench.
       expect(addInventory(carrier, 'wood', 3)).toBe(true);
       questPanel(ui);
       expect(ui.words()).toEqual(expect.arrayContaining(['Ready to craft Wooden axe', 'Open the workbench']));
       ui.click(`quest-action/${goal}`);
       expect(ui.app.selectBuilding).toHaveBeenCalledWith(bench.id);
-      expect(stationCrafter(ui.app, bench)?.id).toBe(carrier.id);
-      // The bench's own list names the crafter, tags the quest's recipe and starts the work.
+      // The bench's own list names who gets the item, tags the quest's recipe and starts the work.
+      ui.app.chosen = [carrier.id];
       ui.app.selected = bench.id;
       const inspect = () => ui.draw(() => inspector.call(ui.app, new Rect(100, 60, 620, 700), true));
       inspect();
       expect(ui.words()).toEqual(
-        expect.arrayContaining(['Crafter', `${carrier.name} · Settler · Lv 1`, 'Quest', 'Wooden axe', '3 wood', 'Ready to craft', 'Nobody is working here']),
+        expect.arrayContaining(['Quest', 'Wooden axe', '3 wood', `Goes to ${near.name}`, 'Nobody is working here']),
       );
       expect(ui.control('station-craft-wooden-axe')?.[3]).toBe(true);
       expect(ui.control('station-craft-wooden-pick')?.[3]).toBe(false);
-      // The crafter can be changed without leaving the panel.
-      ui.click(`station-crafter-next-${bench.id}`);
-      expect(stationCrafter(ui.app, bench)?.id).not.toBe(carrier.id);
-      inspect();
-      ui.click(`station-crafter-prev-${bench.id}`);
-      expect(stationCrafter(ui.app, bench)?.id).toBe(carrier.id);
-      inspect();
+      expect(ui.control(`station-crafter-next-${bench.id}`)).toBeUndefined();
       const order = vi.spyOn(town, 'orderCraft');
       ui.click('station-craft-wooden-axe');
-      expect(order).toHaveBeenCalledWith(carrier.id, bench.id, 'wooden-axe');
+      expect(order).toHaveBeenCalledWith(near.id, bench.id, 'wooden-axe');
+      town.cancelCraft(near.id);
       // One works the bench, another waits beside it.
       Object.assign(carrier, { task: Activity.Crafting, activity: Activity.Crafting, craftItem: 'wooden-axe', craftWorkshop: bench.id, craftProgress: 3 });
       Object.assign(near, { task: Activity.Crafting, activity: Activity.Holding, craftItem: 'wooden-hoe', craftWorkshop: bench.id });
@@ -282,11 +300,12 @@ describe('quest panel', () => {
       expect(ui.control('station-cancel-wooden-axe')?.[3]).toBe(true);
       expect(ui.control('station-craft-wooden-axe')).toBeUndefined();
       const cancel = vi.spyOn(town, 'cancelCraft');
-      ui.click(`station-cancel-${bench.id}-${near.id}`);
-      expect(cancel).toHaveBeenLastCalledWith(near.id);
-      inspect();
       ui.click('station-cancel-wooden-axe');
       expect(cancel).toHaveBeenLastCalledWith(carrier.id);
+      Object.assign(carrier, { task: Activity.Crafting, activity: Activity.Crafting, craftItem: 'wooden-axe', craftWorkshop: bench.id, craftProgress: 3 });
+      inspect();
+      ui.click(`station-cancel-${bench.id}-${near.id}`);
+      expect(cancel).toHaveBeenLastCalledWith(near.id);
       Object.assign(carrier, { task: Activity.Crafting, activity: Activity.Crafting, craftItem: 'wooden-axe', craftWorkshop: bench.id, craftProgress: 3 });
       inspect();
       ui.click(`station-cancel-${bench.id}`);
@@ -354,7 +373,7 @@ describe('quest panel', () => {
       p.activity = Activity.Felling;
       trackGearUse(ui.app);
       trackGearUse(ui.app);
-      expect(town.notices).toEqual(['First use of the Wooden axe · Fells trees faster']);
+      expect(town.notices).toEqual(['First use of the Wooden axe · Felling efficiency +1 · Attack as a weapon +1']);
       // A loaded town reads the gear already in use silently.
       const loaded = settlement(),
         q = resident(loaded);
@@ -421,7 +440,7 @@ describe('build menu unlocks', () => {
       ui = fixture(town);
     try {
       // A founded camp: roads, the camp itself and the workbench its quest asks for.
-      expect(openGroups(town).map(({ group }) => group.name)).toEqual(['Roads', 'Housing']);
+      expect(openGroups(town).map(({ group }) => group.name)).toEqual(['Roads', 'Housing', 'Food & materials']);
       page(ui, 'Housing');
       for (const label of ['Camp', 'Workbench']) expect(ui.control('global/card-pick-' + label)?.[3], label).toBe(true);
       for (const label of ['Tent', 'Smithy']) expect(ui.control('global/card-pick-' + label), label).toBeUndefined();
@@ -430,7 +449,9 @@ describe('build menu unlocks', () => {
       // A group with nothing to build is not offered.
       page(ui, '');
       expect(ui.control('global/card-group-Housing')).toBeDefined();
-      expect(ui.control('global/card-group-Food & materials')).toBeUndefined();
+      expect(ui.control('global/card-group-Food & materials')).toBeDefined();
+      page(ui, 'Food & materials');
+      expect(ui.control('global/card-pick-Ranch')?.[3]).toBe(true);
       expect(ui.words()).not.toContain('Locked');
       // A group keeps its page number while others open around it.
       const before = buildGroups(town).findIndex((g) => g.name === 'Faith & arcane');
@@ -473,11 +494,11 @@ describe('build menu unlocks', () => {
       expect(waiting()).toEqual([]);
       camp.progress = 1;
       trackUnlocks(ui.app);
-      // The finished camp opens one building: the workbench its quest asks for.
-      expect(waiting()).toEqual([Tool.Workbench]);
+      // Finishing camp opens the early food option alongside the workbench.
+      expect(waiting()).toEqual([Tool.Workbench, Tool.Ranch]);
       expect(town.notices).toEqual([]);
       trackUnlocks(ui.app);
-      expect(waiting()).toEqual([Tool.Workbench]);
+      expect(waiting()).toEqual([Tool.Workbench, Tool.Ranch]);
       const housing = buildGroups(town).find((g) => g.name === 'Housing')!;
       expect(freshGroup(ui.app, housing.tools)).toBe(true);
       page(ui, 'Housing');
@@ -722,26 +743,18 @@ describe('inspectors', () => {
       ui.dispose();
     }
   });
-  it('tells who keeps watch and who drills', () => {
-    const town = settlement(),
-      ui = fixture(town),
-      tower = facility(town, Structure.Watchtower, 1),
-      yard = facility(town, Structure.TrainingYard, 1);
+  it('shows the military school unlocks on each building without a staffing control', () => {
+    const town = settlement(), ui = fixture(town);
     try {
-      tower.progress = yard.progress = 1;
-      inspect(ui, tower);
-      expect(ui.words()).toContain('No one keeps watch: assign a worker');
-      const keeper = resident(town);
-      keeper.job = tower.id;
-      inspect(ui, tower);
-      expect(ui.words()).toContain(`${keeper.name} keeps watch`);
-      const drill = resident(town, Calling.Warrior, 4);
-      drill.job = yard.id;
-      yard.attendance = 0.5;
-      inspect(ui, yard);
-      expect(ui.words()).toEqual(
-        expect.arrayContaining(['Last day: 50% attendance', `${drill.name} · level 4`]),
-      );
+      for (const [kind, calling, weapon] of [[Structure.Watchtower, 'Ranger', 'bows'], [Structure.TrainingYard, 'Warrior', 'spears']] as const) {
+        const school = facility(town, kind, 1);
+        school.progress = 1;
+        inspect(ui, school);
+        const text = ui.words().join(' ');
+        expect(text).toContain(calling);
+        expect(text).toContain(weapon);
+        expect(text).not.toMatch(/assign a worker|Workers [0-9]/i);
+      }
     } finally {
       ui.dispose();
     }

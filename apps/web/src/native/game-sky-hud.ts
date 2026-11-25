@@ -17,6 +17,7 @@ import { f32 as f, clamp, lround } from '../../../../packages/engine/src/numeric
 import type { GameHudApp } from './game-hud-contract';
 import { skyMural as mural } from './hud-assets';
 import { tooltip } from './game-combat-hud';
+import { hudGlyph } from './hud-glyphs';
 import { winterOutlookLine, winterLineHeight } from './camp-resource-hud';
 const revealDuration = f(0.18),
   controlStep = 34,
@@ -233,7 +234,23 @@ export function skyMural(this: GameHudApp, width: number): void {
       0.8,
     );
   }
+  wakeButton(this);
   if (Math.abs(f(this.timeReveal - target)) > f(0.001)) c.requestAnimationFrame();
+}
+/** Beside the sky, and only while somebody is abed: one press brings them all out. */
+function wakeButton(app: GameHudApp): void {
+  if (app.town.isTitleAutoplay() || !app.town.abed().length) return;
+  const c = app.context,
+    t = app.theme,
+    size = app.touchMode ? 44 : 36,
+    // Clear of the top-left button even where the sky is narrow.
+    r = new Rect(Math.max(12 + size + 8, f(app.skyBounds.x - size - 8)), 12, size, size),
+    state = button(c, 'wake-everyone', r, '', () => app.wakeEveryone());
+  hudGlyph(c, 'wake', f(r.x + r.w / 2), f(r.y + r.h / 2 + (state.lift ?? 0)), state.hovered ? t.text : t.accent);
+  tooltip(c, 'wake-everyone', state.hovered && !app.touchMode, [
+    'Wake everyone',
+    'Resting residents come outside and resume their orders.',
+  ]);
 }
 export function calendarDetails(this: GameHudApp, width: number): void {
   if (!this.skyHovered || this.touchMode) return;

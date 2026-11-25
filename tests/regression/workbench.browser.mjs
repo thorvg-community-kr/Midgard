@@ -44,7 +44,7 @@ try {
     async ({ width, height }) => {
       const [
         { initializeWebCanvas },
-        { loadNativeFonts },
+        { loadNativeFonts, loadKoreanFont },
         { BrowserFiles },
         { createNativeServices },
         { Camera, project },
@@ -107,6 +107,12 @@ try {
         game,
         town,
         history,
+        async language(locale) {
+          if (locale === 'KR') await loadKoreanFont(tvg, fonts);
+          const { setLocale } = await import('/packages/localization/src/index.ts');
+          setLocale(locale);
+          this.frames(3);
+        },
         now: 0,
         frame(dt = 0.05, simulate = false) {
           this.now += dt;
@@ -163,6 +169,23 @@ try {
             at = project(b.center.x, b.center.y);
           game.camera.x = at.x;
           game.camera.y = at.y;
+        },
+        /** Lays the first road out of the camp door by hand, as the second quest asks. */
+        layRoad() {
+          const seat = town.camp(),
+            door = seat.door(),
+            out = { x: door.x - seat.center.x, y: door.y - seat.center.y },
+            reach = Math.hypot(out.x, out.y);
+          for (const length of [5, 4, 3, 2]) {
+            const end = { x: door.x + (out.x / reach) * length, y: door.y + (out.y / reach) * length },
+              path = [door, end].map((at) => ({ point: at, in: at, out: at }));
+            if (!town.buildRoad(path)) continue;
+            const road = town.roads().roads().at(-1);
+            game.queueWork(Activity.Roadwork, road.id);
+            this.advance(400, () => road.built >= 1);
+            return road.built >= 1;
+          }
+          return false;
         },
         foundCamp() {
           if (!town.place(Structure.Camp, origin, 0)) return false;
@@ -233,9 +256,12 @@ try {
   const quest = () => page.evaluate(() => probe.quest());
   const away = () => page.mouse.move(5, 400);
 
-  // 1. Found the camp; the next quest is the workbench.
+  // 1. Found the camp and lay the first road; the next quest is the workbench.
   await away();
   assert.equal(await page.evaluate(() => probe.foundCamp()), true, 'the founders build the camp');
+  await frames(10);
+  assert.equal((await quest()).title, 'Lay a road');
+  assert.equal(await page.evaluate(() => probe.layRoad()), true, 'the founders lay a road with bare hands');
   await frames(10);
   assert.equal((await quest()).title, 'Build a workbench');
   await shot('01-quest-workbench');
@@ -263,28 +289,23 @@ try {
     probe.frames(6);
   });
 
-  // 4. The quest button selects the bench with the founder who holds the wood as crafter.
+  // 4. The quest button selects the bench; nobody is bound to it as crafter.
   await click(`quest-action/${(await quest()).index}`);
   assert.equal(await page.evaluate(() => probe.game.selected), bench, 'the quest selects the workbench');
   await away();
   await frames(10);
   await shot('03-bench-recipes');
 
-  // 5. Craft the axe from the bench's own list; the crafter walks there and works in the open.
+  // 5. Craft the axe from the bench's own list; the resident the row names walks there and works in the open.
   await click('station-craft-wooden-axe');
   const crafter = await page.evaluate(
     (bench) => probe.town.people().find((p) => p.craftWorkshop === bench)?.id ?? -1,
     bench,
   );
   assert(crafter >= 0, 'someone was sent to the bench');
-  assert(
-    (await page.evaluate((id) => probe.wood(id), crafter)) >= 3,
-    'the crafter is the one holding the wood',
-  );
   await page.evaluate((id) => probe.advance(60, () => probe.crafting(id)), crafter);
   // A second founder is sent to the same bench and waits.
-  await click(`station-crafter-next-${bench}`);
-  await frames(4);
+  assert(!(await controls()).some((c) => c.id.startsWith('station-crafter-')), 'the bench has no crafter selector');
   const second = await page.evaluate(
     ([bench, crafter]) => {
       const p = probe.town.people().find((q) => q.id !== crafter);
@@ -321,7 +342,7 @@ try {
   const name = (await page.evaluate((id) => probe.founder(id), crafter)).name;
   const said = await page.evaluate(() => probe.history.slice());
   const taken = said.indexOf(`${name} crafted Wooden axe`),
-    inHand = said.indexOf('Wooden axe in the pack · Fells trees faster');
+    inHand = said.indexOf('Wooden axe in the pack · Felling efficiency +1 · Attack as a weapon +1');
   assert(taken >= 0 && inHand > taken, JSON.stringify(said));
   assert.equal((await page.evaluate((id) => probe.founder(id), crafter)).held.includes('wooden-axe'), true);
   await page.evaluate((id) => probe.advance(120, () => !probe.town.person(id).craftItem), second);
@@ -337,24 +358,27 @@ try {
   }, second);
   assert.equal(later.held.includes('wooden-hoe'), true, JSON.stringify(later));
 
-  // 7. The unit window leads to the bench instead of crafting itself.
+  // 7. The shortcut opens this resident's orders without moving the camera or changing selection.
   await page.evaluate((id) => {
     probe.game.selectPeople([id]);
     probe.frames(8);
   }, second);
   await shot('07-unit-window-button');
+  const camera = () => page.evaluate(() => [probe.game.camera.x, probe.game.camera.y]);
+  const before = await camera();
   await click('unit-workbench');
-  assert.equal(
-    await page.evaluate(() => probe.game.selected),
-    bench,
-    'the unit window button selects the bench',
-  );
+  assert.deepEqual(await page.evaluate(() => [probe.game.rosterOpen, probe.game.equipmentTab, probe.game.rosterSelected]), [true, 'craft', `units:${second}`]);
+  assert.deepEqual(await camera(), before);
+  assert((await controls()).some(c => c.id === 'resident-choice-wooden-axe'));
+  await shot('07-resident-crafting');
+  await page.evaluate(() => probe.language('KR'));
+  await shot('07-resident-crafting-kr');
+  await page.evaluate(() => probe.language('ENG'));
+  await page.evaluate(() => { probe.game.rosterOpen = false; });
 
-  // 8. The smithy works the same way: its own list of weapons, shields and armor.
+  // 8. The smithy serves both settlement orders and named residents.
   const smith = await page.evaluate(() => {
-    probe.town
-      .stock()
-      .add({ gold: 99, wood: 99, stone: 99, food: 0, mana: 0, water: 0, planks: 20, cutStone: 20, bones: 0 });
+    Object.assign(probe.town.stock(), { gold: 99, wood: 99, stone: 99, planks: 20, cutStone: 20 });
     return probe.build('Weaponsmith');
   });
   assert(smith >= 0, 'a smithy stands');
@@ -371,14 +395,113 @@ try {
   );
   await shot('08-smithy-recipes');
 
+  await page.evaluate(id => probe.game.selectPeople([id]), second);
+  await frames(8);
+  await click('unit-workbench');
+  await click('resident-choice-wooden-sword');
+  await away();
+  await page.evaluate(() => probe.language('KR'));
+  await shot('08-resident-smithy-kr');
+  await page.evaluate(() => probe.language('ENG'));
+  await click('resident-service-order');
+  const smithOrder = await page.evaluate(id => {
+    const resident = probe.town.person(id);
+    return [resident.craftWorkshop, resident.craftItem];
+  }, second);
+  assert.deepEqual(smithOrder, [smith, 'wooden-sword']);
+  await page.evaluate(id => probe.advance(150, () => !probe.town.person(id).craftItem), second);
+  assert((await page.evaluate(id => probe.founder(id), second)).held.includes('wooden-sword'));
+  await click('equipment-tab-guild');
+  assert.equal(await page.evaluate(() => probe.game.equipmentTab), 'guild');
+  await page.evaluate(() => { probe.game.rosterOpen = false; });
   // 9. Fell again with the axe: faster.
   const axe = await page.evaluate((id) => probe.fell(id), crafter);
   report.timings.woodenAxe = axe;
   report.notices = await page.evaluate(() => probe.history.slice());
   assert(
-    axe > 0 && bare > 0 && axe < bare * 0.75,
+    axe > 0 && bare > 0 && Math.abs(axe - bare * 0.8) < 0.25,
     `felling ${bare.toFixed(1)} s by hand, ${axe.toFixed(1)} s with the axe`,
   );
+  const pen = await page.evaluate(() => {
+    Object.assign(probe.town.stock(), { wood: 20, food: 20 });
+    return probe.build('Ranch');
+  });
+  assert(pen >= 0, 'a ranch is built from the first camp');
+  const herd = await page.evaluate(async ([id, penId]) => {
+    const { Monster, AnimalKind } = await import('/packages/engine/src/person.ts');
+    const { town, game } = probe, ranch = town.building(penId), handler = town.person(id);
+    town.orderStop(town.people().map(p => p.id));
+    const parents = [];
+    for (const kind of [AnimalKind.Chicken, AnimalKind.Pig, AnimalKind.Pig]) {
+      const at = town.grid.nearestWalkable({ x: ranch.door().x + 2, y: ranch.door().y + 1 });
+      const animal = new Monster(town.nextMonster++, -1, at);
+      animal.animal = kind; animal.home = { ...at }; animal.ready = town.clock() + 30;
+      town.animals.push(animal);
+      handler.rest = handler.food = handler.hydration = 1;
+      if (!town.orderAttack([id], animal.id)) break;
+      probe.advance(100, () => animal.pen === penId);
+      if (animal.pen !== penId) break;
+      parents.push(animal.id);
+    }
+    const stock = town.stock(ranch.village);
+    stock.food = 0;
+    game.selectPeople([]); game.selectBuilding(penId); probe.look(penId);
+    probe.advance(160, () => town.animals.some(a => a.pen === penId && a.ranchBornAt >= 0) && ranch.eggs > 0);
+    const young = town.animals.find(a => a.pen === penId && a.ranchBornAt >= 0);
+    return { parents, young: young?.id, eggs: ranch.eggs, bank: stock.food };
+  }, [second, pen]);
+  assert.equal(herd.parents.length, 3, JSON.stringify(herd));
+  assert(herd.eggs > 0 && herd.young >= 0 && herd.bank === 0, JSON.stringify(herd));
+  const viewRanch = () => page.evaluate(async id => {
+    const { setGuidePreference } = await import('/apps/web/src/native/guide-preferences.ts');
+    const { game, town } = probe;
+    setGuidePreference('cards', false);
+    game.guide.card = null;
+    game.noticeFeed = []; town.notices.length = 0;
+    town.sky.previewTime(town.yearFraction(), .5);
+    game.selectBuilding(id); probe.look(id);
+    game.camera.zoom = 3.1; game.camera.y += 16;
+    probe.frames(4);
+  }, pen);
+  await away();
+  await viewRanch();
+  const penside = () => page.evaluate(([penId, youngId]) => {
+    const { renderer } = probe.game;
+    return { eggs: renderer.visuals.get(penId).nestEggs.filter(egg => egg.alpha > 0).length,
+      size: Math.abs(renderer.beasts.get(youngId).paint.matrix[0]) };
+  }, [pen, herd.young]);
+  const youngInPen = await penside();
+  assert.equal(youngInPen.eggs, Math.min(4, herd.eggs));
+  assert(youngInPen.size < .8);
+  await shot('09-ranch');
+  await page.evaluate(() => probe.language('KR'));
+  await shot('09-ranch-kr');
+  await click('ranch-collect-eggs');
+  const eggs = await page.evaluate(id => {
+    const ranch = probe.town.building(id), store = probe.town.stock(ranch.village);
+    probe.advance(60, () => store.food > 0);
+    return [ranch.eggs, store.food];
+  }, pen);
+  assert.deepEqual(eggs, [0, herd.eggs]);
+  assert.equal((await penside()).eggs, 0);
+  await page.evaluate(async ([penId, youngId]) => {
+    const { ranchGrowth } = await import('/packages/engine/src/ranch-cycle.ts');
+    const animal = probe.town.creature(youngId);
+    probe.advance(100, () => ranchGrowth(animal, probe.town.clock()) >= 1);
+    probe.game.selectBuilding(penId);
+    probe.frames(4);
+  }, [pen, herd.young]);
+  await viewRanch();
+  assert.equal((await penside()).size, 1);
+  await shot('10-ranch-grown-kr');
+  await click('ranch-prepare-meat');
+  const meat = await page.evaluate(([penId, youngId, parents]) => {
+    const { town } = probe;
+    probe.advance(60, () => !town.creature(youngId));
+    return { served: !town.creature(youngId), food: town.stock(town.building(penId).village).food,
+      parents: parents.every(id => town.creature(id)?.pen === penId) };
+  }, [pen, herd.young, herd.parents]);
+  assert.deepEqual(meat, { served: true, food: herd.eggs + 12, parents: true });
   assert.deepEqual(report.errors, []);
   report.passed = true;
 } catch (error) {

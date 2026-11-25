@@ -8,6 +8,14 @@
     "branch": "Core"
   },
   {
+    "title": "Lay a road",
+    "description": "Hold and draw a road from the camp: residents lay it by hand. Timber and stone yards are raised beside a road.",
+    "kind": "Road",
+    "building": "Count",
+    "residents": 0,
+    "branch": "Core"
+  },
+  {
     "title": "Build a workbench",
     "description": "An open bench where residents make tools, one at a time. It takes 4 wood.",
     "kind": "Building",
@@ -40,7 +48,7 @@
   },
   {
     "title": "Make a weapon or a shield",
-    "description": "A wooden sword, club, spear, bow or staff hits harder than fists, and a shield in the free hand turns some blows aside. Make one at the smithy.",
+    "description": "Make a wooden sword or club at the smithy, or a shield to block blows.",
     "kind": "Craft",
     "building": "Count",
     "residents": 1,
@@ -63,18 +71,10 @@
     "branch": "Core"
   },
   {
-    "title": "Build a farmhouse",
-    "description": "Prepare a food supply for the settlement.",
-    "kind": "Building",
-    "building": "Farm",
-    "residents": 0,
-    "branch": "Core"
-  },
-  {
-    "title": "Plant a field",
-    "description": "Draw a field near the farmhouse.",
+    "title": "Lay out a farm",
+    "description": "Pick Farm and drag an area: the farmhouse is raised in its corner and the rest is tilled as its field. It takes 15 wood.",
     "kind": "Field",
-    "building": "Count",
+    "building": "Farm",
     "residents": 0,
     "branch": "Core"
   },
@@ -88,7 +88,7 @@
   },
   {
     "title": "Reach 4 residents",
-    "description": "Pray at Odin's altar with 4 food and a free bed: a new resident joins when the prayer ends.",
+    "description": "Set aside 4 food and a free bed, then create a resident at Odin's altar.",
     "kind": "Population",
     "building": "Count",
     "residents": 4,
@@ -103,16 +103,8 @@
     "branch": "Core"
   },
   {
-    "title": "Lay a road",
-    "description": "Draw and complete a road connected to the camp.",
-    "kind": "Road",
-    "building": "Count",
-    "residents": 0,
-    "branch": "Core"
-  },
-  {
     "title": "Build a lumberyard",
-    "description": "Needs a road. Establish a timber supply near trees; its workers fell faster with axes in hand.",
+    "description": "Establish a timber supply near trees; its workers fell faster with axes in hand.",
     "kind": "Building",
     "building": "Lumberyard",
     "residents": 0,
@@ -128,7 +120,7 @@
   },
   {
     "title": "Build a quarry",
-    "description": "Needs a road. Establish a supply of stone.",
+    "description": "Establish a supply of stone.",
     "kind": "Building",
     "building": "Quarry",
     "residents": 0,
@@ -200,28 +192,28 @@
   },
   {
     "title": "Build a guild",
-    "description": "Needs a quarry and 6 residents. Choose a resident to take a one-time professional oath at the guild.",
+    "description": "Needs a quarry and 6 residents. The guild lets residents change callings from level 3.",
     "kind": "Building",
     "building": "Guild",
     "residents": 0,
     "branch": "Arms"
   },
   {
+    "title": "Build a training yard",
+    "description": "Build the yard to train Warriors at the guild and make spears at the smithy.",
+    "kind": "Building",
+    "building": "TrainingYard",
+    "residents": 0,
+    "branch": "Arms"
+  },
+  {
     "title": "Swear a fighter",
-    "description": "Select the guild and choose a settler to swear a calling. Each calling has one ability: press Q to use it.",
+    "description": "Choose a resident of level 3 or higher at the guild and train them in an open calling.",
     "kind": "Deed",
     "building": "Count",
     "residents": 1,
     "branch": "Arms",
     "deed": "sworn"
-  },
-  {
-    "title": "Build a training yard",
-    "description": "Needs a guild. Two residents drill there each day and gain experience, though fighting still teaches faster.",
-    "kind": "Building",
-    "building": "TrainingYard",
-    "residents": 0,
-    "branch": "Arms"
   },
   {
     "title": "Beat off a raid",
@@ -234,7 +226,7 @@
   },
   {
     "title": "Build a watchtower",
-    "description": "Needs a training yard and a raid beaten off. A resident keeps watch and shoots raiders who come near.",
+    "description": "The tower shoots approaching raiders. It also opens Rangers at the guild and bows at the smithy.",
     "kind": "Building",
     "building": "Watchtower",
     "residents": 0,
@@ -249,6 +241,14 @@
     "branch": "Arms"
   },
   {
+    "title": "Build a foundry",
+    "description": "Smelt iron ore for the smithy. Take a stone pick into the snowy hills or bring ore home from a cleared floor.",
+    "kind": "Building",
+    "building": "Foundry",
+    "residents": 0,
+    "branch": "Arms"
+  },
+  {
     "title": "Raise the smithy to iron",
     "description": "Needs a floor cleared beyond a gate and 8 residents. Pay 20 gold, 8 planks and 8 cut stone at the smithy: then it forges iron.",
     "kind": "Station",
@@ -258,7 +258,7 @@
   },
   {
     "title": "Forge an iron weapon",
-    "description": "Make an iron weapon at the smithy, or upgrade a stone one there.",
+    "description": "Smelt ore at the foundry. Bring the ingots and a stone weapon to a level 3 smithy to upgrade it.",
     "kind": "Deed",
     "building": "Count",
     "residents": 1,
@@ -320,7 +320,7 @@
   },
   {
     "title": "Lead a party of three",
-    "description": "Click a discovered gate, choose three residents in the expedition window and set out.",
+    "description": "Find an open gate, choose three residents in the expedition window and set out.",
     "kind": "Deed",
     "building": "Count",
     "residents": 3,

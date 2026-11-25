@@ -14,10 +14,12 @@ import {
   describe,
 } from './building-catalog';
 import { Activity, Person, Role, TreeWorkKind } from './person';
+import { footBlockedBy } from './person-collision';
 import type { Town } from './town';
 import { canClear, clearNow, clearTargetAt } from './town-clearing';
 import { CampEconomy } from './camp-economy';
 import { Tile, Terrain, DungeonKind, isWater, isStone } from './world-types';
+import { coverDeposits, coverRoadDeposits, position as rockPosition } from './mining';
 import { inArea } from './realm-layout';
 import {
   Point,
@@ -43,6 +45,7 @@ import { Road, RoadPath, flatten, pathLength } from './road-network';
 import { f32, hash01, clamp } from './numeric';
 import { worldName } from './world-map';
 import { ConstructionMaterials, constructionProducts, resourceBundle } from './construction-materials';
+export type PlacementMode = 'cursor' | 'roadside';
 export interface ConstructionTown extends TownState {
   camp(id?: number): Building | null;
   settlementAt(p: Point, faction?: number): number;
@@ -54,7 +57,8 @@ export interface ConstructionTown extends TownState {
   credit(gain: Resources, camp: number): void;
   foundSettlement(camp: number): void;
   population(camp?: number): number;
-  groundProblem(samples: Point[]): string;
+  groundProblem(plot: Point[] | Footprint): string;
+  fit(kind: Structure, cursor: Point, freeAngle: number, mode?: PlacementMode): Placement;
   roadAccess(f: Footprint): boolean;
   nearbyTiles(p: Point, r: number, match: (t: Tile) => boolean): number;
   near(p: Point, r: number, match: (s: Structure) => boolean): boolean;
@@ -78,7 +82,7 @@ export interface ConstructionTown extends TownState {
   canBuildRoad(path: RoadPath): Check;
   canPave(id: number): Check;
   canReshapeRoad(id: number, path: RoadPath): Check;
-  canPlantField(o: Outline): Check;
+  canPlantField(o: Outline, house?: Footprint): Check;
   canDemolish(p: Point): Check;
   raze(id: number): void;
 }
@@ -86,6 +90,13 @@ export function refuse(check: Check, reason: string): Check {
   check.reason = reason;
   return check;
 }
+const plotSampleScale = f32(0.98);
+const foundationInset = 0.08;
+// How far a plot edge may be from the road centerline and still align to it.
+const roadSnapReach = 0.75;
+// Scripted village layouts deliberately look for street frontage around a candidate plot.
+const roadsideSearchReach = 1.6;
+
 export function samples(shape: Footprint | Outline): Point[] {
   const out: Point[] = [],
     sampleStep = f32(0.25);
@@ -97,7 +108,7 @@ export function samples(shape: Footprint | Outline): Point[] {
           f32(-shape.half + f32(f32(f32(shape.half * 2) * i) / steps)),
           f32(-shape.half + f32(f32(f32(shape.half * 2) * j) / steps)),
         );
-        out.push(add(shape.center, rotated(scale(local, f32(0.98)), shape.angle)));
+        out.push(add(shape.center, rotated(scale(local, plotSampleScale), shape.angle)));
       }
     return out;
   }
@@ -193,7 +204,7 @@ export function roomToGrow(this: ConstructionTown, item: Building, next: Structu
   const half = f32(structureSpec(next).size / 2);
   if (half <= f32(structureSpec(item.kind).size / 2)) return true;
   const grown = new Footprint(item.center, half, item.angle);
-  if (this.groundProblem(samples(grown))) return false;
+  if (this.groundProblem(grown)) return false;
   for (const other of this.placed)
     if (other.id !== item.id && grown.overlaps(other.footprint())) return false;
   for (const segment of this.network.segments()) if (grown.contains(segment.a, -f32(0.1))) return false;
@@ -243,39 +254,48 @@ export function fieldAt(this: ConstructionTown, p: Point): number {
   for (const item of this.farmland) if (contains(item.outline, p)) return item.id;
   return -1;
 }
-export function groundProblem(this: ConstructionTown, points: Point[]): string {
+export function groundProblem(this: ConstructionTown, plot: Point[] | Footprint): string {
+  const points = plot instanceof Footprint ? samples(plot) : plot;
+  // Sample terrain under the foundation, and check discovery and landmarks out to the plot edge.
+  const terrainScale = plot instanceof Footprint && plot.half > 0
+    ? Math.max(0, plot.half - foundationInset) / (plot.half * plotSampleScale)
+    : 1;
   for (const p of points) {
     const tile = this.world.cell(p);
     if (!tile || !this.world.revealed(p)) return 'Unexplored land';
     if (this.world.giant()?.covers(p)) return "Odin's statue";
     if (inArea(this.realmArea, p)) return 'Another world';
-    const terrain = this.world.terrainAt(p);
+    const terrain = this.world.terrainAt(plot instanceof Footprint ? lerp(plot.center, p, terrainScale) : p);
     if (isWater(terrain)) return 'Water';
     if (terrain === Terrain.Mountain) return 'Mountains';
     if (terrain === Terrain.Ice) return 'Ice';
     if (terrain === Terrain.Lava) return 'Lava';
-    if (terrain === Terrain.Rock) return 'Rocky ground';
+    if (terrain === Terrain.Rock && !(plot instanceof Footprint)) return 'Rocky ground';
     if (tile.dungeon >= 0) return 'A dungeon entrance';
   }
   return '';
 }
-export function fit(this: ConstructionTown, kind: Structure, cursor: Point, freeAngle: number): Placement {
+export function fit(
+  this: ConstructionTown, kind: Structure, cursor: Point, freeAngle: number, mode: PlacementMode = 'cursor',
+): Placement {
+  const half = f32(structureSpec(kind).size / 2),
+    reach = mode === 'roadside' && kind !== Structure.Torch ? roadsideSearchReach : roadSnapReach,
+    snapDistance = f32(half + reach);
   if (kind === Structure.Torch) {
     let nearest = cursor,
-      best = 1e9;
+      best = Infinity;
     for (const segment of this.network.builtSegments()) {
-      const p = closestOnSegment(cursor, segment.a, segment.b);
-      if (distance(p, cursor) < best) {
-        best = distance(p, cursor);
+      const p = closestOnSegment(cursor, segment.a, segment.b), gap = distance(p, cursor);
+      if (gap <= snapDistance && gap < best) {
+        best = gap;
         nearest = p;
       }
     }
-    return new Placement(nearest, 0, best < 1e9);
+    return new Placement(nearest, 0, Number.isFinite(best));
   }
-  const half = f32(structureSpec(kind).size / 2),
-    match = this.network.distance(cursor),
+  const match = this.network.distance(cursor),
     gap = match.distance;
-  if (gap > f32(half + f32(1.6))) return new Placement(cursor, freeAngle, false);
+  if (gap > snapDistance) return new Placement(cursor, freeAngle, false);
   const on = match.onRoad!,
     tangent = match.tangent!;
   let best = new Placement(),
@@ -317,12 +337,23 @@ export function fit(this: ConstructionTown, kind: Structure, cursor: Point, free
   }
   return best;
 }
-// The placement preview asks every frame; the answer only changes when the grid is rebuilt.
+
+export function buildingSite(
+  this: ConstructionTown, kind: Structure, cursor: Point, freeAngle: number,
+): { spot: Placement; check: Check } {
+  const spot = this.fit(kind, cursor, freeAngle), check = this.canPlace(kind, spot.center, spot.angle);
+  if (spot.snapped && !check.ok && kind !== Structure.Torch) {
+    const free = this.canPlace(kind, cursor, freeAngle);
+    if (free.ok) return { spot: new Placement(cursor, freeAngle, false), check: free };
+  }
+  return { spot, check };
+}
+// The preview asks about the same doorway every frame. Even nearby doors can straddle a wall.
 const doorways = new WeakMap<Float32Array, Map<string, boolean>>();
 function doorReached(grid: WalkGrid, from: Point, door: Point): boolean {
   let known = doorways.get(grid.costs);
   if (!known) doorways.set(grid.costs, (known = new Map()));
-  const key = `${from.x},${from.y}>${Math.round(door.x * 4)},${Math.round(door.y * 4)}`;
+  const key = `${from.x},${from.y}>${door.x},${door.y}`;
   let reached = known.get(key);
   if (reached === undefined) {
     if (known.size > 512) known.clear();
@@ -365,13 +396,17 @@ export function canPlace(this: ConstructionTown, kind: Structure, center: Point,
     return check;
   }
   const footprint = new Footprint(center, f32(spec.size / 2), angle),
-    problem = this.groundProblem(samples(footprint));
+    problem = this.groundProblem(footprint);
   if (problem) return refuse(check, problem);
   for (const other of this.placed)
     if (footprint.overlaps(other.footprint())) return refuse(check, 'Occupied');
-  // A craft station is worked in the open at its doorstep: keep that ground clear.
-  for (const other of this.placed)
-    if (topLevel(other.kind) && footprint.contains(other.door(), f32(0.45))) return refuse(check, 'Blocks a door');
+  for (const other of this.placed) {
+    if (other.kind === Structure.Torch) continue;
+    const door = other.door();
+    // A resident needs room for their feet. A crafter also works out here in front of the station.
+    if (topLevel(other.kind) ? footprint.contains(door, f32(0.45)) : footBlockedBy(door, footprint))
+      return refuse(check, 'Blocks a door');
+  }
   for (const segment of this.network.segments())
     if (touches(footprint, segment.a, segment.b, TownState.roadHalfWidth))
       return refuse(check, 'On the road');
@@ -402,6 +437,7 @@ export function place(this: ConstructionTown, kind: Structure, center: Point, an
   item.village = kind === Structure.Camp ? item.id : village;
   item.materials.required = spec.cost.clone();
   this.placed.push(item);
+  coverDeposits(this.world, item.footprint());
   if (kind === Structure.Camp) this.foundSettlement(item.id);
   this.reserveConstructionMaterials(Activity.Building, item.id);
   this.reveal(center.x, center.y, f32(7 + spec.size));
@@ -460,7 +496,6 @@ export function checkRoad(this: ConstructionTown, path: RoadPath, ignore: number
     if (terrain === Terrain.Mountain) return refuse(check, 'Mountains');
     if (terrain === Terrain.Ice) return refuse(check, 'Ice');
     if (terrain === Terrain.Lava) return refuse(check, 'Lava');
-    if (terrain === Terrain.Rock) return refuse(check, 'Rocky ground');
     if (tile.dungeon >= 0) return refuse(check, 'A dungeon entrance');
     for (const item of this.placed)
       if (
@@ -518,6 +553,7 @@ export function buildRoad(this: ConstructionTown, path: RoadPath): boolean {
     this.network.remove(id);
     return false;
   }
+  coverRoadDeposits(this.world, road.line, TownState.roadHalfWidth);
   this.reserveConstructionMaterials(Activity.Roadwork, id);
   this.reveal(path[0].point.x, path[0].point.y, 4);
   this.reveal(path[f32(path.length - 1)].point.x, path[f32(path.length - 1)].point.y, 4);
@@ -553,15 +589,18 @@ export function canReshapeRoad(this: ConstructionTown, id: number, path: RoadPat
 export function reshapeRoad(this: ConstructionTown, id: number, path: RoadPath): boolean {
   const check = this.canReshapeRoad(id, path);
   if (!check.ok) return false;
-  this.network.road(id)!.materials.required.add(check.cost);
+  const road = this.network.road(id)!;
+  road.materials.required.add(check.cost);
   this.network.reshape(id, path);
-  this.connectRoad(this.network.road(id)!);
+  this.connectRoad(road);
+  coverRoadDeposits(this.world, road.line, TownState.roadHalfWidth);
   this.reserveConstructionMaterials(Activity.Roadwork, id);
   for (const anchor of path) this.reveal(anchor.point.x, anchor.point.y, 4);
   this.roadChanged(false);
   return true;
 }
-export function canPlantField(this: ConstructionTown, outline: Outline): Check {
+/** `house` is a farmhouse about to be staked out with the field: it stands in for one close by. */
+export function canPlantField(this: ConstructionTown, outline: Outline, house?: Footprint): Check {
   const check = new Check();
   if (outline.length < 3) return refuse(check, 'Click to outline a field');
   if (selfIntersects(outline)) return refuse(check, 'The outline crosses itself');
@@ -582,7 +621,9 @@ export function canPlantField(this: ConstructionTown, outline: Outline): Check {
   for (const road of this.network.roads())
     for (const p of road.line)
       if (outlineDistance(outline, p) < TownState.roadHalfWidth) return refuse(check, 'Road in the way');
+  if (house ? overlaps(house.corners(), outline) : false) return refuse(check, 'Occupied');
   if (
+    !house &&
     !this.near(
       centroid(outline),
       f32(TownState.farmReach + f32(f32(Math.sqrt(acres)) / 2)),
@@ -643,14 +684,16 @@ export function demolish(this: ConstructionTown, p: Point): boolean {
   return !!target && clearNow(this as unknown as Town, target.kind, target.id);
 }
 export function regrow(this: ConstructionTown): void {
+  const trees = 1, stone = 2;
   const taken = new Uint8Array(f32(this.world.width() * this.world.height())),
-    mark = (p: Point): void => {
+    mark = (p: Point, reserved = trees | stone): void => {
       const x = Math.floor(p.x),
         y = Math.floor(p.y);
-      if (this.world.inside(x, y)) taken[f32(f32(y * this.world.width()) + x)] = 1;
+      if (this.world.inside(x, y)) taken[f32(f32(y * this.world.width()) + x)] |= reserved;
     };
+  // Trees occupy their cell. A roadside deposit is reserved only if its base falls inside the road.
   for (const road of this.network.roads())
-    for (let s = 0; s <= 1; s = f32(s + f32(f32(0.3) / Math.max(1, road.length())))) mark(road.along(s));
+    for (let s = 0; s <= 1; s = f32(s + f32(f32(0.3) / Math.max(1, road.length())))) mark(road.along(s), trees);
   for (const item of this.placed) for (const p of samples(item.footprint())) mark(p);
   for (const item of this.farmland) for (const p of samples(item.outline)) mark(p);
   for (let y = 0; y < this.world.height(); ++y)
@@ -659,8 +702,9 @@ export function regrow(this: ConstructionTown): void {
       // Exhausted natural stone slowly returns (10% per game day), using a
       // separate deterministic salt. Roads, buildings and fields reserve land.
       if (
-        tile.terrain === Terrain.Rock && tile.quarried && !taken[y * this.world.width() + x] &&
-        hash01(this.world.seed(), x, y, (this.days + 0x51a7) >>> 0) < f32(0.1)
+        tile.terrain === Terrain.Rock && tile.quarried && !(taken[y * this.world.width() + x] & stone) &&
+        hash01(this.world.seed(), x, y, (this.days + 0x51a7) >>> 0) < f32(0.1) &&
+        this.network.distance(rockPosition(x, y)).distance > TownState.roadHalfWidth
       )
         tile.quarried = false;
       if (
@@ -764,7 +808,8 @@ export function staff(this: ConstructionTown): void {
   for (const farms of [true, false])
     for (const item of this.placed) {
       if ((item.kind === Structure.Farm) !== farms || !item.built()) continue;
-      let cap = item.wanted < 0 ? structureSpec(item.kind).jobs : item.wanted;
+      const jobs = structureSpec(item.kind).jobs;
+      let cap = item.wanted < 0 ? jobs : Math.min(jobs, item.wanted);
       if (this.titleAutoplay && structureSpec(item.kind).product === Product.Food)
         cap = Math.min(cap, Math.max(1, Math.trunc((this.population() + 3) / 4)));
       for (const person of this.folk) {
@@ -870,9 +915,17 @@ export function clearTrees(this: ConstructionTown, points: Point[]): number {
   return wood;
 }
 export function reveal(this: ConstructionTown, x: number, y: number, radius: number): void {
+  const fire = this.world.volcano();
+  const foundFire = fire && fire.inSight({ center: point(x, y), radius }) && !this.world.revealed(fire.center());
   this.world.reveal(x, y, radius);
   const discovered = this.world.discover();
-  if (discovered.length) ++this.changes;
+  if (foundFire || discovered.length) {
+    // Seeing a landmark changes no walkable tile. Preserve a pending rebuild from an actual edit.
+    const gridCurrent = this.walkRevision === this.changes;
+    ++this.changes;
+    if (gridCurrent) this.walkRevision = this.changes;
+    if (foundFire && !discovered.length) this.volcanoRevision = this.objectRevision();
+  }
   for (const site of discovered) {
     const found = this.world.dungeons()[site];
     this.notify(

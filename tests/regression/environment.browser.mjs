@@ -100,6 +100,8 @@ try {
             seen = town.realmRevision;
             renderer.invalidateMap();
           }
+          // The pictures judge the land itself: the mist is lifted unless a shot asks for fog.
+          renderer.mistLifted = !this.fogged;
           const preview = new Preview();
           preview.zoom = this.camera.zoom;
           renderer.update(town, traffic, this.camera, width, height, seconds, preview, []);
@@ -124,11 +126,6 @@ try {
           // The "before" pictures of hidden units: the same scene without the ghost layer.
           if (this.ghostsOff && renderer.ghosts) {
             renderer.ghosts.opacity(0);
-            renderer.adapter.sync(renderer.root);
-          }
-          // The pictures judge the land itself: the memory veil is lifted unless a shot asks for fog.
-          if (!this.fogged) {
-            renderer.fog.opacity(0);
             renderer.adapter.sync(renderer.root);
           }
         },

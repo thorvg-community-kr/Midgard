@@ -7,10 +7,11 @@ import type { Building } from './town-models';
 import type { CampEconomy } from './camp-economy';
 import { point, add, sub, scale, rotated, normalized, distance, type Point } from './geometry';
 import { f32 as f, lround } from './numeric';
-import { breedOf, lairOf, monsterBite, steps } from './town-monsters';
-import { raidDue, raidKind, raidWarning } from './raid-progression';
-import { combatRules } from './combat-events';
-import { gateSealed, sealable } from './gate-seals';
+import { breedOf, monsterBite, steps } from './town-monsters';
+import { raidDue, raidKind, raidWarning, RaidKind } from './raid-progression';
+import { CombatCue, combatRules } from './combat-events';
+import { clearMuster, firstRaidDue, gateActive, musterRaid, musteredGates, raidSeat, updateGateOpenings } from './gate-progression';
+import { belongsToFaction } from './faction';
 import { Season, type Calendar } from './town-models';
 import { planRaiderApproach, separateMonsters } from './monster-navigation';
 import { choosePrey, rankPace, tauntedBy } from './monster-ranks';
@@ -20,7 +21,7 @@ export interface EncounterTown extends TownState {
   camp(): Building | null;
   releaseMonster(at: Point): void;
   dayFraction(): number;
-  summonRaid(): void;
+  summonRaid(kind?: RaidKind, warned?: readonly number[]): void;
   raiding(): boolean;
   giantsAwake(): boolean;
   roamGiant(beast: Monster, dt: number): void;
@@ -41,9 +42,15 @@ export interface EncounterTown extends TownState {
 }
 export function stir(this: EncounterTown, dt: number): void {
   this.blows = this.blows.filter((h) => !(this.time - h.at > 2));
-  this.events = this.events.filter((event) => !(this.time - event.at > combatRules.eventSeconds));
+  this.events = this.events.filter((event) => {
+    const lifetime = event.cue === CombatCue.Telegraph ? Math.max(combatRules.eventSeconds, event.duration) : combatRules.eventSeconds;
+    return this.time - event.at <= lifetime;
+  });
   this.wakeGiants();
   this.stirWildlife(dt);
+  const hour = this.dayFraction(), night = hour > f(0.5) && this.climate().night > f(0.6);
+  // Take the dusk muster before admitting a gate that awakens after dark.
+  if (!night) updateGateOpenings(this);
   const fire = this.camp(),
     roaming = this.beasts.filter((m) => !m.raider && !m.giant() && !this.inRealm(m.home)).length;
   if (
@@ -61,26 +68,27 @@ export function stir(this: EncounterTown, dt: number): void {
       break;
     }
   }
-  const due = raidDue(this.world.seed(), this.days, this.calendar().season === Season.Winter);
-  if (fire && fire.built() && due && this.dayFraction() > f(0.3) && this.raidWarnedDay !== this.days) {
-    this.raidWarnedDay = this.days;
-    const gate = this.world
-      .dungeons()
-      .map((site, index) => ({ site, index }))
-      .filter((g) => sealable(g.site) && g.site.discovered && !gateSealed(this, g.index))
-      .sort((a, b) => distance(lairOf(a.site), fire.center) - distance(lairOf(b.site), fire.center))[0];
-    if (gate) this.notify(raidWarning(raidKind(this.world.seed(), this.days), gate.site.name));
+  if (this.raidedDay !== this.days && (night || (fire && hour > f(0.3) && this.raidWarnedDay !== this.days))) {
+    const kind = raidKind(this.world.seed(), this.days);
+    const due = raidDue(this.world.seed(), this.days, this.calendar().season === Season.Winter) || firstRaidDue(this);
+    if (night) {
+      this.raidedDay = this.days;
+      const gates = due ? musterRaid(this, kind) : musteredGates(this);
+      if (gates.length) this.summonRaid(kind, gates);
+      clearMuster(this);
+    } else if (due) {
+      const gates = musterRaid(this, kind).filter(gate => gateActive(this, gate));
+      if (gates.length) {
+        this.raidWarnedDay = this.days;
+        const shape = kind === RaidKind.Pincer && gates.length === 1 ? RaidKind.Pack : kind;
+        for (const gate of gates) {
+          const seat = raidSeat(this, gate);
+          if (seat) this.notify(raidWarning(shape, this.world.dungeons()[gate].name, seat.id));
+        }
+      }
+    }
   }
-  if (
-    fire &&
-    fire.built() &&
-    this.dayFraction() > f(0.5) &&
-    this.climate().night > f(0.6) &&
-    this.raidedDay !== this.days
-  ) {
-    this.raidedDay = this.days;
-    if (due) this.summonRaid();
-  }
+  if (night) updateGateOpenings(this);
   const raidOn = this.raiding();
   this.defendSettlement(dt);
   for (const beast of this.beasts) {
@@ -92,12 +100,14 @@ export function stir(this: EncounterTown, dt: number): void {
     const breed = breedOf(this.world.dungeons()[beast.lair].kind);
     const scent = beast.raider ? 9 : beast.angry ? 7 : 4;
     let prey = tauntedBy(this, beast, scent * 1.5) ?? undefined;
+    if (beast.raider && prey && !belongsToFaction(prey)) prey = undefined;
     if (!prey)
       prey =
         choosePrey(
           beast,
           this.folk.filter(
             (p) =>
+              (!beast.raider || belongsToFaction(p)) &&
               (!beast.giant() || (p.id === beast.provokedBy && distance(p.position, beast.home) <= 7)) &&
               !p.inside &&
               p.health > 0 &&

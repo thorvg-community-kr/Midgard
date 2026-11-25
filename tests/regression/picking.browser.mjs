@@ -46,7 +46,13 @@ try {
   await server.listen();
   browser = await chromium.launch({
     headless: true,
-    args: ['--mute-audio', '--autoplay-policy=user-gesture-required'],
+    args: [
+      '--mute-audio',
+      '--use-angle=gl',
+      '--enable-gpu',
+      '--ignore-gpu-blocklist',
+      '--autoplay-policy=user-gesture-required',
+    ],
   });
   for (const [backend, dpr] of combinations) {
     const name = `${backend}-${dpr}`;
@@ -497,6 +503,11 @@ try {
         return page.evaluate(() => picking.game.hoveredWorldTarget?.hit ?? null);
       };
       const click = async (at, button = 'left') => {
+        // Single clicks use the browser UI clock, independently of the fixture's simulation time.
+        if (button === 'left') {
+          await page.waitForFunction(() => performance.now() / 1000 - picking.game.army.lastPick.at >= 0.4);
+          await frame();
+        }
         await page.mouse.click(at.x, at.y, { button });
         await frame();
         return page.evaluate(() => picking.selected());

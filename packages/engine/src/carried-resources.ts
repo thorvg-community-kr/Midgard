@@ -6,10 +6,11 @@ import type { Person } from './person';
 export const carryCapacity = 30;
 /** From this weight a resident walks slower, down to `burdenedPace` at capacity; without a pack basket. */
 export const burdenStart = 15;
+const strengthCapacity = 3;
 /** What this resident carries before a trip to storage is due. */
-export const carryLimit = (person: Person): number => carryCapacity + carryBonus(person);
+export const carryLimit = (person: Person): number => carryCapacity + carryBonus(person) + person.birthStrength * strengthCapacity;
 /** The weight from which this resident walks slower. */
-export const burdenFrom = (person: Person): number => burdenStart + carryBonus(person);
+export const burdenFrom = (person: Person): number => burdenStart + carryBonus(person) + person.birthStrength * strengthCapacity;
 export const burdenedPace = 0.6;
 /** Residents this close can pass resources hand to hand. */
 export const handoverReach = 1.4;
@@ -35,10 +36,12 @@ export function carriedWeight(person: Person): number {
   for (const stack of person.inventory) if (stack) weight += (itemSpec(stack.item)?.weight ?? 0) * stack.quantity;
   return Math.round(weight * 10) / 10;
 }
-export function burdenPace(person: Person): number {
-  const over = carriedWeight(person) - burdenFrom(person);
+/** The share of walking speed left to this resident under `weight` kilograms. */
+export function paceUnder(person: Person, weight: number): number {
+  const over = weight - burdenFrom(person);
   return over <= 0 ? 1 : Math.max(burdenedPace, 1 - ((1 - burdenedPace) * over) / (carryCapacity - burdenStart));
 }
+export const burdenPace = (person: Person): number => paceUnder(person, carriedWeight(person));
 export const heldAmount = (person: Person, product: Product): number =>
   packAmount(person, product) + (person.carriedProduct === product ? person.carrying : 0);
 /** Hands to pack. Fails when the load is over capacity, which is the cue to visit storage. */

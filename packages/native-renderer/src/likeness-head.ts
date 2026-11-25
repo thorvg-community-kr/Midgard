@@ -13,6 +13,8 @@ export interface HeadFinish extends Finish {
   detail: boolean;
   /** How far the features sit toward +x, turning the face a little that way. */
   turn: number;
+  /** Leaves the flush off the cheeks. */
+  pale?: boolean;
 }
 /** A leather cap or an iron helm worn over the hair. */
 export type Headgear = 'cap' | 'helmet' | null;
@@ -292,8 +294,9 @@ export function drawHead(
     cast.clip(shapeOf(head));
     front.add(cast);
   }
-  for (const side of [-1, 1])
-    front.add(shapeOf([oval(side * 0.6 + turn, 0.4, 0.17, 0.1)]).fill(228, 124, 110, side > 0 ? 62 : 78));
+  if (!finish.pale)
+    for (const side of [-1, 1])
+      front.add(shapeOf([oval(side * 0.6 + turn, 0.4, 0.17, 0.1)]).fill(228, 124, 110, side > 0 ? 62 : 78));
   if (look.freckles && finish.detail)
     for (const side of [-1, 1])
       for (const [x, y] of [

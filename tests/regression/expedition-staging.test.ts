@@ -11,12 +11,13 @@ import { WorldMap } from '../../packages/engine/src/world-map';
 import { Building } from '../../packages/engine/src/town-models';
 import { Structure } from '../../packages/engine/src/building-catalog';
 import { Activity, Calling, Role, type Person } from '../../packages/engine/src/person';
-import { MonsterRank } from '../../packages/engine/src/combat-events';
+import { CombatCue, MonsterRank } from '../../packages/engine/src/combat-events';
+import { rankRules } from '../../packages/engine/src/monster-ranks';
 import { Camera, distance, project, type Point } from '../../packages/engine/src/geometry';
 import { lairOf, monsterEntrance } from '../../packages/engine/src/town-monsters';
 import { sealable } from '../../packages/engine/src/gate-seals';
 import { realmRules } from '../../packages/engine/src/town-realm';
-import { ExpeditionEnd, MemberState, type ExpeditionResult } from '../../packages/engine/src/expedition-record';
+import { ExpeditionEnd, FirstSlam, MemberState, type ExpeditionResult } from '../../packages/engine/src/expedition-record';
 import { decodeTown, encodeTown } from '../../packages/engine/src/save-game';
 import { Order } from '../../packages/engine/src/game-tools';
 import { GameAppState } from '../../apps/web/src/native/game-app-state';
@@ -375,6 +376,66 @@ describe('the last fall', () => {
 });
 
 describe('the result screen', () => {
+  it('recognizes a first scouting return across a load and keeps the next floor locked', () => {
+    const { town, members, gate } = expedition([Calling.Warrior, Calling.Ranger], 4);
+    const den = town.realmDens()[0];
+    den.health = 0;
+    town.realmKill(den);
+    const prize = town.realmLoot.stone;
+    expect(town.realmLoot.empty()).toBe(false);
+    expect(town.firstExpedition.departureSeconds).toBeCloseTo(0.1);
+    const continued = decodeTown(encodeTown(town), (m) => new Town(m, 176, false, true));
+    expect(continued.leaveRealm()).toBe(true);
+    expect(continued.realmOutcome).toMatchObject({ end: ExpeditionEnd.Withdrew, scoutingGoalMet: true, densDestroyed: 1, guardianFell: false, spoilsKept: true });
+    expect(resultText(continued.realmOutcome!)).toContain('Scouting party returned');
+    expect(continued.stock().stone).toBe(prize);
+    expect(continued.floorOpen(gate, 1)).toBe(false);
+    expect(continued.stock().ironOre).toBe(0);
+    expect(continued.firstExpedition.withdrew).toBe(true);
+    expect(continued.sendExpedition(members.map((p) => p.id), gate, 0)).toBe(true);
+    for (let i = 0; i < 150 && !continued.realmActive(); ++i) continued.advance(0.1);
+    expect(continued.chronicle.partiesLed).toBe(2);
+    const nextDen = continued.realmDens()[0];
+    nextDen.health = 0;
+    continued.realmKill(nextDen);
+    expect(continued.leaveRealm()).toBe(true);
+    expect(continued.realmOutcome?.scoutingGoalMet).toBeFalsy();
+  });
+
+  it.each([FirstSlam.Evaded, FirstSlam.Hit, FirstSlam.Interrupted])('gives only the first marked slam extra time and records its outcome (%i)', (outcome) => {
+    const { town, members: [ranger] } = expedition([Calling.Ranger], 4);
+    const guardian = town.realmFoes().find((m) => m.id === town.realmGuardian)!;
+    town.beasts = [guardian];
+    ranger.position = { ...guardian.home };
+    town.reveal(ranger.position.x, ranger.position.y, 8);
+    guardian.ready = town.time + 200;
+    const warn = (t: Town) => {
+      t.combatState.slamAt.set(t.realmGuardian, t.time);
+      t.advanceRealm(0);
+      return t.combatEvents().filter((e) => e.cue === CombatCue.Telegraph).at(-1)!;
+    };
+    expect(warn(town).duration).toBe(rankRules.firstSlamWindup);
+    expect(rankRules.firstSlamWindup).toBeGreaterThan(rankRules.slamWindup);
+    const loaded = decodeTown(encodeTown(town), (m) => new Town(m, 176, false, true));
+    const p = loaded.person(ranger.id)!, boss = loaded.creature(guardian.id)!;
+    expect(loaded.combatEvents().at(-1)).toMatchObject({ cue: CombatCue.Telegraph, duration: rankRules.firstSlamWindup });
+    if (outcome === FirstSlam.Interrupted) {
+      expect(loaded.useSkill([p.id], 0, boss.position)).toBe(1);
+      expect(boss.windupUntil).toBe(-1);
+    } else {
+      if (outcome === FirstSlam.Evaded) {
+        loaded.orderMove([p.id], loaded.realmPlan()!.entry);
+        for (let i = 0; i < 32; ++i) loaded.walk(p, 0.1);
+        expect(distance(p.position, boss.position)).toBeGreaterThan(rankRules.slamRadius);
+      }
+      loaded.time = boss.windupUntil;
+      loaded.advanceRealm(0);
+    }
+    expect(loaded.firstExpedition.slam).toBe(outcome);
+    p.position = { ...boss.position };
+    expect(warn(loaded).duration).toBe(rankRules.slamWindup);
+  });
+
   /** Ends the floor by felling its dens and guardian through the engine's own kill path. */
   function clearFloor(town: Town): void {
     const dens = town.realmDens(),
@@ -394,7 +455,10 @@ describe('the result screen', () => {
     }
     town.advance(30);
     members[0].level += 2;
+    const homeOre = town.stock().ironOre;
     clearFloor(town);
+    expect(town.realmLoot.ironOre).toBe(4);
+    expect(town.stock().ironOre).toBe(homeOre);
     // Clearing the floor itself is not the end: the brood breaks, then the party walks home.
     town.advance(0.1);
     expect(town.realmOutcome).toBeNull();
@@ -415,6 +479,8 @@ describe('the result screen', () => {
     // Five swarmers, every den and the guardian, and the rest of the brood when it broke.
     expect(outcome.slain).toBeGreaterThan(5 + dens);
     expect(outcome.spoils.empty()).toBe(false);
+    expect(outcome.spoils.ironOre).toBe(4);
+    expect(town.stock().ironOre).toBe(homeOre + 4);
     expect(outcome.rewards[0]).toBe(`Floor 2 of ${site.name} is now open.`);
     expect(outcome.rewards.some((line) => line.startsWith('Hoard') || line.startsWith('Go home'))).toBe(false);
     expect(outcome.members.map((m) => m.id)).toEqual(members.map((p) => p.id));
@@ -454,11 +520,14 @@ describe('the result screen', () => {
   it('tells a cast-out: everyone home gravely wounded, the spoils lost', () => {
     const { town, members } = expedition([Calling.Warrior, Calling.Cleric], 3);
     town.realmLoot.gold = 25;
+    town.realmLoot.cinderOre = 2;
     for (const p of members) town.strikeDown(p, 'Killed by monsters');
     town.advance(realmRules.castOutDelay + 0.2);
     const outcome = town.realmOutcome!;
     expect(outcome).toMatchObject({ end: ExpeditionEnd.CastOut, spoilsKept: false });
     expect(outcome.spoils.gold).toBe(25);
+    expect(outcome.spoils.cinderOre).toBe(2);
+    expect(town.stock().cinderOre).toBe(0);
     for (const m of outcome.members) expect(m).toMatchObject({ state: MemberState.Wounded, woundDays: realmRules.wipeWoundDays });
     expect(resultText(outcome).slice(0, 3)).toEqual([
       'Thrown back through the gate',

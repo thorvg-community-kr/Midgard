@@ -340,8 +340,20 @@ try {
     await ui.frames(4);
     const ids = (await ui.controls()).map((c) => c.id);
     assert.ok(ids.includes('guide-log') && ids.includes('guide-log/focus') && ids.includes('guide-log/cards'), ids.join(', '));
-    assert.ok(ids.some((id) => id.startsWith('guide-log/look/')), 'entries with a place offer Look');
+    // Entries are title rows that unfold; what was unread opens unfolded, the rest at a press.
+    const folds = ids.filter((id) => id.startsWith('guide-log/fold/'));
+    assert.ok(folds.length > 0, ids.join(', '));
     await ui.shot('07-guide-log');
+    for (const id of folds) {
+      if ((await ui.controls()).some((c) => c.id.startsWith('guide-log/look/'))) break;
+      // An entry unfolded above may have moved this one to the next page.
+      if ((await ui.controls()).some((c) => c.id === id)) await click(id);
+      await ui.frames(2);
+    }
+    assert.ok((await ui.controls()).some((c) => c.id.startsWith('guide-log/look/')), 'an unfolded entry with a place offers Look');
+    for (const c of await ui.controls())
+      if (c.id.startsWith('guide-log/')) assert.ok(c.bounds.y + c.bounds.h <= 800, `${c.id} is inside the view`);
+    await ui.shot('07b-guide-log-unfolded');
     const look = (await ui.controls()).find((c) => c.id.startsWith('guide-log/look/'));
     await page.mouse.click(look.bounds.x + look.bounds.w / 2, look.bounds.y + look.bounds.h / 2);
     await ui.frames(16);
@@ -386,6 +398,9 @@ try {
     s = await ui.state();
     assert.equal(s.open, true, 'a tap opens the log');
     await ui.shot('10-phone-log');
+    const row = (await ui.controls()).find((c) => c.id.startsWith('guide-log/fold/'));
+    await tap(row.id);
+    await ui.shot('10b-phone-log-unfolded');
     for (const id of ['guide-log/close', 'guide-log/focus', 'guide-log/cards', 'guide-log/older']) {
       const b = await ui.bounds(id);
       assert.ok(b.h >= 44, `${id} is ${b.h} tall`);

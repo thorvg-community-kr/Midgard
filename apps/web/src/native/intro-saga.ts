@@ -1,4 +1,4 @@
-// The opening saga shown before a new game: seven narrated beats cut together like a short film.
+// The opening saga shown before a new game: five narrated beats, cut from one to the next.
 import type { Paint, ThorVGNamespace } from '@thorvg/webcanvas';
 import { PictureNode, SceneNode, ShapeNode } from '../../../../packages/native-renderer/src/paint';
 import { WebCanvasAdapter } from '../../../../packages/native-renderer/src/webcanvas-adapter';
@@ -14,10 +14,8 @@ import {
   slayingPanel,
   voidPanel,
 } from '../../../../packages/native-renderer/src/saga-creation-panels';
-import { treePanel } from '../../../../packages/native-renderer/src/saga-tree-panel';
-import { gatesPanel } from '../../../../packages/native-renderer/src/saga-gates-panel';
 import { breathPanel } from '../../../../packages/native-renderer/src/saga-breath-panel';
-import { chargePanel } from '../../../../packages/native-renderer/src/saga-charge-panel';
+import { malicePanel } from '../../../../packages/native-renderer/src/saga-malice-panel';
 
 /** One caption phrase and the seconds of its beat it is on screen. */
 export interface SagaLine {
@@ -66,45 +64,27 @@ export const sagaBeats: SagaBeat[] = [
     length: 13.9,
   },
   {
-    panel: treePanel,
-    lines: [line('But Midgard is only one of nine worlds.', 0.55, 3.7)],
-    takes: [{ clip: 'saga_worlds', at: 0.3 }],
-    length: 4.4,
-  },
-  {
-    panel: gatesPanel,
-    lines: [
-      line('From each, a gate opens into Midgard...', 0.55, 3.15),
-      line('and through them pour the hungry things', 3.25, 5.1),
-      line('of frost, of fire, and of the grave.', 5.1, 9),
-    ],
-    takes: [
-      { clip: 'saga_gate', at: 0.3 },
-      { clip: 'saga_gates_b', at: 3 },
-    ],
-    length: 9.9,
-  },
-  {
     panel: breathPanel,
     lines: [
-      line('So Odin walked the shore,', 0.85, 2.75),
-      line('and to an ash and an elm, he gave breath.', 2.85, 6.3),
-      line('Askr and Embla.', 7.15, 9.35),
+      line('One day, Odin walked along the shore.', 0.9, 4.25),
+      line('He found two trees, and gave them life.', 4.5, 8),
+      line('Askr and Embla.', 10, 12.9),
     ],
     takes: [
-      { clip: 'saga_people_a', at: 0.6 },
-      { clip: 'saga_names', at: 6.9 },
+      { clip: 'saga_people_a', at: 0.3 },
+      { clip: 'saga_names', at: 9.8 },
     ],
-    length: 9.6,
+    length: 13.3,
   },
   {
-    panel: chargePanel,
-    lines: [line('They are few. Guard every one.', 0.75, 3.7), line('And seal the gates.', 4.5, 7.1)],
-    takes: [
-      { clip: 'saga_charge_a', at: 0.5 },
-      { clip: 'saga_charge_c', at: 4.3 },
+    panel: malicePanel,
+    lines: [
+      line("But the giant's hatred did not die with him...", 0.7, 3.9),
+      line('It rises still...', 4.3, 6.2),
+      line('to destroy all that the gods have made.', 6.4, 9.8),
     ],
-    length: 8.2,
+    takes: [{ clip: 'saga_malice', at: 0.3 }],
+    length: 11.2,
   },
 ];
 const fadeIn = 0.9;

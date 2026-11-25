@@ -10,7 +10,7 @@ export interface CameraGlide {
   seconds: number;
 }
 export const glideSeconds = 0.6;
-const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
+export const cameraEase = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 
 export function glideTo(camera: Camera, world: Point, now: number, seconds = glideSeconds): CameraGlide {
   return { from: { x: camera.x, y: camera.y }, to: project(world.x, world.y), start: now, seconds };
@@ -18,7 +18,7 @@ export function glideTo(camera: Camera, world: Point, now: number, seconds = gli
 /** Moves the camera along the glide; false once it has arrived. */
 export function stepGlide(camera: Camera, glide: CameraGlide, now: number): boolean {
   const t = glide.seconds > 0 ? clamp((now - glide.start) / glide.seconds, 0, 1) : 1,
-    k = ease(t);
+    k = cameraEase(t);
   camera.x = f32(glide.from.x + (glide.to.x - glide.from.x) * k);
   camera.y = f32(glide.from.y + (glide.to.y - glide.from.y) * k);
   return t < 1;

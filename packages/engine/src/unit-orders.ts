@@ -9,9 +9,13 @@ import { StrikeKind, strikeOf } from './skill-catalog';
 import { f32 as f } from './numeric';
 import { treePosition } from './world-map';
 import * as mining from './mining';
+import { canHarvest, harvestProduct } from './harvest-material';
+import { resourceAmount } from './construction-materials';
+import { inArea } from './realm-layout';
 import { prepareFarmWork } from './farm-work';
-import { roadWorkSpot, buildingWorkSpot } from './person-navigation';
+import { approachBasalt, roadLayReach, roadWorkSpot, buildingWorkSpot, waitsForFront } from './person-navigation';
 import type { Town } from './town';
+import { herdLeader, isRanchHarvest, leadLivestock, livestockKind, localRanches } from './livestock';
 import { beyondOrders, canControl, sameFaction } from './faction';
 import { clearAutomaticConstruction } from './automatic-work';
 import { healthCap } from './resident-wounds';
@@ -22,6 +26,7 @@ export interface OrderTown extends TownState {
   staff(): void;
   walkTo(p: Person, to: Point): boolean;
   setOrder(p: Person, task: Activity, site?: number): void;
+  keepAwake(p: Person): void;
   arrive(p: Person): void;
   creature(id: number): Monster | null;
   orderHarvest(ids: number[], cell: number, kind: Product): boolean;
@@ -49,16 +54,21 @@ export interface OrderTown extends TownState {
   startHarvest(p: Person, around: Point, reach: number, kind?: Product): boolean;
   resourceNearby(around: Point, reach: number, kind: Product): boolean;
   layRoadFirst(p: Person, id: number): boolean;
-  constructionTree(p: Person, activity: Activity, target: number): number;
-  fellTree(p: Person, cell: number): boolean;
+  constructionTree(p: Person, activity: Activity, target: number, laying?: boolean): number;
+  fellTree(p: Person, cell: number, from?: Point): boolean;
   tend(p: Person): void;
 }
 export function setOrder(this: OrderTown, p: Person, task: Activity, site = -1): void {
   this.commanded();
+  // An order that takes a resident out of bed keeps them up; an order to bed ends it.
+  if (task === Activity.Sleeping) p.awakeUntil = -1;
+  else if (p.activity === Activity.Sleeping) this.keepAwake(p);
   clearAutomaticConstruction(p);
+  p.transfer = null;
+  p.herdAnimal = -1;
   p.clearing = -1;
   if (task !== Activity.Training) p.trainingCalling = -1;
-  if (task !== Activity.Crafting) { p.craftItem = null; p.craftWorkshop = -1; p.craftProgress = 0; }
+  if (task !== Activity.Crafting) { p.craftItem = null; p.craftWorkshop = -1; p.craftProgress = 0; p.refining = Product.None; p.refineProgress = 0; }
   p.approachingOrder = false;
   p.hunting = false; p.attackPerson = p.workField = -1;
   p.recoveringRest = p.recoveringHealth = false;
@@ -79,13 +89,15 @@ export function orderStop(this: OrderTown, ids: number[]): void {
   for (const p of this.folk) {
     if (!canControl(p, this.controlFaction) || beyondOrders(p) || !ids.includes(p.id)) continue;
     p.approachingOrder = false;
+    p.transfer = null;
     p.clearing = -1;
     p.hunting = false; p.attackPerson = p.workField = -1;
     p.recoveringRest = p.recoveringHealth = false;
     p.autoMode = false;
     p.ordered = false;
+    p.herdAnimal = -1;
     p.trainingCalling = -1;
-    p.craftItem = null; p.craftWorkshop = -1; p.craftProgress = 0;
+    p.craftItem = null; p.craftWorkshop = -1; p.craftProgress = 0; p.refining = Product.None; p.refineProgress = 0;
     p.task = Activity.Idle;
     p.taskSite = -1;
     p.supplyTarget = -1;
@@ -124,7 +136,7 @@ export function setAuto(this: OrderTown, id: number, enabled: boolean): void {
       p.approachingOrder = false;
       p.ordered = false;
       p.trainingCalling = -1;
-      p.craftItem = null; p.craftWorkshop = -1; p.craftProgress = 0;
+      p.craftItem = null; p.craftWorkshop = -1; p.craftProgress = 0; p.refining = Product.None; p.refineProgress = 0;
     p.task = Activity.Idle;
       p.taskSite = -1;
       p.supplyTarget = -1;
@@ -225,9 +237,15 @@ export function orderAttackPerson(this: OrderTown, ids: number[], target: number
 export function orderAttack(this: OrderTown, ids: number[], monster: number): boolean {
   const target = this.creature(monster);
   if (!target || target.health <= 0 || target.insideLair) return false;
+  const town = this as Town;
+  if (target.pen >= 0 || (livestockKind(target.animal) && herdLeader(town, target))) return false;
+  const group = this.folk.filter(p => canControl(p, this.controlFaction) && ids.includes(p.id));
+  if (livestockKind(target.animal)) {
+    const handlers = group.filter(p => localRanches(town, p).length);
+    if (handlers.length) return handlers.some(p => leadLivestock(town, p, target));
+  }
   let any = false;
-  for (const p of this.folk) {
-    if (!canControl(p, this.controlFaction) || !ids.includes(p.id)) continue;
+  for (const p of group) {
     this.setOrder(p, Activity.Fighting, monster);
     p.foe = monster;
     p.activity = Activity.Fighting;
@@ -250,13 +268,15 @@ export function orderHarvest(this: OrderTown, ids: number[], cell: number, kind:
   if (stone ? !mining.deposit(this.world, x, y) : !this.world.at(x, y).trees) return false;
   const village = this.settlementAt(point(f(x + f(0.5)), f(y + f(0.5)))),
     room = this.capacity(village),
-    treasury = this.stock(village);
-  if (village >= 0 && (stone ? treasury.stone >= room.stone : treasury.wood >= room.wood)) return false;
+    treasury = this.stock(village),
+    product = harvestProduct(this.world, x, y, stone),
+    basalt = stone && cell === this.world.basaltCell;
+  if (village >= 0 && !inArea(this.realmArea, point(x, y)) && resourceAmount(treasury, product) >= resourceAmount(room, product)) return false;
   const foot = stone ? mining.position(x, y) : treePosition(this.world, x, y, this.world.at(x, y).trees - 1);
   if (!this.world.revealed(foot)) return false;
   let any = false;
   for (const p of this.folk) {
-    if (!canControl(p, this.controlFaction) || beyondOrders(p) || !ids.includes(p.id)) continue;
+    if (!canControl(p, this.controlFaction) || beyondOrders(p) || !ids.includes(p.id) || !canHarvest(p, product, basalt)) continue;
     if (
       this.folk.some(
         (other) =>
@@ -266,7 +286,10 @@ export function orderHarvest(this: OrderTown, ids: number[], cell: number, kind:
       )
     )
       continue;
-    if (!this.walkTo(p, this.grid.nearestWalkable(add(foot, point(-0.18, 0.18))))) continue;
+    const reachable = basalt
+      ? approachBasalt(this, p, foot)
+      : this.walkTo(p, this.grid.nearestWalkable(add(foot, point(-0.18, 0.18))));
+    if (!reachable) continue;
     this.setOrder(p, stone ? Activity.Mining : Activity.Felling, cell);
     p.goal = foot;
     p.path = [];
@@ -408,6 +431,7 @@ export function orderRelax(this: OrderTown, ids: number[], id: number): boolean 
 export function resumeOrder(this: OrderTown, p: Person): boolean {
   if (p.stressRecovery || p.faction !== this.controlFaction) return false;
   if (p.task === Activity.Idle) return false;
+  if (p.task === Activity.Herding || isRanchHarvest(p.task)) return true;
   if (p.task === Activity.Tending) {
     this.tend(p);
     return true;
@@ -529,11 +553,25 @@ export function resumeOrder(this: OrderTown, p: Person): boolean {
         const road = this.network.road(this.roadWorkTargetFor(p));
         if (road) {
           if (p.carrying && this.prepareConstruction(p, Activity.Roadwork, road.id)) return true;
-          const tree = this.constructionTree(p, Activity.Roadwork, road.id);
-          if (tree >= 0) {
-            if (!this.fellTree(p, tree)) wait();
-          } else if (!this.prepareConstruction(p, Activity.Roadwork, road.id))
-            start(Activity.Roadwork, road.id, roadWorkSpot(this,p,road));
+          const spot = roadWorkSpot(this,p,road),
+            atFront = distance(p.position, spot) <= roadLayReach,
+            // At the front only the tree that stops it counts: with the way free they lay on. The trees near by are
+            // for whoever is out ahead already, or cannot lay because the stopping tree is in a mate's hand.
+            stopping = atFront ? this.constructionTree(p, Activity.Roadwork, road.id, true) : -1;
+          if (stopping >= 0 && this.fellTree(p, stopping, spot)) return true;
+          const tree = atFront && stopping < 0 ? -1 : this.constructionTree(p, Activity.Roadwork, road.id);
+          if (tree >= 0 && this.fellTree(p, tree, spot)) return true;
+          // A tree nobody can get at for now is tried again in a moment, and whoever is out ahead waits there for
+          // the last one in a mate's hand. At the front they wait for it in their place.
+          if (tree >= 0 && !(atFront && this.folk.some((other) => other.id !== p.id && other.activity === Activity.Felling && other.tree === tree)))
+            wait();
+          else if (!this.prepareConstruction(p, Activity.Roadwork, road.id)) {
+            if (waitsForFront(road, spot, p.position)) {
+              p.path = [];
+              p.activity = Activity.Roadwork;
+              p.target = road.id;
+            } else start(Activity.Roadwork, road.id, spot);
+          }
         } else wait();
         return true;
       }

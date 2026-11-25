@@ -22,12 +22,15 @@ import { hasResourceHits, resetResourceHits, updateResourceHits } from './resour
 import { buildingCatalogGeneration } from './building-assets';
 import { resize, fitToView, paintMapName, buildPreview, updateGroundChunks } from './world-ground';
 import { paintGround, tintGround, paintFields } from './terrain-painter';
+import { GroundViewport } from './ground-viewport';
 import { paintRoads } from './road-painter';
 import { moveWater } from './water-motion';
-import { updateLava } from './lava-motion';
-import { syncVisuals, buildObjects, buildRoadLights } from './world-objects';
-import { buildDarkness, updateVision } from './world-vision';
+import { lightCrater, updateLava } from './lava-motion';
+import { SceneNode } from './paint';
+import { syncVisuals, buildObjects, buildRoadLights, addVolcano } from './world-objects';
+import { buildDarkness, updateVision, warmEverywhere } from './world-vision';
 import { cullTrees, swayTrees, updateFelling, updateGrowth } from './world-trees';
+import { WindLeaves } from './wind-leaves';
 import { moveAgents, tread, markDamage } from './world-people';
 import { updateThor } from './world-thor';
 import { updateSerpent } from './world-serpent';
@@ -37,7 +40,7 @@ import { animate } from './world-animation';
 import { paintStorm } from './world-weather';
 import { ymirHeight } from './ymir-statue';
 import { volcanoHeight, volcanoSmoke } from './volcano-painter';
-import { sortWorldObjects, footprintBaseline, baselineDepthAt } from './world-depth';
+import { sortWorldObjects, footprintBaseline, baselineDepthAt, viewRect } from './world-depth';
 
 const samePoint = (a: Point, b: Point) => a.x === b.x && a.y === b.y;
 const samePreview = (a: Preview, b: Preview): boolean =>
@@ -60,8 +63,11 @@ const intersects = (a: TileRegion, b: TileRegion) =>
 
 const terrainSettle = 0.15;
 export class WorldRenderer extends WorldRendererState {
+  private groundViewport?: GroundViewport;
+  private framesSinceCollection = 0;
   private readonly picker = new WorldPicker(this);
   private readonly groundSelection = new GroundSelection(this);
+  private readonly windLeaves = new WindLeaves();
   private pickedTown: Town | null = null;
   pick(screen: Point): WorldHit | null {
     return this.picker.pick(screen);
@@ -84,6 +90,7 @@ export class WorldRenderer extends WorldRendererState {
     this.picker.invalidate();
   }
   override dispose(): void {
+    this.windLeaves.clear();
     resetResourceHits(this);
     this.picker.invalidate();
     this.pickedTown = null;
@@ -102,6 +109,7 @@ export class WorldRenderer extends WorldRendererState {
     return this.currentVisibility.sample(at) >= 119;
   }
   invalidateMap(): void {
+    this.windLeaves.clear();
     resetResourceHits(this);
     this.invalidatePresentation();
     for (const tree of this.fallingTrees) this.rows[tree.row]?.remove(tree.paint);
@@ -116,11 +124,14 @@ export class WorldRenderer extends WorldRendererState {
     }
     this.nameDirty = true;
     this.ground.remove();
+    this.ground.opacity(255);
+    this.groundViewport = undefined;
     this.groundTints = [];
     this.groundChunks = [];
     this.overviewChunks = [];
     this.detailedGround = this.overviewGround = null;
     this.groundWidth = this.groundHeight = 0;
+    this.groundCover.remove();
     this.ornaments.remove();
     this.ornamentLook = -1n;
     for (const figure of this.figures.values()) {
@@ -137,13 +148,17 @@ export class WorldRenderer extends WorldRendererState {
     this.treeBounds = [];
     this.rowCanopies = [];
     this.swaying = false;
-    this.fog.remove();
-    this.memory.remove();
-    this.visibilityPicture = null;
-    this.fogBorder = null;
+    this.mist.remove();
+    this.cloudMist.opacity(0);
+    this.cloudMistPicture.source = undefined;
+    this.mistKnown.clear();
+    warmEverywhere(this);
+    this.fogged = false;
+    this.mistPicture = null;
+    this.mistAt = -1;
+    this.mistKey = '';
     this.exploredVisibility = new VisibilityMap();
     this.currentVisibility = new VisibilityMap();
-    this.visibilityPixels = new Uint32Array();
     this.vision = [];
     this.groundSelection.clear();
     this.combat.remove();
@@ -275,19 +290,28 @@ export class WorldRenderer extends WorldRendererState {
     // Ground repaints follow the brush every frame; whole-map objects wait for it to pause.
     const settling = this.editorView && this.terrainEditedAt >= 0 && seconds - this.terrainEditedAt < terrainSettle;
     if (!settling) this.terrainEditedAt = -1;
-    const generation = buildingCatalogGeneration(),
+    const generation = buildingCatalogGeneration(), revision = town.objectRevision(),
+      volcanoOnly = !settling && !this.editorView && this.fireRow < 0 && this.rows.length > 0 &&
+        revision === town.volcanoRevision && revision === this.revision + 1n &&
+        key === this.climateKey && generation === this.appearanceGeneration,
       objectsChanged =
-        !settling &&
-        (town.objectRevision() !== this.revision ||
+        !settling && !volcanoOnly &&
+        (revision !== this.revision ||
           key !== this.climateKey ||
           generation !== this.appearanceGeneration);
     const roadsChanged = !settling && town.roadRevision() !== this.roadRevision;
+    if (volcanoOnly) {
+      addVolcano(this, town.map());
+      this.revision = revision;
+    }
     if (objectsChanged) {
       this.appearanceGeneration = generation;
-      this.revision = town.objectRevision();
+      this.revision = revision;
       syncVisuals(this, town, seconds);
-      if (!this.editorView && !this.groundTints.length)
+      if (!this.editorView && !this.groundTints.length) {
         this.groundTints = paintGround(this.ground, town.map());
+        this.groundViewport = new GroundViewport(this.ground);
+      }
       if (key !== this.climateKey) {
         this.climateKey = key;
         tintGround(this.groundTints, climate);
@@ -301,15 +325,16 @@ export class WorldRenderer extends WorldRendererState {
       this.roads.remove();
       paintRoads(this.roads, town.roads(), town.map());
     }
-    if (objectsChanged || roadsChanged) {
-      const lightsChanged = buildRoadLights(this, town, traffic, objectsChanged);
+    if (objectsChanged || roadsChanged || volcanoOnly) {
+      const lightsChanged = (objectsChanged || roadsChanged) && buildRoadLights(this, town, traffic, objectsChanged);
       if (lightsChanged) {
         if (!this.editorView) buildDarkness(this, town.map());
         else {
           this.lastFlicker = -1;
           animate(this, town, 0);
         }
-      }
+      } else if (volcanoOnly && this.darkVeil?.masking?.paint instanceof SceneNode)
+        lightCrater(this, this.darkVeil.masking.paint);
       this.shownPreview = new Preview();
       this.shownPreview.zoom = -1;
     }
@@ -346,8 +371,7 @@ export class WorldRenderer extends WorldRendererState {
         this.rows[i].opacity(opacity);
       }
       for (const layer of [
-        this.fog,
-        this.memory,
+        this.mist,
         this.darkness,
         this.warmth,
         this.clouds,
@@ -355,9 +379,10 @@ export class WorldRenderer extends WorldRendererState {
         this.precipitation,
       ])
         layer.opacity(0);
+      warmEverywhere(this);
       if (this.sceneView) moveAgents(this, town, traffic, 0, selected);
     } else {
-      updateVision(this, town);
+      updateVision(this, town, seconds);
       tread(this, town, seconds);
       markDamage(this, town);
       moveAgents(this, town, traffic, seconds, selected);
@@ -369,11 +394,16 @@ export class WorldRenderer extends WorldRendererState {
       updateResourceHits(this, town);
       animate(this, town, seconds);
     }
+    this.windLeaves.update(this, town.map().seed(), climate, seconds);
+    this.groundViewport?.update(viewRect(this),
+      this.mist.alpha === 255 && this.mistPicture ? this.mistField?.clearGround : undefined, camera.zoom);
     sortWorldObjects(this);
     this.adapter.sync(this.root);
-    this.collectPaints();
+    if (++this.framesSinceCollection >= 30 || objectsChanged || roadsChanged || volcanoOnly || this.adapter.needsCollection())
+      this.collectPaints();
   }
   private collectPaints(): void {
+    this.framesSinceCollection = 0;
     // Native caches hold independent references even while their rows are culled.
     this.adapter.collect([
       this.root,

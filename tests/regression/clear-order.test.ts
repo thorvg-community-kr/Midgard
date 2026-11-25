@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import ThorVG, { type ThorVGNamespace } from '@thorvg/webcanvas';
 import { parseFontMetrics } from '../../packages/native-ui/src/fonts';
@@ -19,6 +19,13 @@ import { worldObjectPanel } from '../../apps/web/src/native/game-selection-panel
 import { rememberCrew } from '../../apps/web/src/native/clear-order-hud';
 import type { GameHudApp } from '../../apps/web/src/native/game-hud-contract';
 import { press } from '../../apps/web/src/native/game-input';
+import { Traffic } from '../../packages/engine/src/traffic';
+import { addInventory } from '../../packages/engine/src/equipment';
+import { WorldRendererState } from '../../packages/native-renderer/src/world-renderer-state';
+import { SceneNode } from '../../packages/native-renderer/src/paint';
+import { moveAgents } from '../../packages/native-renderer/src/world-people';
+import { syncVisuals } from '../../packages/native-renderer/src/world-objects';
+import { animate } from '../../packages/native-renderer/src/world-animation';
 
 function world(): Town {
   const map = new WorldMap();
@@ -178,6 +185,109 @@ beforeAll(async () => {
 afterAll(() => {
   tvg.term();
   vi.unstubAllGlobals();
+});
+
+const observedStates: WorldRendererState[] = [];
+afterEach(() => {
+  for (const state of observedStates.splice(0)) state.adapter.dispose();
+});
+function observeResident(town: Town, p: Person) {
+  const state = new WorldRendererState(tvg),
+    traffic = new Traffic(town.map().seed());
+  observedStates.push(state);
+  state.rows = Array.from({ length: 80 }, () => new SceneNode());
+  state.currentVisibility.sample = () => 255;
+  return () => {
+    moveAgents(state, town, traffic, town.clock(), []);
+    return state.figures.get(p.id)!;
+  };
+}
+describe('activities as seen in the world', () => {
+  it.each([0.6, 1])('dismantles what stands at progress %s and restores it smoothly after Keep', (progress) => {
+    const town = world(),
+      site = tent(town),
+      worker = resident(town, 0),
+      state = new WorldRendererState(tvg);
+    observedStates.push(state);
+    site.progress = progress;
+    syncVisuals(state, town, 0);
+    animate(state, town, 0);
+    animate(state, town, 8);
+    const visual = state.visuals.get(site.id)!,
+      start = visual.frame,
+      full = visual.picture.currentFrame,
+      mark = markClear(town, 'building', site.id, [worker.id]).mark!;
+    run(town, 120, () => mark.done >= 0.55);
+    expect(mark.done).toBeGreaterThanOrEqual(0.55);
+    animate(state, town, 8 + town.clock());
+    expect(visual.picture.currentFrame).toBeCloseTo(start * (1 - mark.done), 4);
+    expect(visual.picture.currentFrame).toBeLessThan(full);
+    keepClear(town, 'building', site.id);
+    const stripped = visual.frame;
+    animate(state, town, 8 + town.clock() + 0.01);
+    expect(visual.frame).toBeGreaterThan(stripped);
+    expect(visual.frame).toBeLessThan(start);
+    animate(state, town, 16 + town.clock());
+    expect(visual.picture.currentFrame).toBe(full);
+  });
+  it('takes up a real mallet on reaching demolition work and puts it away when the job is cancelled', () => {
+    const town = world(),
+      p = resident(town, 0),
+      site = tent(town),
+      see = observeResident(town, p);
+    addInventory(p, 'wooden-mallet');
+    const mark = markClear(town, 'building', site.id, [p.id]).mark!;
+    expect(p.moving()).toBe(true);
+    expect(see().parts.hammer!.alpha).toBe(0);
+    for (let i = 0; i < 400 && mark.done === 0; i++) town.advance(0.05);
+    expect(mark.done).toBeGreaterThan(0);
+    const worker = see();
+    expect(worker.parts.hammer!.alpha).toBe(255);
+    expect(worker.parts.toolHeads.hammer!.wood.alpha).toBe(255);
+    const before = worker.parts.arms[1].turn.elbow;
+    town.advance(0.25);
+    expect(see().parts.arms[1].turn.elbow).not.toBeCloseTo(before, 3);
+    keepClear(town, 'building', site.id);
+    expect(see().parts.hammer!.alpha).toBe(0);
+    expect(worker.parts.soilDust!.alpha).toBe(0);
+  });
+  it('serves food at the door and water at the well, with empty hands on approach and indoors', () => {
+    const town = world(),
+      p = resident(town, 0, point(21, 23), true),
+      see = observeResident(town, p);
+    p.calling = Calling.Bard;
+    p.inventory[0] = { item: 'wooden-sword', quantity: 1 };
+    p.equipment.weapon = 1;
+    const well = tent(town);
+    well.kind = Structure.Well;
+    p.food = 0.1;
+    const eaten = town.economy(p.village).today.eaten;
+    expect(town.eat(p)).toBe(true);
+    expect(see().parts.bread!.alpha).toBe(0);
+    for (let i = 0; i < 400 && p.food < 0.9; ++i) town.advance(0.05);
+    const diner = see().parts;
+    expect(diner.bread!.alpha).toBe(255);
+    expect(diner.sword!.alpha).toBe(0);
+    expect(town.economy(p.village).today.eaten).toBe(eaten + 1);
+    p.hydration = 0.1;
+    expect(town.drink(p)).toBe(true);
+    expect(see().parts.bread!.alpha).toBe(0);
+    expect(diner.cup!.alpha).toBe(0);
+    for (let i = 0; i < 400 && p.hydration < 0.9; ++i) town.advance(0.05);
+    expect(see().parts.cup!.alpha).toBe(255);
+    expect(diner.sword!.alpha).toBe(0);
+    expect(diner.luteHeld!.alpha).toBe(0);
+    p.inside = true;
+    for (const doorway of [0.4, 1]) {
+      p.doorway = doorway;
+      expect(see().parts.cup!.alpha).toBe(0);
+      expect(diner.bread!.alpha).toBe(0);
+    }
+    p.inside = false;
+    p.doorway = 0;
+    town.orderMove([p.id], point(20, 24));
+    expect(see().parts.cup!.alpha).toBe(0);
+  });
 });
 type TestApp = GameHudApp & GameAppState;
 function hud(width = 1024, height = 768) {

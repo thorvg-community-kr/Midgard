@@ -9,7 +9,8 @@ const worlds = [
   [11, 96, 'f427aefff18f615ac9b0ee605029ae2271f4ad29a7d23ac61b74e3b0000b1e7c'],
   [5, 176, '5d9f0941a9b818e1d2c42e8174acbf6d0f7bb79173f81f3d78268e0a778db7e9'],
   [4294967295, 64, 'e49e2af1515ff31bc7784dd7c0d4b353e18c74cb9ad702d086d6f45cfb761c55'],
-  [0, 32, '9ab6c9dd748258651d63b76130f06619711e6dc80bdf04cff871993a5d73606e'],
+  // On this small map the founders can already see the slopes of Fire Mountain.
+  [0, 32, 'd35a8ce33290e4685e88892742d7c3655469a9a9bb350f5e091238c9bbaf71a7'],
 ] as const;
 describe('cooperative world generation', () => {
   it.each(worlds)('preserves every field of seed %s on a %s tile map', (seed, size, expected) => {

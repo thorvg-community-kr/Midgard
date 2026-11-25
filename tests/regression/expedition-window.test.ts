@@ -76,6 +76,7 @@ function settlement(people: [Calling, number][]) {
     .filter((g) => sealable(g.site))
     .sort((a, b) => distance(lairOf(a.site), camp.center) - distance(lairOf(b.site), camp.center))[0].index;
   town.map().dungeons()[gate].discovered = true;
+  town.open[gate] = 1;
   const near = monsterEntrance(town.map().dungeons()[gate]),
     folk = people.map(([calling, level], i) => {
       const p = new Person(i, `Hero${'ABCDEFGH'[i]}`, Role.Resident, calling, Race.Human, 13880 + i * 977, town.grid.nearestWalkable({ x: near.x + 2 + (i % 3), y: near.y + 2 + Math.floor(i / 3) }));
@@ -168,7 +169,8 @@ describe('the expedition window', () => {
       expect(ui.app.paused).toBe(true);
       ui.draw();
       expect(ui.words()).toEqual(expect.arrayContaining([town.map().dungeons()[gate].name, 'Floor 1', 'All fighters', 'Selected (1)', 'Group 2']));
-      expect(ui.words().some((w) => w.startsWith('Party: 1 at level 4 on average, too few'))).toBe(true);
+      expect(ui.words()).toContain('Party: 1 at level 4 on average, high risk.');
+      expect(ui.words().join(' ')).toContain('Optional goal · Destroy one den and return alive');
       // A tap on a row takes them along; a second tap leaves them behind.
       ui.click(`expedition-member-${folk[1].id}`);
       expect(ui.app.expedition!.party).toEqual([folk[0].id, folk[1].id]);
@@ -177,6 +179,12 @@ describe('the expedition window', () => {
       ui.draw();
       ui.click('expedition-pick-fighters');
       expect(ui.app.expedition!.party).toEqual(folk.slice(0, 4).map((p) => p.id));
+      ui.draw();
+      expect(ui.words()).toContain('Party: 4 at level 4 on average, high risk.');
+      ['wooden-sword', 'short-bow', 'wooden-staff', 'wooden-club'].forEach((item, i) => {
+        folk[i].inventory[0] = { item, quantity: 1 };
+        town.equipItem(folk[i].id, 1, 'weapon');
+      });
       ui.draw();
       expect(ui.words()).toContain('Party: 4 at level 4 on average, ready.');
       expect(ui.words()).toContain('Set out (4)');
@@ -214,7 +222,7 @@ describe('the expedition window', () => {
       expect(ui.app.expedition!.party).toEqual([folk[0].id]);
       ui.draw();
       expect(ui.words()).toEqual(
-        expect.arrayContaining(['Cannot go now', 'Downed: must be raised first', 'Wounded: heals in 2 days', 'Overwhelmed: resting until calm']),
+        expect.arrayContaining(['Cannot go now', 'Downed: must be raised first', 'Wounded: heals in 2 days', 'Exhausted and resting.']),
       );
       expect(ui.enabled(`expedition-member-${folk[2].id}`)).toBe(false);
       ui.click(`expedition-member-${folk[2].id}`);
@@ -248,7 +256,7 @@ describe('the expedition window', () => {
       ui.dispose();
     }
   });
-  it('chooses among open floors only and shows a sealed or unexplored gate read-only', () => {
+  it('chooses among open floors and shows dormant, sealed and unexplored gates read-only', () => {
     const { town, gate, folk } = settlement([[Calling.Warrior, 8]]);
     town.depth[gate] = 1;
     const ui = fixture(town);
@@ -272,6 +280,15 @@ describe('the expedition window', () => {
       expect(ui.control(`expedition-member-${folk[0].id}`)).toBeUndefined();
       closeExpedition(ui.app);
       town.depth[gate] = 0;
+      town.open[gate] = 0;
+      openExpedition(ui.app, gate, [folk[0].id]);
+      ui.draw();
+      expect(setOutProblem(ui.app)).toBe('Dormant gate');
+      expect(ui.words().filter(word => word === 'Dormant gate')).toHaveLength(1);
+      expect(ui.words().join(' ')).not.toMatch(/Opens |day 3|resident level|smithy|guild/i);
+      expect(ui.ids()).not.toContain('expedition-set-out');
+      expect(ui.ids()).not.toContain('expedition-floor-0');
+      closeExpedition(ui.app);
       town.map().dungeons()[gate].discovered = false;
       openExpedition(ui.app, gate);
       ui.draw();
@@ -370,7 +387,7 @@ describe('the expedition window', () => {
         'Beyond a gate already',
         'On the way to a gate',
         'Downed: must be raised first',
-        'Overwhelmed: resting until calm',
+        'Exhausted and resting.',
         'Send to join (2)',
         'A party fights beyond this gate on floor 2; those you send now join it.',
         'More (3)',

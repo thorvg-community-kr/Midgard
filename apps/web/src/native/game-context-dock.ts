@@ -8,6 +8,9 @@ import { actionButton } from './hud-actions';
 import { freshMark } from './game-progress-hud';
 import { objectClearHeight, objectClearTarget } from './clear-order-hud';
 import { isSeat } from '../../../../packages/engine/src/building-catalog';
+import { isCraftStation } from '../../../../packages/engine/src/equipment';
+import { inspectorHeightLimit } from './mobile-layout';
+import { aimFolded } from './game-unit-panel';
 const copy = (r: Rect) => new Rect(r.x, r.y, r.w, r.h);
 const padded = (r: Rect, amount: number) =>
   r.w <= 0 || r.h <= 0
@@ -80,7 +83,10 @@ export function updateContextDock(this: GameHudApp, width: number, height: numbe
     (this.touchMode || (!this.drawerSuppressed && (atHandle || (this.dockView === DockView.Menu && inMenu))))
   )
     next = DockView.Menu;
-  if (this.pending !== Order.None) next = DockView.Handle;
+  // With a mouse an aimed order folds a selection's panel to its title row, where the order is lit.
+  const folded = aimFolded(this) && this.chosen.length > 0;
+  if (folded) next = DockView.Unit;
+  else if (this.pending !== Order.None) next = DockView.Handle;
   else if (this.tool !== Tool.Select && next !== DockView.Build && next !== DockView.Roster)
     next = DockView.Placement;
   let target = new Rect(f((width - 128) / 2), height - 28, 128, 16),
@@ -102,11 +108,13 @@ export function updateContextDock(this: GameHudApp, width: number, height: numbe
   } else if (next === DockView.Unit) {
     target = this.personPanelBounds(width, height, this.residentSelection());
     for (const id of this.chosen) key += ':' + id;
+    if (folded) key += ':aim';
   } else if (next === DockView.Inspector) {
     const building = this.town.building(this.selected),
-      stores = this.touchMode && building?.built() && isSeat(building.kind);
+      stores = this.touchMode && building?.built() && isSeat(building.kind),
+      crafting = !!building?.built() && isCraftStation(building.kind);
     target.w = Math.min(stores ? 420 : 620, f(width - 24));
-    target.h = Math.min(this.inspector(new Rect(0, 0, target.w, 0), false), Math.max(120, f(height - 180)));
+    target.h = Math.min(this.inspector(new Rect(0, 0, target.w, 0), false), inspectorHeightLimit(height, crafting));
     key += ':' + this.selected + ':' + this.selectedDungeon + ':' + this.residentPage;
   } else if (next === DockView.Resource) {
     target.w = Math.min(420, f(width - 24));

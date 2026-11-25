@@ -73,6 +73,8 @@ import StoneStoreAsset from '../assets/buildings/stone-store.json';
 import WatchtowerAsset from '../assets/buildings/watchtower.json';
 import TrainingYardAsset from '../assets/buildings/training-yard.json';
 import RunestoneAsset from '../assets/buildings/runestone.json';
+import RanchAsset from '../assets/buildings/ranch.json';
+import FoundryAsset from '../assets/buildings/foundry.json';
 import WorkbenchAsset from '../assets/buildings/workbench.json';
 export const BUILDING_ASSETS = {
   Camp: CampAsset,
@@ -114,4 +116,6 @@ export const BUILDING_ASSETS = {
   TrainingYard: TrainingYardAsset,
   Runestone: RunestoneAsset,
   Workbench: WorkbenchAsset,
+  Foundry: FoundryAsset,
+  Ranch: RanchAsset,
 } satisfies Record<string, BuildingAsset>;

@@ -13,16 +13,21 @@ export function belongsToFaction(item: Affiliation, faction = playerFaction): bo
 export function sameFaction(a: Affiliation, b: Affiliation): boolean {
   return (a.faction ?? playerFaction) === (b.faction ?? playerFaction);
 }
-export function isPlayerResident(
-  p: Person | null | undefined,
-): p is Person & { role: Role.Resident; faction: 0 } {
+export function livingResident(
+  p: Person | null | undefined, faction: number,
+): p is Person & { role: Role.Resident } {
   return (
     !!p &&
     p.role === Role.Resident &&
     (p.health > 0 || (p.downedAt >= 0 && p.health > -0.5)) &&
     p.activity !== Activity.Leaving &&
-    belongsToFaction(p)
+    belongsToFaction(p, faction)
   );
+}
+export function isPlayerResident(
+  p: Person | null | undefined,
+): p is Person & { role: Role.Resident; faction: 0 } {
+  return livingResident(p, playerFaction);
 }
 export function canControl(
   p: Person | null | undefined,
@@ -44,7 +49,7 @@ export function controlReason(p: Person | null | undefined): string {
   if (!p || p.health <= 0 || p.activity === Activity.Leaving) return 'This resident is unavailable.';
   if (p.role !== Role.Resident) return 'Guests are visitors and cannot be commanded or hired.';
   if (!belongsToFaction(p)) return 'This resident belongs to a neutral settlement.';
-  if (p.stressRecovery) return 'Overwhelmed: resting until stress recovers.';
+  if (p.stressRecovery) return 'Exhausted and resting.';
   if (beyondOrders(p)) return 'This resident has stepped into the gate.';
   return '';
 }

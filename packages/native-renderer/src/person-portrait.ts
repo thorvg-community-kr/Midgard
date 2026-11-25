@@ -15,9 +15,8 @@ export function moodOf(p: Person): Mood {
   if (p.health < f32(0.35)) return Mood.Hurt;
   if (p.rest < f32(0.12)) return Mood.Exhausted;
   if (p.food < f32(0.2)) return Mood.Hungry;
-  if (p.stress > f32(0.65)) return Mood.Stressed;
-  if (p.rest < f32(0.3)) return Mood.Tired;
-  const easy = p.stress < f32(0.2) && p.food > f32(0.5) && p.rest > f32(0.5);
+  if (p.rest < f32(0.35)) return Mood.Tired;
+  const easy = p.food > f32(0.5) && p.rest > f32(0.8);
   if (easy || p.activity === Activity.Relaxing || p.activity === Activity.Praying) return Mood.Cheerful;
   return Mood.Content;
 }

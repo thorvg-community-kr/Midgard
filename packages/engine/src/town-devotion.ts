@@ -1,13 +1,13 @@
 import { TownState } from './town-state';
-import { Activity, Calling, Person, Role } from './person';
+import { Activity, Calling, Person, Race, Role } from './person';
 import { Resources, Structure, isHome, structureSpec } from './building-catalog';
 import { Building } from './town-models';
 import { CampReceipt } from './camp-economy';
-import { canControl, sameFaction, belongsToFaction } from './faction';
+import { canControl, sameFaction, belongsToFaction, livingResident } from './faction';
 import { distance, type Point } from './geometry';
-import { offeringReason, offeringOutcome, offeringGradeOf, offeringRefused } from './prayer-offering';
+import { defaultOffering, offeringBonus, offeringFood, offeringReason, residentStartingLevel } from './prayer-offering';
+import { applyCharacter, validCharacter, type CharacterPreset } from './character-preset';
 import { altarCap, altarCapReason } from './altar-cap';
-import { emptyEquipment } from './equipment';
 
 export const ceremonySeconds = 5;
 export interface DevotionEvent {
@@ -32,7 +32,7 @@ export interface DevotionTown extends TownState {
   settlementOf(item: Building | Person): number;
   stock(village?: number): Resources;
   population(id?: number): number;
-  makePerson(role: Role, calling: Calling, at: Point): Person;
+  makePerson(role: Role, calling: Calling, at: Point, race?: Race): Person;
   assignHomes(): void;
   staff(): void;
   recordReceipt(receipt: CampReceipt): void;
@@ -48,10 +48,7 @@ function altar(place: Building | null): place is Building {
 }
 function localResidents(town: DevotionTown, place: Building): number {
   const village = town.settlementOf(place);
-  return town.folk.filter(
-    (p) =>
-      p.role === Role.Resident && p.health > 0 && sameFaction(p, place) && town.settlementOf(p) === village,
-  ).length;
+  return town.folk.filter((p) => livingResident(p, place.faction) && town.settlementOf(p) === village).length;
 }
 function localHousing(town: DevotionTown, place: Building): number {
   const village = town.settlementOf(place);
@@ -68,10 +65,10 @@ function localHousing(town: DevotionTown, place: Building): number {
     0,
   );
 }
-function reservedHomes(town: DevotionTown, place: Building, exceptPerson = -1): number {
-  const village = town.settlementOf(place);
+function reservedHomes(town: DevotionTown, place: Building, exceptPerson: number, village?: number): number {
   const pending = town.placed.filter(
-    (b) => altar(b) && b.devotionDueDay >= 0 && sameFaction(b, place) && town.settlementOf(b) === village,
+    (b) => altar(b) && b.devotionDueDay >= 0 && sameFaction(b, place) &&
+      (village === undefined || town.settlementOf(b) === village),
   ).length;
   // A walking or interrupted worshipper holds the same bed reservation as one already praying.
   const praying = new Set<number>();
@@ -89,7 +86,7 @@ function reservedHomes(town: DevotionTown, place: Building, exceptPerson = -1): 
       altar(target) &&
       target.devotionDueDay < 0 &&
       sameFaction(target, place) &&
-      town.settlementOf(target) === village
+      (village === undefined || town.settlementOf(target) === village)
     )
       praying.add(target.id);
   }
@@ -109,10 +106,11 @@ function altarReason(town: DevotionTown, id: number, personId = -1, checkFood = 
   )
     return 'A resident is already preparing this altar.';
   // The cap first: a new home would not help while it holds.
-  if (town.population() >= altarCap(town)) return altarCapReason;
-  if (localResidents(town, place) + reservedHomes(town, place, personId) >= localHousing(town, place))
+  if (town.population() + reservedHomes(town, place, personId) >= altarCap(town)) return altarCapReason;
+  const reserved = reservedHomes(town, place, personId, town.settlementOf(place));
+  if (localResidents(town, place) + reserved >= localHousing(town, place))
     return 'No free resident bed. Complete a home in this settlement.';
-  if (checkFood && town.stock(camp.id).food < 4) return 'Need 4 food for the altar offering.';
+  if (checkFood && town.stock(camp.id).food < offeringFood) return 'Need 4 food for the altar offering.';
   return '';
 }
 export function altarStatus(this: DevotionTown, id: number): AltarStatus {
@@ -121,7 +119,7 @@ export function altarStatus(this: DevotionTown, id: number): AltarStatus {
     reason: altarReason(this, id),
     pendingBirths: altar(place) && place.devotionDueDay >= 0 ? 1 : 0,
     dueDay: altar(place) ? place.devotionDueDay : -1,
-    cost: new Resources(0, 0, 0, 4),
+    cost: defaultOffering(),
   };
 }
 export function altarOfferingReason(this: DevotionTown, id: number, offering: Resources): string {
@@ -138,47 +136,58 @@ export function altarOfferingReason(this: DevotionTown, id: number, offering: Re
 }
 export interface OfferingResult {
   born: Person | null;
-  /** Odin turned the gifts away: they are spent and no one came. */
-  refused: boolean;
 }
+
 export function summonFromOffering(this: DevotionTown, id: number, offering: Resources): Person | null {
   return offerAtAltar.call(this, id, offering).born;
 }
-/** The presentation calls this once at transformation, while the world is paused.
- * Validation, payment and arrival are atomic. Closing before transformation costs nothing. */
-export function offerAtAltar(this: DevotionTown, id: number, offering: Resources): OfferingResult {
-  if (altarOfferingReason.call(this, id, offering)) return { born: null, refused: false };
-  const place = this.building(id)!, village = this.settlementOf(place);
-  if (offeringRefused(offeringGradeOf(offering).grade, this.roll())) {
-    this.stock(village).subtract(offering);
-    this.notify('Odin turned the offering away. The gifts are gone.');
-    ++this.changes;
-    return { born: null, refused: true };
-  }
-  const outcome = offeringOutcome(offering, () => this.roll());
-  const born = this.makePerson(Role.Resident, outcome.calling, this.grid.nearestWalkable(place.door()));
+
+function createResident(town: DevotionTown, place: Building, extraPoints: number, identity?: CharacterPreset): Person {
+  const village = town.settlementOf(place);
+  const born = town.makePerson(Role.Resident, Calling.Settler, town.grid.nearestWalkable(place.door()), Race.Human);
+  if (identity) applyCharacter(born, identity);
   born.faction = place.faction;
   born.village = village;
   born.faith = place.faith;
-  born.level = outcome.level;
-  born.trained = outcome.calling !== Calling.Settler;
+  born.level = residentStartingLevel(town);
+  for (let point = 0; point <= extraPoints; ++point) {
+    if (town.roll() < 0.5) ++born.birthStrength;
+    else ++born.birthVitality;
+  }
   born.past = 'Given breath at the altar of Odin.';
   born.food = born.rest = born.hydration = born.health = 1;
-  born.stress = 0;
-  born.purse = 0;
-  born.inventory.fill(null);
-  born.equipment = emptyEquipment();
-  this.stock(village).subtract(offering);
-  this.folk.push(born);
-  this.altarEvents.push({ serial: this.nextDevotionEvent++, altar: id, person: born.id,
-    at: this.time, position: { ...born.position } });
-  this.assignHomes();
-  this.staff();
-  this.recordReceipt(new CampReceipt(0n, village, new Resources(), 0, 0, 1));
-  this.notify(born.name + ' is shaped by the offering and joins the settlement.');
-  ++this.changes;
-  return { born, refused: false };
+  born.stress = born.purse = 0;
+  town.folk.push(born);
+  town.altarEvents = town.altarEvents.filter((event) => town.time - event.at <= 3);
+  town.altarEvents.push({
+    serial: town.nextDevotionEvent++, altar: place.id, person: born.id,
+    at: town.time, position: { ...born.position },
+  });
+  town.assignHomes();
+  town.staff();
+  town.recordReceipt(new CampReceipt(0n, village, new Resources(), 0, 0, 1));
+  const welcome = [born.name + ' joins the settlement', 'Level ' + born.level];
+  if (born.birthStrength) welcome.push('Strength +' + born.birthStrength);
+  if (born.birthVitality) welcome.push('Vitality +' + born.birthVitality);
+  town.notify(welcome.join(' · '));
+  ++town.changes;
+  return born;
 }
+
+/** The draft is free to edit. Only a valid, confirmed creation pays or rolls aptitudes. */
+export function offerAtAltar(
+  this: DevotionTown, id: number, offering: Resources, identity?: CharacterPreset,
+): OfferingResult {
+  if (altarOfferingReason.call(this, id, offering)) return { born: null };
+  if (identity && (
+    identity.calling !== Calling.Settler || identity.race !== Race.Human || !identity.look || !validCharacter(identity)
+  )) return { born: null };
+  const place = this.building(id)!;
+  this.stock(this.settlementOf(place)).subtract(offering);
+  this.commanded();
+  return { born: createResident(this, place, offeringBonus(offering), identity) };
+}
+
 export function prayerReason(this: DevotionTown, personId: number, altarId: number): string {
   const p = this.person(personId),
     place = this.building(altarId);
@@ -260,7 +269,7 @@ export function completeAltarPrayer(this: DevotionTown, p: Person): boolean {
     if (reason) this.notify(reason);
     return false;
   }
-  this.stock(this.settlementOf(place)).food -= 4;
+  this.stock(this.settlementOf(place)).food -= offeringFood;
   place.devotionDueDay = this.days;
   p.prayedAt = this.time;
   finishCeremony(this, p);
@@ -285,25 +294,7 @@ export function processDevotion(this: DevotionTown): void {
       localResidents(this, place) >= localHousing(this, place)
     )
       continue;
-    const born = this.makePerson(Role.Resident, Calling.Settler, this.grid.nearestWalkable(place.door()));
-    born.faction = place.faction;
-    born.village = village;
-    born.faith = place.faith;
-    born.past = 'Called into the world by a prayer at the settlement altar.';
-    born.food = born.rest = born.hydration = born.health = 1;
-    born.stress = 0;
-    born.autoMode = true;
-    this.folk.push(born);
-    this.altarEvents = this.altarEvents.filter((event) => this.time - event.at <= 3);
-    this.altarEvents.push({
-      serial: this.nextDevotionEvent++, altar: place.id, person: born.id,
-      at: this.time, position: { ...born.position },
-    });
     place.devotionDueDay = -1;
-    this.assignHomes();
-    this.staff();
-    this.recordReceipt(new CampReceipt(0n, village, new Resources(), 0, 0, 1));
-    this.notify(born.name + ' appears at the altar and joins the settlement.');
-    ++this.changes;
+    createResident(this, place, 0);
   }
 }

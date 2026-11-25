@@ -87,8 +87,8 @@ export function neutralContext(root: Town, state: NeutralSettlement): Town {
         return new Check(false, 'Occupied');
       return check;
     };
-    town.canPlantField = (outline) => {
-      const check = canPlantField.call(town, outline);
+    town.canPlantField = (outline, house) => {
+      const check = canPlantField.call(town, outline, house);
       if (!check.ok) return check;
       if (
         root.placed.some((b) => b.faction !== state.faction && overlaps(outline, b.footprint().corners())) ||

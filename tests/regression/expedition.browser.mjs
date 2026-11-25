@@ -66,6 +66,11 @@ const setup = async (page, width, height, touch) =>
       town.placed.push(camp);
       town.nextId = 1;
       town.foundSettlement(0);
+      if (touch) {
+        town.days = 2;
+        town.editHour(8);
+        town.stir(0);
+      }
       town.folk = [];
       const shape = (c) => (c === Calling.Warrior ? 'sword' : c === Calling.Ranger ? 'bow' : c === Calling.Mage ? 'staff' : 'mace');
       const near = monsterEntrance(site);
@@ -193,9 +198,31 @@ try {
       await page.mouse.click(control.bounds.x + control.bounds.w / 2, control.bounds.y + control.bounds.h / 2);
       await frames(2, 0.001);
     };
-    const gate = await page.evaluate(() => probe.gateScreen());
+    let gate = await page.evaluate(() => probe.gateScreen());
     assert(gate, 'The gate can be pointed at');
-    // A plain click on the gate opens the window with nobody chosen.
+    await page.mouse.click(gate.x, gate.y);
+    await frames(2, 0.001);
+    const dormant = await snapshot();
+    assert(dormant.open && !dormant.controls.some(c => c.id.startsWith('expedition-member-')));
+    assert(!dormant.controls.some(c => c.id === 'expedition-set-out' || c.id.startsWith('expedition-floor-')));
+    assert.equal(await page.evaluate(() => probe.game.town.expeditionProblem(probe.gate, 0)), 'Dormant gate');
+    await page.evaluate(() => probe.localization.setLocale('KR'));
+    await shot('window-dormant');
+    await page.evaluate(() => probe.localization.setLocale('EN'));
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => {
+      const town = probe.game.town;
+      town.days = 2;
+      town.editHour(8);
+      town.tick(0);
+      // This roster includes one fighter still recovering on the day the gate opens.
+      town.folk[5].woundDays = 2;
+      probe.look();
+    });
+    await frames(2, 0.001);
+    gate = await page.evaluate(() => probe.gateScreen());
+    assert(gate, 'The newly opened gate can be pointed at');
+    // The same door now offers a party and a floor.
     await page.mouse.click(gate.x, gate.y);
     await frames(2, 0.001);
     let state = await snapshot();
@@ -217,7 +244,14 @@ try {
     state = await snapshot();
     assert(!state.open && !state.paused, 'Escape closes and the game runs again');
     // A sealed gate is shown read-only.
-    await page.evaluate(() => (probe.game.town.depth[probe.gate] = 3));
+    await page.evaluate(() => {
+      probe.game.town.depth[probe.gate] = 3;
+      ++probe.game.town.changes;
+      probe.look();
+    });
+    await frames(2, 0.001);
+    gate = await page.evaluate(() => probe.gateScreen());
+    assert(gate, 'The sealed gate can be pointed at');
     await page.mouse.click(gate.x, gate.y);
     await frames(2, 0.001);
     state = await snapshot();
@@ -225,8 +259,14 @@ try {
     assert(!state.controls.some((c) => c.id.startsWith('expedition-member-')), 'No roster at a sealed gate');
     await shot('window-sealed');
     await page.keyboard.press('Escape');
-    await page.evaluate(() => (probe.game.town.depth[probe.gate] = 0));
+    await page.evaluate(() => {
+      probe.game.town.depth[probe.gate] = 0;
+      ++probe.game.town.changes;
+      probe.look();
+    });
     await frames(2, 0.001);
+    gate = await page.evaluate(() => probe.gateScreen());
+    assert(gate, 'The open gate can be pointed at again');
     // Korean.
     await page.evaluate(() => probe.localization.setLocale('KR'));
     await page.mouse.click(gate.x, gate.y);
@@ -293,9 +333,10 @@ try {
   }
 
   const captions = {
+    'window-dormant': 'A dormant gate before its first opening',
     'window-empty': 'A click on the gate: nobody chosen yet, Set out disabled',
     'window-party': 'All fighters chosen: the verdict says ready',
-    'window-too-weak': 'One low bard: too few to stand against a swarm',
+    'window-too-weak': 'One low bard: a high-risk party',
     'window-sealed': 'A sealed gate, read-only',
     'window-korean': 'Korean',
     'party-beyond': 'The party sent with Enter has walked through',

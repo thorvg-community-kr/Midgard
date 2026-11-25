@@ -1,6 +1,6 @@
 import type { Rgb } from './building-catalog';
 export enum HairStyle { Crop, Swept, Long, Ponytail, Bun, Braids, Wild, Bald, Bob, TwinTails, Straight }
-export enum Headwear { None, Kerchief, Cap, Helmet, Hood, PointedHat, Circlet, WideBrim }
+export enum Headwear { None, Kerchief, Cap, Helmet, Hood, PointedHat, Circlet, WideBrim, BandedKerchief }
 export enum Nose { Button, Straight, Broad, Hooked }
 export enum Whiskers { None, Stubble, Moustache, Beard, LongBeard }
 export enum EyeStyle { Round, Feline, Hooded, Arcane, Almond, Relaxed, Soft, Reflective }

@@ -23,7 +23,7 @@ import { equipmentPanel } from './game-equipment-panel';
 
 export function rosterBounds(this: GameHudApp, width: number, height: number): Rect {
   const w = Math.min(920, width - 24),
-    h = Math.max(170, Math.min(640, height - 84));
+    h = Math.max(170, Math.min(640, height - (height < 500 || width < 620 ? 24 : 84)));
   return new Rect((width - w) / 2, Math.max(12, (height - h) / 2), w, h);
 }
 export function rosterPanel(this: GameHudApp, panel: Rect): void {
@@ -31,7 +31,8 @@ export function rosterPanel(this: GameHudApp, panel: Rect): void {
     t = this.theme;
   const short = panel.h < 400;
   const micro = panel.h < 270;
-  const narrow = panel.w < 620;
+  // Keep the resident list beside the stats when a landscape screen has little height.
+  const narrow = panel.w < (short ? 520 : 620);
   const resetProfile = () => {
     this.inventorySelected = -1;
     this.craftPage = 0;
@@ -288,7 +289,7 @@ export function rosterPanel(this: GameHudApp, panel: Rect): void {
       text(
         new Rect(detail.x, detail.y + 47, detail.w, 18),
         controlReason(p) ||
-          `${activityName(p.activity)} · Food ${Math.round(p.food * 100)}% · Water ${Math.round(p.hydration * 100)}% · Rest ${Math.round(p.rest * 100)}%`,
+          `${activityName(p.activity)} · Food ${Math.round(p.food * 100)}% · Water ${Math.round(p.hydration * 100)}% · Fatigue ${Math.round(p.stress * 100)}%`,
         canControl(p) ? t.muted : t.danger,
         10,
       );

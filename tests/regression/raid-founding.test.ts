@@ -114,7 +114,10 @@ function play(): Run {
       }
     return null;
   };
-  const craft = (goal: SettlementGoal, camp: number): void => {
+  const station = (kind: Structure) =>
+    town.buildings().find((b) => b.kind === kind && b.built() && isPlayerBuilding(b));
+  // As the quest button does: the station that makes the goal's items, the crafter chosen there.
+  const craft = (goal: SettlementGoal): void => {
     const equip = goal.kind === GoalKind.Equip,
       items = equip ? ['wooden-axe', 'wooden-hoe', 'wooden-mallet', 'wooden-sword'] : goal.items;
     for (const p of residents()) {
@@ -122,10 +125,10 @@ function play(): Run {
         continue;
       const wanted = items
         .map((id) => itemSpec(id)!)
-        .filter((item) => (equip || itemsOwned(town, [item.id]) === 0) && !item.cost.stone)
+        .filter((item) => (equip || itemsOwned(town, [item.id]) === 0) && !item.cost.stone && station(item.workshop!))
         .sort((a, b) => a.cost.wood - b.cost.wood)[0];
       if (!wanted) continue;
-      if (craftCovered(town.stock(), p, wanted.cost)) town.orderCraft(p.id, camp, wanted.id);
+      if (craftCovered(town.stock(), p, wanted.cost)) town.orderCraft(p.id, station(wanted.workshop!)!.id, wanted.id);
       else gather(p, false);
     }
   };
@@ -240,7 +243,7 @@ function play(): Run {
     switch (goal.kind) {
       case GoalKind.Craft:
       case GoalKind.Equip:
-        craft(goal, seat.id);
+        craft(goal);
         break;
       case GoalKind.Building:
         build(goal.building, seat.center);
@@ -258,8 +261,16 @@ function play(): Run {
         break;
       }
       case GoalKind.Field: {
+        // As the Farm tool does: one drawn area stakes out the farmhouse and its field together.
+        const staked = () => town.buildings().some((b) => b.kind === Structure.Farm && isPlayerBuilding(b));
+        for (let r = 4; r < 12 && !staked(); ++r)
+          for (let a = 0; a < 8 && !staked(); ++a) {
+            const c = point(seat.center.x + r * Math.cos(a * 0.785), seat.center.y + r * Math.sin(a * 0.785));
+            town.layFarm([point(c.x, c.y), point(c.x + 3, c.y), point(c.x + 3, c.y + 2.5), point(c.x, c.y + 2.5)]);
+          }
+        if (!farm) build(Structure.Farm, seat.center);
         const at = farm?.center ?? seat.center;
-        for (let r = 3; r < 10 && !town.fieldAcres(); ++r)
+        for (let r = 3; r < 10 && farm && !town.fieldAcres(); ++r)
           for (let a = 0; a < 8 && !town.fieldAcres(); ++a) {
             const c = point(at.x + r * Math.cos(a * 0.785), at.y + r * Math.sin(a * 0.785));
             town.plantField([

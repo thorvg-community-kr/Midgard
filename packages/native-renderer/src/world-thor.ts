@@ -342,5 +342,6 @@ export function updateThor(s: WorldRendererState, town: Town): void {
     body: [parts.skin.node],
     foot: { ...thor.position },
     ellipse: { rx: 16, ry: 6 },
+    stand: { above: 66, below: 6, half: 16 },
   });
 }

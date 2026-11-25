@@ -24,6 +24,8 @@ Two founders wake on the shore and wait for your word. Found a camp, put up a wo
 
 _A grown settlement, prepared for photography: the buildings are placed by the game's own placement rules and finished at once; the residents live their own day._
 
+A completed camp opens the ranch. Residents collect eggs from chickens. Two pigs or two cows in the same pen raise young. Once a piglet or calf is fully grown, a resident can take it for meat while its parents raise the next one. Residents rest when tired and resume their work when they recover.
+
 Construction happens in the world. Builders gather what a site lacks and carry it there in their packs, hand it to each other, or take it from storage. A blueprint becomes a worksite, then a place your people can use.
 
 ![Two founders fell trees and build the first camp from an empty blueprint](.github/media/midgard-construction.gif)
@@ -32,7 +34,7 @@ _The two founders build the first camp from nothing. Real simulation as a time-l
 
 ## Tools are made, not bought
 
-Items are made in the open. Build a workbench and send a resident to it: they walk there, work at the bench, and the finished item goes straight into their pack. Nothing is paid until the item is done. A tool makes one kind of work faster, in tiers from bare hands to wood, stone and iron, and it works from the pack without taking a slot. The smithy forges weapons, shields and armour; the workbench and the smithy are each raised to higher levels for better recipes. A shield turns some blows aside when its bearer fights one-handed, and armour soaks some damage.
+Open a resident’s Craft tab to order their own equipment. Their Guild tab lists the callings they can train for. For a settlement-wide order, select the workbench or smithy. Upgrades send the crafter to gather and process the materials they lack. When assigned to a workbench, they walk there, work at the bench, and the finished item goes straight into their pack. Nothing is paid until the item is done. A tool makes one kind of work faster, in tiers from bare hands to wood, stone and iron, and it works from the pack without taking a slot. The smithy forges weapons, shields and armour; the workbench and the smithy are each raised to higher levels for better recipes. A shield turns some blows aside when its bearer fights one-handed, and armour soaks some damage.
 
 <table>
   <tr>
@@ -61,11 +63,11 @@ _A day in the prepared town, at about three and a half times the pace of play._
 
 ## Odin's altar
 
-New residents are called at Odin's altar. Choose what to lay before it: water, bones, gold, food and stone. The richer the offering, the higher its grade, from humble to kingly, and the stronger the newcomer it tends to bring. A small offering can be refused, and the gifts are gone either way. Odin sends only so many people: the number rises as floors beyond the gates are cleared.
+Four food and a free bed welcome a settler at Odin's altar. Lay out the supplies, keep the suggested name and appearance or make your own, then confirm. Each newcomer starts at half the living residents' average level, rounded down, with a minimum of level one. Give them tools and work to gain experience. A guild can later train them for a fighting calling.
 
-![A kingly offering at Odin’s altar: the rite plays and a newcomer joins](.github/media/midgard-altar.gif)
+A settler starts with one point randomly assigned to strength or vitality. Every four extra goods on the altar add another point, up to three extra. Food, water, bones, gold and stone all count equally. You can also keep the surplus to welcome more people. Clearing gate floors raises the settlement's resident limit.
 
-_One kingly offering in the prepared town, from the filled-in offering to the newcomer. About twice the pace of the rite._
+![Goods gather on the altar before a settler joins the settlement](.github/media/midgard-altar.gif)
 
 ## Few against many
 
@@ -196,9 +198,9 @@ Every picture above is captured from the actual renderer (see [Rebuilding the RE
 | ------------------------------ | ------------------------------------------------------ |
 | Select a unit or object        | Left click                                             |
 | Select a group                 | Left-button drag                                       |
-| Command selected units         | Right click a destination or target                    |
-| Prepare Move / Attack / Work   | `M` / `A` / `E`, then choose a target                  |
-| Hold position / Stop           | `H` / `S`                                              |
+| Move or work with the selection | Right click a destination or target                   |
+| Attack-move                    | `A`, then choose a destination or an enemy             |
+| Hold position (also stops)     | `H`                                                    |
 | Skills of the selection        | `Q` / `W` (ground skills: hold to aim, release to cast) |
 | Next calling on the skill card | `Tab` while residents of several callings are selected |
 | Control groups                 | `Ctrl+1-9` make, `Shift+1-9` add, `1-9` select, twice to look |
@@ -210,7 +212,7 @@ Every picture above is captured from the actual renderer (see [Rebuilding the RE
 | Zoom                           | Mouse wheel                                            |
 | Pause / change speed           | `Space` / `Tab`                                        |
 | Cancel                         | `Esc`                                                  |
-| Guide log                      | `F1`                                                   |
+| Log                            | `F1`                                                   |
 | Save                           | `Ctrl+S` or `Cmd+S`, or the settings menu              |
 | Open Building Studio           | `F4`                                                   |
 

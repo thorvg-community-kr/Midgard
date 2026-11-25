@@ -4,7 +4,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import ThorVG, { type ThorVGNamespace } from '@thorvg/webcanvas';
 import { parseFontMetrics, type FontMetrics } from '../../packages/native-ui/src/fonts';
-import { Context, Rect, Theme } from '../../packages/native-ui/src';
+import { Context, Rect, TextInput, Theme, textField } from '../../packages/native-ui/src';
+import { locale, setLocale, translate } from '../../packages/localization/src';
 import { gameTheme } from '../../apps/web/src/native/game-theme';
 
 class Pixels {
@@ -68,6 +69,52 @@ const box = new Rect(0, 0, 400, 30),
   white = { r: 255, g: 255, b: 255, a: 255 };
 
 describe('the faces of the interface', () => {
+  it('keeps authored names and cursor widths verbatim while translating empty fields and surrounding labels', () => {
+    const previous = locale();
+    try {
+      const used = faces(gameTheme(), metrics, (c) => {
+        setLocale('ENG');
+        const width = c.textWidth('Food', 13);
+        setLocale('KR');
+        expect(c.verbatim(() => c.textWidth('Food', 13))).toBe(width);
+        const name = new TextInput('Food');
+        const draw = () => c.verbatim(() => textField(c, 'test-name', box, name, 'Preset name'), !!name.value);
+        draw();
+        name.value = '';
+        draw();
+        c.verbatim(() => c.text(box, c.elideText('Red', box.w, 13), white, 13));
+        expect(() => c.verbatim(() => { throw new Error('test'); })).toThrow('test');
+        c.text(box, 'Red', white, 13);
+      });
+      expect(used.has('Food')).toBe(true);
+      expect(used.has(translate('Food'))).toBe(false);
+      expect(used.has('Red')).toBe(true);
+      expect(used.has(translate('Red'))).toBe(true);
+      expect(used.has(translate('Preset name'))).toBe(true);
+    } finally {
+      setLocale(previous);
+    }
+  });
+  it('measures a repeated label once and uses the new size when the interface scale changes', () => {
+    const context = new Context(tvg, metrics), bounds = vi.spyOn(tvg.Text.prototype, 'bounds'),
+      theme = gameTheme(), frame = new Rect(0, 0, 800, 600);
+    try {
+      context.begin(theme, frame, 1);
+      const width = context.textWidth('Workbench', 15, true), measured = bounds.mock.calls.length;
+      expect(measured).toBeGreaterThan(0);
+      expect(context.textWidth('Workbench', 15, true)).toBe(width);
+      expect(bounds.mock.calls.length).toBe(measured);
+      context.end();
+      theme.fontScale *= 1.25;
+      context.begin(theme, frame, 2);
+      expect(context.textWidth('Workbench', 15, true)).toBeGreaterThan(width);
+      expect(bounds.mock.calls.length).toBeGreaterThan(measured);
+      context.end();
+    } finally {
+      bounds.mockRestore();
+      context.dispose();
+    }
+  });
   it('writes text in Alegreya Sans, its bold in ExtraBold and large bold text in Cinzel', () => {
     const used = faces(gameTheme(), metrics, (c) => {
       c.text(box, 'Fells trees faster', white, 12);

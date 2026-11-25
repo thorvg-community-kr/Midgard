@@ -6,6 +6,7 @@ import { PairMinHeap } from './priority-queue';
 import { MonsterRank } from './combat-events';
 import type { Building } from './town-models';
 import { Structure, isSeat } from './building-catalog';
+import { inRaidedVillage, raidSeat } from './gate-progression';
 import { add, distance, point, rotated, scale, sub, type Point } from './geometry';
 import { f32 as f } from './numeric';
 
@@ -54,7 +55,10 @@ function useful(target: Building): boolean {
 
 /** Keep the chosen building and perimeter slot until they become unavailable. */
 export function planRaiderApproach(town: TownState, beast: Monster): void {
-  const chosen = town.building(beast.prey);
+  const seat = raidSeat(town, beast.lair);
+  const inVillage = (b: Building): boolean => inRaidedVillage(town, b, seat);
+  const previous = town.building(beast.prey);
+  const chosen = previous && inVillage(previous) ? previous : null;
   const end = beast.path.at(-1);
   const sharedEnd = end && town.beasts.some(other => other !== beast && other.health > 0 &&
     other.raider && other.id < beast.id && other.prey === beast.prey &&
@@ -67,13 +71,13 @@ export function planRaiderApproach(town: TownState, beast: Monster): void {
     // The Camp's existing minimum health still applies. Once reached, prefer
     // other damageable buildings, retaining the Camp if none can be reached.
     const seekAnother = !useful(chosen) && town.time >= beast.ready &&
-      town.placed.some(building => building.id !== chosen.id && useful(building));
+      town.placed.some(building => building.id !== chosen.id && useful(building) && inVillage(building));
     if (!seekAnother && valid) return;
   }
-  const candidates = town.placed.slice().sort((a, b) => {
+  const candidates = town.placed.filter(inVillage).sort((a, b) => {
     if (a.id === chosen?.id && useful(a)) return -1;
     if (b.id === chosen?.id && useful(b)) return 1;
-    return Number(useful(b)) - Number(useful(a)) ||
+    return Number(useful(b)) - Number(useful(a)) || Number(b === seat) - Number(a === seat) ||
       distance(a.center, beast.position) - distance(b.center, beast.position) || a.id - b.id;
   });
   for (const target of candidates) {

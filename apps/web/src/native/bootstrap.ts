@@ -9,12 +9,10 @@ import { WorldRenderer } from '../../../../packages/native-renderer/src/world-re
 import { createCharacterPreview } from '../../../../packages/native-renderer/src/character-preview';
 import { sounds } from '../../../../packages/native-audio/src/sound-library';
 import { BrowserSoundDevice, disposeNativeAudio } from '../../../../packages/native-audio/src/browser-audio';
-import { Town } from '../../../../packages/engine/src/town';
 import { WorldMap } from '../../../../packages/engine/src/world-map';
-import { decodeTown } from '../../../../packages/engine/src/save-game';
 import { designedWorldSeed } from '../../../../packages/engine/src/ymir-born';
 import { GameApp } from './game-app';
-import { GameApplication, worldSeed } from './game-application';
+import { GameApplication, loadSavedTown, worldSeed } from './game-application';
 import { SceneApplication } from './scene-application';
 import { BuildingFiles } from './building-files';
 import { BrowserFiles } from './browser-files';
@@ -71,7 +69,7 @@ export function createNativeServices(
     loadPreview(preview, path) {
       if (!(preview instanceof GameApp)) return false;
       try {
-        preview.town = decodeTown(files.readSync(path), (map) => new Town(map, 176, false, true));
+        preview.town = loadSavedTown(files.readSync(path));
         return true;
       } catch {
         return false;

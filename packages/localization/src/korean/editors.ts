@@ -67,7 +67,7 @@ export const editorPhrases: Phrases = {
   'Preset saved.': '프리셋을 저장했습니다.',
   'Preset loaded. Apply to use it in the game.': '프리셋을 불러왔습니다. 게임에서 사용하려면 적용하세요.',
   'Save keeps this head and outfit. Apply updates the character.': '저장하면 이 머리와 의상이 보관됩니다. 적용하면 캐릭터가 갱신됩니다.',
-  'Invalid character preset (expected version 1 through 9).': '잘못된 캐릭터 프리셋입니다(버전 1~9만 지원).',
+  'Invalid character preset (expected version 1 through 10).': '잘못된 캐릭터 프리셋입니다(버전 1~10만 지원).',
   'Character preset exceeds 8 KiB.': '캐릭터 프리셋이 8KiB를 초과합니다.',
   'A document contains a non-finite number.': '문서에 유한하지 않은 숫자가 있습니다.',
   'Name': '이름',

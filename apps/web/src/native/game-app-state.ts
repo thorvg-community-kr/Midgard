@@ -17,6 +17,7 @@ import { ArmyState } from './army-state';
 import { GuideState } from './game-guide';
 import type { WorldObjectRef } from './world-targets';
 import type { PrayerDialog } from './game-prayer';
+import type { ResidentArrival } from './resident-arrival';
 import type { ExpeditionWindow } from './expedition-window';
 import type { ExpeditionResultWindow } from './expedition-result';
 import { StagingState } from './expedition-staging';
@@ -42,6 +43,7 @@ export interface WorldRenderer {
   animating(): boolean;
   invalidateMap(): void;
   reducedMotion: boolean;
+  arrivalSeconds?: number;
   setSceneView(value: boolean): void;
   lightning(strike: Strike): void;
   dispose(): void;
@@ -95,13 +97,14 @@ export class GameAppState {
   selectedTreeInstance = -1;
   hoveredWorldTarget: { screen: Point; hit: WorldHit | null } | null = null;
   objectPage = 0;
-  equipmentTab: 'profile' | 'equipment' | 'craft' = 'equipment';
+  equipmentTab: 'profile' | 'equipment' | 'craft' | 'guild' = 'equipment';
   inventorySelected = -1;
   craftPage = 0;
   craftWorkshopFilter: Structure | null = null;
   speed = 1;
   paused = false;
   prayer: PrayerDialog | null = null;
+  residentArrival: ResidentArrival | null = null;
   expedition: ExpeditionWindow | null = null;
   /** The result screen at the end of an expedition. */
   expeditionResult: ExpeditionResultWindow | null = null;

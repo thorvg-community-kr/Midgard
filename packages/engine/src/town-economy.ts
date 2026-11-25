@@ -20,9 +20,10 @@ import { Terrain, type Tile } from './world-types';
 import { add, sub, scale, point, rotated, distance, type Point } from './geometry';
 import { f32 as f, lround, hash01 } from './numeric';
 import { pressureNotice } from './raid-progression';
-import { gateSealed, sealable } from './gate-seals';
+import { clearMuster, gateActive, updateGateOpenings } from './gate-progression';
 import { Boon, boon, boonRules } from './gate-boons';
 import { economyRules, swornCalling } from './economy-rules';
+import { coverDeposits } from './mining';
 export interface Reason {
   value: string;
 }
@@ -52,7 +53,6 @@ export interface EconomyTown extends TownState {
   staff(): void;
   grow(): void;
   processDevotion(): void;
-  runDrills(): void;
   capacity(village?: number): Resources;
   credit(gain: Resources, village: number): void;
   wageOf(person: Person): number;
@@ -162,6 +162,7 @@ export function advance(this: EconomyTown, seconds: number): boolean {
 export function newDay(this: EconomyTown): void {
   const before = this.calendar();
   ++this.days;
+  clearMuster(this);
   const date = this.calendar(),
     shift = f(TownState.secondsPerDay * f(0.4));
   for (const item of this.placed) {
@@ -211,10 +212,11 @@ export function newDay(this: EconomyTown): void {
           `Winter in ${outlook.daysToWinter} days: ${outlook.foodStored + outlook.harvestExpected} food stored or due, ${outlook.foodNeeded} needed. Farm, hunt or trade for food.`,
         );
     }
+  updateGateOpenings(this);
   if (
     this.days % 7 === 0 &&
     this.camp() &&
-    this.world.dungeons().some((site, index) => sealable(site) && site.discovered && !gateSealed(this, index))
+    this.world.dungeons().some((_, index) => gateActive(this, index))
   ) {
     const notice = pressureNotice(this.days / 7);
     if (notice) this.notify(notice);
@@ -225,7 +227,6 @@ export function newDay(this: EconomyTown): void {
   this.staff();
   this.grow();
   this.processDevotion();
-  this.runDrills();
   ++this.changes;
 }
 export function capacity(this: EconomyTown, village = this.camp()?.id ?? -1): Resources {
@@ -242,7 +243,8 @@ export function capacity(this: EconomyTown, village = this.camp()?.id ?? -1): Re
             : 0;
   for (const item of this.placed)
     if (item.built() && this.settlementOf(item) === village) room += structureSpec(item.kind).storage;
-  const capacity = new Resources(0, room, room, room, 0, room, room, room, room);
+  const capacity = new Resources();
+  for (const key of storedResourceKeys) capacity[key] = room;
   for (const item of this.placed) {
     if (!item.built() || this.settlementOf(item) !== village) continue;
     if (item.kind === Structure.WoodStore) {
@@ -467,6 +469,7 @@ export function grow(this: EconomyTown): void {
     const shift = f(f(structureSpec(spec.next).size - spec.size) / 2);
     item.replaced = [{ kind: item.kind, variant: item.variant, dx: shift, dy: shift }];
     item.kind = spec.next;
+    if (shift > 0) coverDeposits(this.world, item.footprint());
     item.growth = 0;
     item.earned = 0;
     item.version = (item.version + 1) >>> 0;
@@ -507,6 +510,7 @@ export function mergeManor(this: EconomyTown, seed: Building): boolean {
     ) >>> 0,
   );
   manor.village = village;
+  coverDeposits(this.world, manor.footprint());
   const ids: number[] = [];
   for (const item of group) {
     const local = rotated(sub(item.center, middle), -angle);

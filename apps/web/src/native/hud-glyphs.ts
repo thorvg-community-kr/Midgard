@@ -25,6 +25,7 @@ export type HudGlyph =
   | 'lodging'
   | 'faith'
   | 'quest'
+  | 'wake'
   | 'cog';
 
 /** Draws inside a 24 px box centred on the origin; the caller places and tints it. */
@@ -162,6 +163,11 @@ const figures: Record<Exclude<HudGlyph, 'rotate' | 'hold'>, (pen: Pen) => void> 
   },
   // A sealed scroll: something asked of the settlement.
   quest: (pen) => pen.poly(0, -9, 8, 0, 0, 9, -8, 0),
+  // A blowing horn: the call that brings everyone out.
+  wake: (pen) => {
+    pen.poly(-10.4, 5.6, -8.6, 2.6, -3.4, 4.2, 1.2, 2.6, 3.8, -1.6, 3.6, -7.2, 10.6, -8.4, 10.2, 0.4, 6.2, 6.6, -0.6, 9.8, -6.4, 9.2);
+    pen.poly(2.4, -10.4, 11.6, -11, 11.4, -8.2, 2.8, -7.4);
+  },
   cog: (pen) => {
     for (let i = 0; i < 8; ++i) {
       const a = (i * Math.PI) / 4,

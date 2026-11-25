@@ -2,6 +2,7 @@
 // real tools are (person-equipment.ts, held-weapon-art.ts): wrist at the origin, pointing up and ahead.
 import type { HeldTool } from './person-equipment';
 import { Trace } from './ghost-trace';
+import { staffCrook } from './staff-art';
 
 /** A point `shaft` up the haft from the grip and `across` it toward the cutting side. */
 const along = (shaft: number, across = 0): [number, number] => [
@@ -33,7 +34,7 @@ function toolOutline(tool: HeldTool): Trace {
     case 'mace':
       return t.polyline(-0.7, 1, 4.4, -6.8).polygon(3.6, -9.7, 5.6, -11.6, 8.5, -9.7, 8.2, -7, 5.6, -6.2);
     case 'staff':
-      return t.polyline(-1.4, 4, 5, -13.6).oval(5.5, -15.2, 1.5);
+      return t.commands(staffCrook().commands);
     case 'bow':
       return t.moveTo(-1, -8).cubicTo(6, -5, 6, 5, -1, 8).close();
     case 'hoe':

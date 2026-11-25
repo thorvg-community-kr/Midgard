@@ -432,8 +432,8 @@ describe('Jormungandr in the sea', () => {
       if (node instanceof SceneNode) node.children.forEach(walk);
     };
     walk(s.serpent);
-    // Known sea shows it through a copy over the veil: no lit patch round it, nothing cut in the fog.
-    expect(s.fog.masking).toBeUndefined();
+    // Known sea shows it through a copy over the veil: no lit patch round it, nothing cut in the mist.
+    expect(s.mist.masking).toBeUndefined();
     expect(s.serpentLit.children.length).toBe(s.serpent.children.filter((c) => c instanceof SceneNode && c.children.length).length);
     // Clear skies again: it sinks and the layer goes still.
     for (let t = 0; t < 80; ++t) {

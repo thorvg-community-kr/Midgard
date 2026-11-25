@@ -9,6 +9,7 @@ import { add, distance, normalized, point, scale, sub, type Point } from '../../
 import { equippedItem } from '../../../../packages/engine/src/equipment';
 import { TownState } from '../../../../packages/engine/src/town-state';
 import { sealable } from '../../../../packages/engine/src/gate-seals';
+import { RaidKind, raidKind } from '../../../../packages/engine/src/raid-progression';
 import { lairOf } from '../../../../packages/engine/src/town-monsters';
 import { floorLevel, partyVerdict, Verdict } from './swarm-hud';
 import { isFighter } from './title-gear';
@@ -62,7 +63,8 @@ export const partyState = (): PartyState => ({
 });
 const centre = (items: readonly { position: Point }[]): Point =>
   items.reduce((c, p) => point(c.x + p.position.x / items.length, c.y + p.position.y / items.length), point());
-const armed = (p: Person): boolean => isFighter(p) || !!equippedItem(p, 'weapon');
+const homeDefender = (p: Person): boolean =>
+  p.health > 0.3 && (isFighter(p) || (!!equippedItem(p, 'weapon') && p.stress < 0.7));
 
 /** Raiders near home are met at the fire by everyone armed: they gather at the camp door and fight what comes
  * within reach of it, so the hurt are close to help; the downed are tended once no raider stands over them. */
@@ -77,7 +79,7 @@ export function defend(ctx: TitleContext, state: PartyState): boolean {
   tendDowned(ctx, folk, town.people().filter((p) => p.faction === 0 && p.downedAt >= 0 && !town.inRealm(p.position)), raiders.map((m) => m.position), 1.5);
   if (!raiders.length) return false;
   const defenders = folk.filter(
-    (p) => (isFighter(p) || (armed(p) && p.stress < 0.7)) && p.health > 0.3 && p.task !== Activity.Praying && p.task !== Activity.Tending && !ctx.party.has(p.id),
+    (p) => homeDefender(p) && p.task !== Activity.Praying && p.task !== Activity.Tending && !ctx.party.has(p.id),
   );
   for (const p of defenders) take(ctx, p);
   if (!defenders.length || town.clock() - state.homeOrderedAt < regroupSeconds) return true;
@@ -145,7 +147,7 @@ export interface PartyChoice {
   floor: number;
 }
 /** The party and floor the expedition window would call ready, or null. Nearest gate, deepest ready floor. */
-export function readyParty(town: Town): PartyChoice | null {
+export function readyParty(town: Town, available = mostMembers): PartyChoice | null {
   const fighters = fitFighters(town),
     seat = town.camp();
   if (fighters.length < 3 || !seat || town.raiding()) return null;
@@ -163,12 +165,13 @@ export function readyParty(town: Town): PartyChoice | null {
       const fit = fighters.filter((p) => p.level >= floorLevel(floor) - 1),
         bards = fit.filter((p) => p.calling === Calling.Bard).slice(1),
         pool = fit.filter((p) => !bards.includes(p));
-      for (let count = Math.min(mostMembers, pool.length); count >= 3; --count) {
-        const members = pool.slice(0, count),
-          average = Math.round(members.reduce((s, p) => s + p.level, 0) / count);
-        // A floor not yet cleared is taken on with a level in hand, as the forecast's numbers assume iron arms.
-        const margin = floor >= town.gateFloors(index).cleared ? (floor > 0 ? 2 : 1) : 0;
-        if (partyVerdict(count, average - margin, floorLevel(floor)) === Verdict.Ready) return { members, gate: index, floor };
+      for (let count = Math.min(available, mostMembers, pool.length); count >= 3; --count) {
+        const members = pool.slice(0, count);
+        // The first party can scout one den as soon as the window calls it ready.
+        // A party aiming to clear an untried floor takes extra endurance.
+        const firstOuting = floor === 0 && town.chronicle.partiesLed === 0;
+        const margin = !firstOuting && floor >= town.gateFloors(index).cleared ? (floor > 0 ? 2 : 1) : 0;
+        if (partyVerdict(members, floor, margin) === Verdict.Ready) return { members, gate: index, floor };
       }
     }
   }
@@ -179,7 +182,7 @@ export function sendParty(ctx: TitleContext, state: PartyState): boolean {
   const { town } = ctx;
   if (town.realmActive() || state.members.some((id) => town.people().some((p) => p.id === id && beyond(town, p)))) return false;
   // A party leaves once the day's raid warning would have come: with none, home is safe tonight; with one, only
-  // if two fighters stay behind to hold the fire.
+  // if two residents who can fight stay behind to hold the fire.
   const day = town.dayFraction(),
     warned = town.raidWarnedDay === town.days;
   // Late enough to know about tonight's raid, early enough to fight by daylight.
@@ -187,15 +190,17 @@ export function sendParty(ctx: TitleContext, state: PartyState): boolean {
     state.note = 'waiting for the morning news';
     return false;
   }
-  const choice = readyParty(town);
-  if (!choice) {
-    const fit = fitFighters(town);
-    state.note = `not ready: ${fit.length} fit fighters at ${fit.map((p) => p.level).join('/')}`;
+  // The tracks tell the raid's shape. A horde, or raiders from two sides, swamp a guard of two: nobody leaves.
+  if (warned && [RaidKind.Horde, RaidKind.Pincer].includes(raidKind(town.map().seed(), town.days))) {
+    state.note = 'a raid too great for a small guard is coming tonight';
     return false;
   }
-  const guards = living(town).filter((p) => isFighter(p) && !choice.members.includes(p) && !beyond(town, p)).length;
-  if (warned && guards < 2) {
-    state.note = 'a raid is coming tonight';
+  const available = warned ? living(town).filter((p) => !beyond(town, p) && homeDefender(p)).length - 2 : mostMembers,
+    choice = readyParty(town, available);
+  if (!choice) {
+    const fit = fitFighters(town);
+    state.note = warned && available < fit.length ? 'a raid is coming tonight' :
+      `not ready: ${fit.length} fit fighters at ${fit.map((p) => p.level).join('/')}`;
     return false;
   }
   state.note = '';
@@ -204,9 +209,8 @@ export function sendParty(ctx: TitleContext, state: PartyState): boolean {
   if (!order(ctx, `expedition:${choice.gate}:${choice.floor}:${ids.join(',')}`, choice.members, () => town.sendExpedition(ids, choice.gate, choice.floor)))
     return false;
   // Someone who could not set out leaves the rest short: they are called back before they step through.
-  const going = choice.members.filter((p) => p.activity === Activity.Expedition),
-    average = Math.round(going.reduce((sum, p) => sum + p.level, 0) / Math.max(1, going.length));
-  if (going.length < ids.length && partyVerdict(going.length, average - 1, floorLevel(choice.floor)) !== Verdict.Ready) {
+  const going = choice.members.filter((p) => p.activity === Activity.Expedition);
+  if (going.length < ids.length && partyVerdict(going, choice.floor, 1) !== Verdict.Ready) {
     const seat = town.camp();
     if (seat) order(ctx, `call-back:${town.clock() | 0}`, [], () => (town.orderMove(going.map((p) => p.id), seat.door()), true));
     state.note = 'called back: the party set out short';
@@ -272,9 +276,13 @@ export function commandRealm(ctx: TitleContext, state: PartyState): boolean {
     order(ctx, `gather:${now | 0}`, [], () => (town.orderAttackMove(ids, plan.entry), true));
     return true;
   }
-  if (!town.realmCleared && dens.length && (downed >= 2 || healthy * 2 < standing.length || standing.length < 2) && !state.withdrawing)
-    state.withdrawing = true;
   if (town.realmCleared) return true;
+  // Bring the scouts home with the first den's spoils, or earlier if a scout needs help.
+  const scouting = state.sent === 1 && state.floor === 0;
+  if (scouting && (dens.length < town.realmDenTotal() || standing.some((p) => p.health < 0.6) || downed > 0))
+    state.withdrawing = true;
+  if (dens.length && (downed >= 2 || healthy * 2 < standing.length || standing.length < 2))
+    state.withdrawing = true;
   if (state.withdrawing) {
     order(ctx, `withdraw:${now | 0}`, [], () => (town.orderMove(ids, plan.entry), true));
     return true;

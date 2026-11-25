@@ -1,7 +1,7 @@
 // Translated from src/game/camp_economy.cpp.
 import { TownState } from './town-state';
 import { Building } from './town-models';
-import { Resources, Structure, isSeat, structureSpec } from './building-catalog';
+import { Resources, Structure, isSeat, resourceKeys, structureSpec } from './building-catalog';
 import { Person, Role } from './person';
 import { CampEconomy, CampReceipt, type Ledger } from './camp-economy';
 import { distance, centroid, type Point } from './geometry';
@@ -108,7 +108,7 @@ export function migrateSettlements(this: SettlementTown): void {
 export function credit(this: SettlementTown, gain: Resources, id: number): void {
   const current = this.reserves(id),
     received = new Resources();
-  for (const key of ['gold', 'wood', 'stone', 'food', 'water', 'mana', 'planks', 'cutStone', 'bones'] as const) {
+  for (const key of resourceKeys) {
     const before = current[key];
     current[key] = clamp(current[key] + gain[key], 0, 2147483647);
     received[key] = Math.max(0, current[key] - before);

@@ -117,21 +117,48 @@ function fall(reach: number, wave = 0, width = 1.24): Contour {
   else p.curve([width - 0.04, reach * 0.8], [width, reach * 0.4], [1.16, -0.3]);
   return p.curve([0.8, -1], [0, -1.16], [-0.8, -1], [-1.16, -0.3]).close();
 }
-/** A plait as overlapping links from one point to another, tapering, with a tufted end. */
+/**
+ * A plait from one point to another: strands that cross by turns, each a link leaning the other way from the one
+ * above and lying over the one below, finer toward a tufted end. Never a string of beads.
+ */
 function plait(ax: number, ay: number, bx: number, by: number, links: number, size: number): Form {
-  const form: Form = [];
-  for (let i = 0; i < links; i++) {
+  const dx = bx - ax,
+    dy = by - ay,
+    length = Math.hypot(dx, dy) || 1,
+    ux = dx / length,
+    uy = dy / length,
+    form: Form = [
+      // The loose end below the tie.
+      pen(bx - size * 0.5, by + size * 0.5)
+        .curve([bx - size * 0.62, by + size * 1.5], [bx, by + size * 2.1])
+        .curve([bx + size * 0.62, by + size * 1.5], [bx + size * 0.5, by + size * 0.5])
+        .close(),
+    ];
+  // From the end upward, so each link is laid over the one below it.
+  for (let i = links - 1; i >= 0; i--) {
     const t = i / (links - 1),
-      r = size * (1 - t * 0.28),
-      sway = (i % 2 ? 1 : -1) * size * 0.22;
-    form.push(oval(ax + (bx - ax) * t + sway, ay + (by - ay) * t, r, r * 0.86));
+      r = size * (1 - t * 0.3),
+      side = i % 2 ? 1 : -1,
+      cx = ax + dx * t,
+      cy = ay + dy * t,
+      // It starts across the middle on one side and runs down and out to the other.
+      fx = cx + uy * side * r * 0.55 - ux * r * 0.8,
+      fy = cy - ux * side * r * 0.55 - uy * r * 0.8,
+      tx = cx - uy * side * r * 0.66 + ux * r * 1.0,
+      ty = cy + ux * side * r * 0.66 + uy * r * 1.0,
+      lx = tx - fx,
+      ly = ty - fy,
+      span = Math.hypot(lx, ly) || 1,
+      wx = (-ly / span) * r * 0.92,
+      wy = (lx / span) * r * 0.92;
+    // Round where it tucks under the strand above, full in the middle, drawn to a soft point below.
+    form.push(
+      pen(fx, fy)
+        .cubic(fx + lx * 0.08 + wx, fy + ly * 0.08 + wy, fx + lx * 0.7 + wx * 0.72, fy + ly * 0.7 + wy * 0.72, tx, ty)
+        .cubic(fx + lx * 0.7 - wx * 0.72, fy + ly * 0.7 - wy * 0.72, fx + lx * 0.08 - wx, fy + ly * 0.08 - wy, fx, fy)
+        .close(),
+    );
   }
-  form.push(
-    pen(bx - size * 0.5, by + size * 0.5)
-      .curve([bx - size * 0.62, by + size * 1.5], [bx, by + size * 2.1])
-      .curve([bx + size * 0.62, by + size * 1.5], [bx + size * 0.5, by + size * 0.5])
-      .close(),
-  );
   return form;
 }
 const none: HairForms = { back: [], front: [], hang: [], over: [], ties: [], shaved: [], ears: true };

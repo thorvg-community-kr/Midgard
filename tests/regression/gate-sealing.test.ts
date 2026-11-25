@@ -8,7 +8,10 @@ import { WorldMap } from '../../packages/engine/src/world-map';
 import { WalkGrid } from '../../packages/engine/src/walk-paths';
 import { RoadNetwork } from '../../packages/engine/src/road-network';
 import { copyNative } from '../../packages/engine/src/native-copy';
-import { distance } from '../../packages/engine/src/geometry';
+import { distance, lerp, type Point } from '../../packages/engine/src/geometry';
+import { addInventory, itemSpec } from '../../packages/engine/src/equipment';
+import { deposit } from '../../packages/engine/src/mining';
+import { MonsterRank } from '../../packages/engine/src/combat-events';
 import { monsterEntrance } from '../../packages/engine/src/town-monsters';
 import { decodeTown, encodeTown } from '../../packages/engine/src/save-game';
 import { ChamberKind, findRealmArea, inArea, planRealm, realmSizes, sinkRealm, stampRealm } from '../../packages/engine/src/realm-layout';
@@ -39,14 +42,14 @@ describe('worlds beyond the gates', () => {
   beforeAll(() => {
     base = WorldMap.generate(5);
   }, 120000);
-  function expedition(size: number, level: number, floor = 0) {
-    const town = new Town(base, 176, false),
+  function expedition(size: number, level: number, floor = 0, world?: World, map = base) {
+    const town = new Town(map, 176, false),
       camp = new Building(0, Structure.Camp, town.map().camp(), 0, 0);
     camp.village = 0;
     town.placed.push(camp);
     town.nextId = 1;
     town.foundSettlement(0);
-    const gate = town.map().dungeons().findIndex(sealable);
+    const gate = town.map().dungeons().findIndex((site) => sealable(site) && (world === undefined || town.map().destination(site) === world));
     town.map().dungeons()[gate].discovered = true;
     town.depth = town.map().dungeons().map((_, index) => (index === gate ? floor : 0));
     const members = Array.from({ length: size }, () => {
@@ -65,6 +68,78 @@ describe('worlds beyond the gates', () => {
     return { town, gate, members };
   }
   const terrain = (town: Town) => town.map().tiles.map((tile) => tile.terrain).join('');
+  const length = (path: Point[]) => path.reduce((sum, p, i) => i ? sum + distance(path[i - 1], p) : sum, 0);
+  const through = (path: Point[], map: WorldMap, cell: (id: number) => boolean) => path.some((end, i) => {
+    if (!i) return false;
+    const start = path[i - 1], steps = Math.ceil(distance(start, end) * 12);
+    for (let j = 1; j <= steps; ++j) {
+      const p = lerp(start, end, j / steps);
+      if (cell(Math.floor(p.y) * map.width() + Math.floor(p.x))) return true;
+    }
+    return false;
+  });
+
+  it.each([[World.Jotunheim, 5], [World.Niflheim, 5], [World.Jotunheim, 11]])('takes the snowy pass in boots and the ridge without them in world %i, seed %i', (world, seed) => {
+    const { town, members: [walker] } = expedition(1, 6, 0, world, seed === 5 ? base : WorldMap.generate(seed));
+    town.advance(0.1);
+    const path = town.realmPlan()!.passage!, map = town.map();
+    const room = town.realmPlan()!.chambers[path.room];
+    expect(town.realmFoes().some((m) => m.rank === MonsterRank.Spitter && distance(m.home, room.center) <= room.radius + 1)).toBe(true);
+    walker.position = path.from;
+    town.orderMove([walker.id], path.to);
+    const ridge = [path.from, ...walker.path];
+    expect(ridge.at(-1)).toEqual(path.to);
+    expect(through(ridge, map, (id) => map.deepSnow.has(id))).toBe(false);
+    addInventory(walker, 'snow-boots');
+    town.equipItem(walker.id, 2, 'feet');
+    town.orderMove([walker.id], path.to);
+    const shortcut = [path.from, ...walker.path];
+    expect(through(shortcut, map, (id) => map.deepSnow.has(id))).toBe(true);
+    expect(length(shortcut)).toBeLessThan(length(ridge));
+    const loaded = decodeTown(encodeTown(town), (m) => new Town(m, 176, false, true));
+    expect(loaded.map().deepSnow).toEqual(map.deepSnow);
+    expect(loaded.grid.path(path.from, path.to, true, itemSpec('snow-boots'))).toEqual(shortcut);
+  });
+
+  it('mines a volcanic flank from either mouth and restores the open pass from a save', () => {
+    const { town, members: [miner] } = expedition(1, 7, 0, World.Muspelheim);
+    town.advance(0.1);
+    const map = town.map(), cell = map.basaltCell, path = town.realmPlan()!.passage!;
+    expect(town.realmDens().some((den) => distance(den.home, path.to) < 3)).toBe(true);
+    const { middle } = path, x = Math.floor(middle.x), y = Math.floor(middle.y);
+    expect(map.basaltCell).toBe(y * map.width() + x);
+    expect(town.grid.walkable(middle)).toBe(false);
+    expect(deposit(map, x, y)).toBe(true);
+    const detour = town.grid.path(path.from, path.to, true);
+    expect(detour.length).toBeGreaterThan(0);
+    expect(through(detour, map, (id) => id === cell)).toBe(false);
+    // Isolate the mining order from combat and keep the actual floor and its spoils.
+    town.beasts = town.beasts.filter((b) => b.id === town.realmGuardian);
+    town.reveal(middle.x, middle.y, 8);
+    miner.position = path.from;
+    addInventory(miner, 'pickaxe');
+    expect(town.orderMine([miner.id], cell)).toBe(false);
+    addInventory(miner, 'embersteel-pick');
+    expect(town.orderMine([miner.id], cell)).toBe(true);
+    town.orderStop([miner.id]);
+    expect(map.at(x, y).quarried).toBe(false);
+    miner.position = path.to;
+    expect(town.orderMine([miner.id], cell)).toBe(true);
+    const resume = (t: Town) => decodeTown(encodeTown(t), (m) => new Town(m, 176, false, true));
+    const resumed = resume(town);
+    expect(resumed.grid.walkable(middle)).toBe(false);
+    for (let i = 0; i < 500 && !resumed.map().at(x, y).quarried; ++i) resumed.advance(0.1);
+    expect(resumed.map().at(x, y).quarried).toBe(true);
+    resumed.advance(0.1);
+    expect(resumed.realmLoot.cinderOre).toBe(2);
+    expect(resumed.orderMine([miner.id], cell)).toBe(false);
+    for (const t of [resumed, resume(resumed)]) {
+      expect(t.grid.walkable(middle)).toBe(true);
+      const shortcut = t.grid.path(path.from, path.to, true);
+      expect(through(shortcut, t.map(), (id) => id === cell)).toBe(true);
+      expect(length(shortcut)).toBeLessThan(length(detour));
+    }
+  });
 
   it('plans a connected floor inside one open-sea square', () => {
     const area = findRealmArea(base)!;
@@ -173,8 +248,8 @@ describe('worlds beyond the gates', () => {
     expect(town.realmLoot.gold).toBeGreaterThanOrEqual(150);
     expect(town.canLeaveRealm().ok).toBe(true);
     expect(town.leaveRealm()).toBe(true);
-    expect(town.floorOpen(gate, sealFloors - 1)).toBe(true);
-    expect(town.expeditionProblem(gate, sealFloors - 1)).toBe('');
+    expect(town.floorOpen(gate, sealFloors - 1)).toBe(false);
+    expect(town.expeditionProblem(gate, sealFloors - 1)).toContain('Sealed');
     town.days = 30;
     town.summonRaid(RaidKind.Pack);
     expect(town.monsters().some((beast) => beast.lair === gate)).toBe(false);
@@ -185,6 +260,7 @@ describe('worlds beyond the gates', () => {
     expect(town.expeditionProblem(gate, 0)).toBe('');
     const other = town.map().dungeons().findIndex((site, index) => index !== gate && sealable(site));
     town.map().dungeons()[other].discovered = true;
+    town.open[other] = 1;
     expect(town.expeditionProblem(other, 0)).toBe('A party is already beyond another gate');
     town.realmLoot.gold = 50;
     members[0].position = { ...town.realmPlan()!.chambers.at(-1)!.center };
@@ -258,6 +334,7 @@ describe('the player commands the party', () => {
     town.foundSettlement(0);
     const gate = town.map().dungeons().findIndex(sealable);
     town.map().dungeons()[gate].discovered = true;
+    town.open[gate] = 1;
     const members = Array.from({ length: size }, () => {
       const p = town.makePerson(Role.Resident, Calling.Warrior, monsterEntrance(town.map().dungeons()[gate]));
       town.folk.push(p);
@@ -420,7 +497,7 @@ describe('branching progression', () => {
   it('tracks each branch separately and ends the saga with every gate sealed', () => {
     const { town } = settlement();
     const goals = settlementGoals();
-    expect(goals[currentGoal(town, GoalBranch.Core)].title).toBe('Build a workbench');
+    expect(goals[currentGoal(town, GoalBranch.Core)].title).toBe('Lay a road');
     expect(goals[currentGoal(town, GoalBranch.Arms)].title).toBe('Build a guild');
     expect(goals[currentGoal(town, GoalBranch.Saga)].title).toBe('Lead a party of three');
     town.chronicle.largestParty = 3;

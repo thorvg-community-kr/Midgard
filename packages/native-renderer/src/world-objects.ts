@@ -1,6 +1,7 @@
 import { point, project, add, mul, rotated } from '../../engine/src/geometry';
 import { f32, hash01 } from '../../engine/src/numeric';
 import { Town } from '../../engine/src/town';
+import { clearMarkOf } from '../../engine/src/town-clearing';
 import { Traffic } from '../../engine/src/traffic';
 import {
   Structure,
@@ -25,6 +26,7 @@ import { lightVolcano, paintVolcano, paintSteam } from './volcano-painter';
 import { Flicker } from './light-flicker';
 import { gateSprite, gateBody, gateBounds } from './gate-sprites';
 import { gateSealed } from '../../engine/src/gate-seals';
+import { gateActive } from '../../engine/src/gate-progression';
 import { registerPick } from './world-pick-registry';
 import { paintOrnaments } from './world-ground';
 import { sprout, buildTreeRow } from './world-trees';
@@ -60,11 +62,16 @@ export function syncVisuals(s: WorldRendererState, town: Town, seconds: number):
     s.visuals.delete(id);
   }
   for (const b of town.buildings()) {
-    const appearances = [
+    // Playing a merged building backwards must never bring its former buildings back.
+    const old = s.visuals.get(b.id),
+      stages =
+        b.replaced.length && (old?.appearances.length === 1 || clearMarkOf(town, 'building', b.id))
+          ? []
+          : b.replaced,
+      appearances = [
         buildingAppearanceRevision(b.kind),
-        ...b.replaced.map((stage) => buildingAppearanceRevision(stage.kind)),
-      ],
-      old = s.visuals.get(b.id);
+        ...stages.map((stage) => buildingAppearanceRevision(stage.kind)),
+      ];
     if (
       old &&
       appearances.length === old.appearances.length &&
@@ -73,7 +80,7 @@ export function syncVisuals(s: WorldRendererState, town: Town, seconds: number):
       continue;
     const complete = !!old && old.frame >= old.layout.frames,
       fraction = old && old.layout.frames > 0 ? f32(old.frame / old.layout.frames) : 0,
-      layout = riseAnimation(b.kind, b.variant, b.replaced, b.angle),
+      layout = riseAnimation(b.kind, b.variant, stages, b.angle),
       picture = new AnimationNode(layout.json);
     // Validate the replacement before releasing an accepted native animation.
     s.adapter.sync(picture);
@@ -102,6 +109,22 @@ export function syncVisuals(s: WorldRendererState, town: Town, seconds: number):
     picture.translate(f32(anchor.x - layout.originX), f32(anchor.y - layout.originY));
     s.visuals.set(b.id, item);
   }
+}
+export function addVolcano(s: WorldRendererState, map: ReturnType<Town['map']>): void {
+  const volcano = map.volcano()!;
+  const heart = volcano.center(), footprint = volcanoFootprint(volcano),
+    row = rowOf(footprint, s.rowBuildings.length),
+    key = BigInt(map.seed()) | (BigInt(volcano.origin.x >>> 0) << 32n) | (BigInt(volcano.origin.y >>> 0) << 48n);
+  if (renew(s.volcanoPaint, key))
+    s.volcanoLight = paintVolcano(s.volcanoPaint.paint!, project(heart.x, heart.y), map.seed());
+  const paint = s.volcanoPaint.paint!;
+  registerDepth(paint, footprint, 'landmark:volcano');
+  registerPick(paint, {
+    ref: { kind: 'landmark', id: 1 }, body: [paint], foot: heart, groundOutline: footprint.corners(),
+  });
+  s.rowBuildings[row].add(paint);
+  lightVolcano(s.lights, s.volcanoLight!);
+  s.fireRow = row;
 }
 export function buildObjects(s: WorldRendererState, town: Town, climate: Readonly<Climate>): void {
   settlePeaks(town.map(), town.realmGate >= 0 ? town.realmArea : null);
@@ -179,25 +202,7 @@ export function buildObjects(s: WorldRendererState, town: Town, climate: Readonl
       s.ymirGlints = [s.ymirLight!.glints[0], s.ymirLight!.glints[1]];
       s.ymirRow = row;
     }
-    if (row === volcanoRow) {
-      const heart = volcano!.center(),
-        key =
-          BigInt(map.seed()) |
-          (BigInt(volcano!.origin.x >>> 0) << 32n) |
-          (BigInt(volcano!.origin.y >>> 0) << 48n);
-      if (renew(s.volcanoPaint, key))
-        s.volcanoLight = paintVolcano(s.volcanoPaint.paint!, project(heart.x, heart.y), map.seed());
-      registerDepth(s.volcanoPaint.paint!, volcanoFootprint(volcano!), 'landmark:volcano');
-      registerPick(s.volcanoPaint.paint!, {
-        ref: { kind: 'landmark', id: 1 },
-        body: [s.volcanoPaint.paint!],
-        foot: heart,
-        groundOutline: volcanoFootprint(volcano!).corners(),
-      });
-      here.add(s.volcanoPaint.paint!);
-      lightVolcano(s.lights, s.volcanoLight!);
-      s.fireRow = row;
-    }
+    if (row === volcanoRow) addVolcano(s, map);
     if (row === springRow) {
       const deep = add(project(spring.x, spring.y), point(0, 30));
       s.lights.add(glow(deep, 170, 70, [90, 190, 230], 46));
@@ -229,6 +234,16 @@ export function buildObjects(s: WorldRendererState, town: Town, climate: Readonl
       });
       const size = structureSpec(b.kind).size,
         middle = b.center;
+      if (b.kind === Structure.Ranch && b.built()) {
+        const foot = add(middle, rotated(point(-.19, .72), b.angle)), nest = project(foot.x, foot.y);
+        here.add(ellipse(nest, 5, 2.45, [164, 125, 69, 255]));
+        here.add(ellipse(add(nest, point(0, -.45)), 3.8, 1.65, [111, 81, 55, 255]));
+        visual.nestEggs = [point(-2.1, -.9), point(.45, -1.5), point(2.2, -.25), point(-.4, .2)].map((offset, i) => {
+          const egg = ellipse(add(nest, offset), 1.25, 1.65, [252, 232, 187, 255]);
+          here.add(egg.opacity(i < b.eggs ? 255 : 0));
+          return egg;
+        });
+      }
       if (b.kind === Structure.Torch && b.built()) {
         const p = project(middle.x, middle.y);
         p.y = f32(p.y - 20);
@@ -307,7 +322,8 @@ export function buildObjects(s: WorldRendererState, town: Town, climate: Readonl
         homeward = site.kind === DungeonKind.Return && town.realmGate >= 0,
         world = map.destination(homeward ? map.dungeons()[town.realmGate] : site);
       s.rowBuildings[row].add(here);
-      const pulse = gateSprite(here, s.lights, { site, world, sealed });
+      const dormant = !sealed && !homeward && !gateActive(town, index);
+      const pulse = gateSprite(here, s.lights, { site, world, sealed, dormant });
       registerDepth(
         here,
         point(site.origin.x + 1, site.origin.y + 1),

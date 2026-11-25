@@ -314,29 +314,50 @@ try {
   const ids = (await controls()).map((c) => c.id);
   for (const tab of ['tools', 'gear']) assert(ids.includes(`station-group-${tab}-${bench}`), tab);
   assert(!ids.includes(`station-group-weapons-${bench}`), 'weapons are made at the smithy now');
+  // One row a kind: the first make for a resident with none, and no stone make before there is wood to upgrade.
   assert(
-    ids.includes('station-craft-stone-axe') && ids.includes('station-craft-wooden-pick') && ids.includes(`station-page-next-${bench}`),
+    ids.includes('station-craft-wooden-axe') && ids.includes('station-craft-wooden-pick') && !ids.some((id) => id.endsWith('stone-axe')),
     ids.join(', '),
   );
   assert(!ids.includes('station-craft-wooden-spear'), 'weapons are not on the bench');
   await shot('01-bench-tools');
 
-  // 2. A stone axe from the Tools tab, by the crafter the panel names.
-  await click('station-craft-stone-axe');
+  // 2. A wooden axe from the Tools tab, for the resident the row names; with everyone equipped its row offers the stone make as an upgrade.
+  await click('station-craft-wooden-axe');
   const axeMaker = await page.evaluate(
     (bench) => probe.town.people().find((p) => p.craftWorkshop === bench)?.id ?? -1,
     bench,
   );
   assert(
     axeMaker >= 0,
-    'someone goes to make the stone axe: ' +
+    'someone goes to make the wooden axe: ' +
       (await page.evaluate(() => probe.game.status + ' | ' + probe.history.slice(-3).join(' | '))),
   );
   await page.evaluate((id) => probe.advance(200, () => !probe.town.person(id).craftItem), axeMaker);
-  assert(
-    (await page.evaluate((id) => probe.held(id), axeMaker)).includes('stone-axe'),
-    'the stone axe is made',
+  assert((await page.evaluate((id) => probe.held(id), axeMaker)).includes('wooden-axe'), 'the wooden axe is made');
+  // The stone make is offered once nobody is left without an axe: until then the row stays the wooden one for them.
+  await page.evaluate(() => {
+    for (const id of probe.founders()) if (!probe.held(id).includes('wooden-axe')) probe.equip(id, ['wooden-axe']);
+  });
+  await page.evaluate(
+    ([bench, id]) => {
+      probe.game.selectPeople([id]);
+      probe.game.selectBuilding(bench);
+    },
+    [bench, axeMaker],
   );
+  await frames(6);
+  await shot('01-bench-upgrade-offered');
+  await click('station-upgrade-stone-axe');
+  // The upgrade goes to the nearest resident with a wooden axe, whoever was selected.
+  const upgrader = await page.evaluate(
+    (bench) => probe.town.people().find((p) => p.craftItem && p.craftWorkshop === bench)?.id ?? -1,
+    bench,
+  );
+  assert(upgrader >= 0, 'someone goes to upgrade the axe');
+  await page.evaluate((id) => probe.advance(200, () => !probe.town.person(id).craftItem), upgrader);
+  const axes = await page.evaluate((id) => probe.held(id), upgrader);
+  assert(axes.includes('stone-axe') && !axes.includes('wooden-axe'), 'the wooden axe became the stone axe: ' + axes.join());
 
   // 3. A wooden spear from the smithy's Weapons tab.
   const smith = await page.evaluate(() => probe.smithy());
@@ -352,7 +373,6 @@ try {
   await away();
   await frames(6);
   await shot('02-smithy-weapons');
-  await click(`station-page-next-${smith}`);
   await click('station-craft-wooden-spear');
   const spearMaker = await page.evaluate(
     (smith) => probe.town.people().find((p) => p.craftWorkshop === smith)?.id ?? -1,
@@ -546,7 +566,7 @@ try {
   await phone.evaluate((bench) => {
     const t = probe.town,
       [p] = probe.founders();
-    t.orderCraft(p, bench, 'stone-pick');
+    t.orderCraft(p, bench, 'wooden-pick');
     probe.advance(60, () => t.person(p).craftProgress > 2);
     probe.frames(6);
   }, phoneBench);

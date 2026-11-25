@@ -9,6 +9,7 @@ import { point, distance } from '../../packages/engine/src/geometry';
 import { copyNative } from '../../packages/engine/src/native-copy';
 import { buildingUnlock, unlockRequirements } from '../../packages/engine/src/settlement-progression';
 import { encodeTown, decodeTown } from '../../packages/engine/src/save-game';
+import { addInventory, equippedItem } from '../../packages/engine/src/equipment';
 
 let base: Town;
 beforeAll(() => {
@@ -222,6 +223,7 @@ describe('altar prayer and immediate residents', () => {
       p = town.people()[0],
       altar = town.building(1)!,
       food = town.stock(0).food;
+    p.level = 9;
     expect(town.orderPrayAtAltar([p.id], altar.id)).toBe(true);
     expect(p.moving()).toBe(true);
     expect(town.completeAltarPrayer(p)).toBe(false);
@@ -238,6 +240,8 @@ describe('altar prayer and immediate residents', () => {
     expect(town.population(0)).toBe(2);
     expect(born.role).toBe(Role.Resident);
     expect(born.calling).toBe(Calling.Settler);
+    expect(born.level).toBe(4);
+    expect(born.birthStrength + born.birthVitality).toBe(1);
     expect(born.village).toBe(0);
     expect(distance(born.position, altar.door())).toBeLessThan(0.75);
     expect(altar.devotionDueDay).toBe(-1);
@@ -316,73 +320,87 @@ describe('altar prayer and immediate residents', () => {
   });
 });
 
-describe('guild professional oath', () => {
-  it('cancels an unfinished ceremony through Stop without charging or retaining a profession choice', () => {
-    const town = fixture(),
-      p = town.people()[0],
-      gold = town.stock(0).gold,
-      food = town.stock(0).food;
+describe('guild callings', () => {
+  const schools = [Structure.TrainingYard, Structure.Watchtower, Structure.MageTower, Structure.Tavern];
+  function trainedVillage() {
+    const town = fixture(), p = town.people()[0];
+    for (const [i, kind] of schools.entries()) {
+      const b = new Building(town.nextId++, kind, point(16 + i * 3, 18), 0, 0);
+      b.village = 0;
+      town.placed.push(b);
+    }
+    p.level = 3;
+    return { town, p };
+  }
+  it('checks level, local residency and school ownership before taking a training order', () => {
+    const { town, p } = trainedVillage(), yard = town.placed.find(b => b.kind === Structure.TrainingYard)!;
+    p.level = 2;
+    expect(town.trainingReason(p.id, 2, Calling.Warrior)).toBe('Needs level 3');
+    p.level = 3;
+    yard.faction = 1;
+    expect(town.trainingReason(p.id, 2, Calling.Warrior)).toBe('Complete Training yard');
+    yard.faction = 0;
+    yard.progress = 0.99;
+    expect(town.orderTrainAtGuild(p.id, 2, Calling.Warrior)).toBe(false);
+    yard.progress = 1;
+    expect(town.trainingReason(p.id, 2, Calling.Warrior)).toBe('');
+    expect(town.trainingReason(p.id, 2, Calling.Settler)).toBe('Current calling');
+    const other = secondSettlement(town);
+    p.home = p.village = other.id;
+    p.faction = other.faction;
+    expect(town.orderTrainAtGuild(p.id, 2, Calling.Warrior)).toBe(false);
+  });
+
+  it('can cancel an unfinished ceremony or lose its school before it finishes', () => {
+    const { town, p } = trainedVillage();
     expect(town.orderTrainAtGuild(p.id, 2, Calling.Mage)).toBe(true);
     town.orderStop([p.id]);
     advance(town, 25);
-    expect(p.trainingCalling).toBe(-1);
-    expect(p.trained).toBe(false);
-    expect(p.calling).toBe(Calling.Settler);
-    expect(p.activity).toBe(Activity.Holding);
-    expect(town.stock(0).gold).toBe(gold);
-    expect(town.stock(0).food).toBe(food);
+    expect(p).toMatchObject({ trainingCalling: -1, trained: false, calling: Calling.Settler, activity: Activity.Holding });
+    expect(town.orderTrainAtGuild(p.id, 2, Calling.Warrior)).toBe(true);
+    town.raze(town.placed.find(b => b.kind === Structure.TrainingYard)!.id);
+    advance(town, 25);
+    expect(p).toMatchObject({ trained: false, calling: Calling.Settler, trainingCalling: -1 });
+    expect(town.building(2)!.trainingCount).toBe(0);
   });
 
   it.each([Calling.Warrior, Calling.Ranger, Calling.Mage, Calling.Cleric, Calling.Bard])(
-    'trains once after physical ceremony, preserving identity and level (%s)',
-    (calling) => {
-      const town = fixture(),
-        p = town.people()[0],
-        gold = town.stock(0).gold,
-        food = town.stock(0).food;
-      p.level = 4;
+    'can take a calling for free and change back, preserving experience and equipment (%s)', calling => {
+      const { town, p } = trainedVillage();
+      town.stock(0).gold = town.stock(0).food = 0;
       p.experience = 17;
+      addInventory(p, 'wooden-sword');
+      expect(town.equipItem(p.id, 1, 'weapon')).toBe(true);
       const identity = [p.id, p.name, p.look, p.home, p.village, p.level, p.experience];
       expect(town.orderTrainAtGuild(p.id, 2, calling)).toBe(true);
-      expect(p.calling).toBe(Calling.Settler);
+      expect(town.orderTrainAtGuild(p.id, 2, calling)).toBe(false);
       expect(town.completeGuildTraining(p)).toBe(false);
-      expect(town.stock(0).gold).toBe(gold);
       advance(town, 25);
-      expect(p.calling).toBe(calling);
-      expect(p.trained).toBe(true);
-      expect(p.trainingCalling).toBe(-1);
+      expect(p).toMatchObject({ calling, trained: true, trainingCalling: -1 });
+      expect(town.trainingReason(p.id, 2, calling)).toBe('Current calling');
+      expect(town.orderTrainAtGuild(p.id, 2, Calling.Settler)).toBe(true);
+      advance(town, 25);
+      expect(p.calling).toBe(Calling.Settler);
       expect([p.id, p.name, p.look, p.home, p.village, p.level, p.experience]).toEqual(identity);
-      expect(town.stock(0).gold).toBe(gold - 12);
-      expect(town.stock(0).food).toBe(food - 4);
       expect(town.building(2)!.trainingCount).toBe(1);
-      expect(town.orderTrainAtGuild(p.id, 2, Calling.Mage)).toBe(false);
-      expect(town.completeGuildTraining(p)).toBe(false);
+      expect(equippedItem(p, 'weapon')?.id).toBe('wooden-sword');
+      expect(town.stock(0)).toMatchObject({ gold: 0, food: 0 });
     },
   );
-  it('rechecks material availability on completion without overdrawing or changing profession', () => {
-    const town = fixture(),
-      p = town.people()[0];
-    expect(town.orderTrainAtGuild(p.id, 2, Calling.Warrior)).toBe(true);
-    town.stock(0).gold = 0;
-    advance(town, 25);
-    expect(p.calling).toBe(Calling.Settler);
-    expect(p.trained).toBe(false);
-    expect(town.stock(0).gold).toBe(0);
-    expect(town.building(2)!.trainingCount).toBe(0);
-    expect(p.task).toBe(Activity.Idle);
-  });
-  it('rejects visitors and preserves an in-transit oath choice and paid result through saves', () => {
-    const town = fixture(),
-      p = town.people()[0];
+  it('rejects visitors and preserves both a pending calling and a later career change through saves', () => {
+    const { town, p } = trainedVillage();
     town.welcome(Calling.Traveller, null, 0);
     expect(town.orderTrainAtGuild(town.people().at(-1)!.id, 2, Calling.Mage)).toBe(false);
     expect(town.orderTrainAtGuild(p.id, 2, Calling.Ranger)).toBe(true);
-    const loaded = decodeTown(encodeTown(town), (map) => new Town(map, 32, false));
+    const resume = (t: Town) => decodeTown(encodeTown(t), map => new Town(map, 32, false));
+    const loaded = resume(town);
     expect(loaded.person(p.id)!.trainingCalling).toBe(Calling.Ranger);
     advance(loaded, 25);
-    const reloaded = decodeTown(encodeTown(loaded), (map) => new Town(map, 32, false));
-    expect(reloaded.person(p.id)!.trained).toBe(true);
-    expect(reloaded.person(p.id)!.calling).toBe(Calling.Ranger);
-    expect(reloaded.trainingReason(p.id, 2, Calling.Mage)).toContain('already chosen');
+    const reloaded = resume(loaded);
+    expect(reloaded.person(p.id)).toMatchObject({ trained: true, calling: Calling.Ranger });
+    expect(reloaded.orderTrainAtGuild(p.id, 2, Calling.Mage)).toBe(true);
+    advance(reloaded, 25);
+    expect(reloaded.person(p.id)!.calling).toBe(Calling.Mage);
+    expect(reloaded.building(2)!.trainingCount).toBe(1);
   });
 });

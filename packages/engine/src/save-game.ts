@@ -1,5 +1,11 @@
 // Translated from src/game/save_game.cpp. Browser storage is owned by the host.
-import { MonsterRank, type Fallen } from './combat-events';
+import { CombatCue, MonsterRank, type Fallen } from './combat-events';
+import { FirstSlam } from './expedition-record';
+import { realmPlan } from './town-realm';
+import { markPassage } from './realm-passage';
+import { coverDeposits } from './mining';
+import { preparePassage } from './realm-layout';
+import { rankRules } from './monster-ranks';
 import {
   SaveArchive,
   sealSave,
@@ -22,6 +28,8 @@ import {
   type Codec,
 } from './save-archive';
 import { TownState } from './town-state';
+import { nestCapacity } from './ranch-cycle';
+import { isRanchHarvest } from './livestock';
 import { WorldMap } from './world-map';
 import {
   Layer,
@@ -36,7 +44,7 @@ import {
 import { Building, Field } from './town-models';
 import { Road, RoadNetwork, type RoadAnchor } from './road-network';
 import { Climate, Sky } from './climate';
-import { Resources, Product, Structure, isSeat, structureSpec, type Stage } from './building-catalog';
+import { Resources, Product, Structure, craftMaterialKeys, isSeat, structureSpec, type Stage } from './building-catalog';
 import { ConstructionMaterials } from './construction-materials';
 import {
   Person,
@@ -56,8 +64,9 @@ import { point } from './geometry';
 import { defaultAppearance } from './person-look';
 import { NeutralSettlement } from './neutral-state';
 import { backpackSize, equipmentSlots, itemSpec, validInventory, type ItemStack } from './equipment';
-import { craftOrder, orderSeconds } from './craft-orders';
+import { craftOrder, orderItem, orderSeconds } from './craft-orders';
 import { levelVariant } from './craft-stations';
+import { maxOfferingBonus } from './prayer-offering';
 export interface SaveTown extends TownState {
   camp(id?: number): Building | null;
   settlement(id: number): CampEconomy;
@@ -68,17 +77,20 @@ export const maxSaveBytes = 96 * 1024 * 1024;
 const pointCodec = raw('Point', () => point()),
   coordCodec = raw('TileCoord', () => ({ x: 0, y: 0 }));
 const legacyResourcesCodec = raw('Resources', () => new Resources());
+const materialFields = Object.fromEntries(craftMaterialKeys.map((key) => [key, i32]));
 const resourcesCodec: Codec<Resources> = {
   read(a) {
     const value = legacyResourcesCodec.read(a);
     if (a.formatVersion >= 9) a.fields(value, { planks: i32, cutStone: i32 });
     if (a.formatVersion >= 12) a.fields(value, { bones: i32 });
+    if (a.formatVersion >= 21) a.fields(value, materialFields);
     return value;
   },
   write(a, value) {
     legacyResourcesCodec.write(a, value);
     if (a.formatVersion >= 9) a.fields(value as Resources, { planks: i32, cutStone: i32 });
     if (a.formatVersion >= 12) a.fields(value as Resources, { bones: i32 });
+    if (a.formatVersion >= 21) a.fields(value as Resources, materialFields);
   },
 };
 const ledgerCodec = raw('CampEconomy::Ledger', () => new Ledger());
@@ -296,6 +308,14 @@ const monsterCodec: Codec<Monster> = {
     monsterFields(a, value);
   },
 };
+function livestockFields(a: SaveArchive, animal: Monster): void {
+  if (a.formatVersion >= 23) a.fields(animal, { pen: i32 });
+  if (a.formatVersion >= 24 && animal.pen >= 0 && (animal.animal === AnimalKind.Cow || animal.animal === AnimalKind.Pig)) {
+    a.fields(animal, { ranchBornAt: f64 });
+    if (!Number.isFinite(animal.ranchBornAt) || (animal.ranchBornAt < 0 && animal.ranchBornAt !== -1))
+      throw new Error('Invalid livestock birth time');
+  }
+}
 const wildlifeCodec: Codec<Monster[]> = {
   read(a) {
     const count = u32.read(a);
@@ -303,6 +323,7 @@ const wildlifeCodec: Codec<Monster[]> = {
     return Array.from({ length: count }, () => {
       const animal = monsterCodec.read(a);
       if (!a.legacyV6MonsterTags) a.fields(animal, { animal: optional(u8) });
+      livestockFields(a, animal);
       if (animal.animal === null || animal.animal >= AnimalKind.Count) throw new Error('Invalid animal kind');
       return animal;
     });
@@ -315,11 +336,14 @@ const wildlifeCodec: Codec<Monster[]> = {
       if (!(animal instanceof Monster)) throw new Error('Invalid wildlife');
       monsterCodec.write(a, animal);
       a.fields(animal, { animal: optional(u8) });
+      livestockFields(a, animal);
       if (animal.animal === null || animal.animal >= AnimalKind.Count) throw new Error('Invalid animal kind');
     }
   },
 };
 const inventoryItemCodec = record<ItemStack>(() => ({ item: '', quantity: 0 }), { item: string, quantity: i32 });
+// Preserve the original two floats when an old save is opened and immediately written back.
+const archivedRest = new WeakMap<Person, { rest: number; strain: number; combined: number }>();
 function personFields(a: SaveArchive, v: Person): void {
   a.fields(v, {
     id: i32,
@@ -338,8 +362,15 @@ function personFields(a: SaveArchive, v: Person): void {
     task: u8,
     taskSite: i32,
     food: f32,
-    rest: f32,
-    stress: f32,
+  });
+  // Old saves tracked rest and strain separately. Carry forward the more pressing need.
+  const old = archivedRest.get(v), unchanged = old?.combined === v.rest;
+  const rest = a.value(f32, unchanged ? old.rest : v.rest), strain = a.value(f32, unchanged ? old.strain : v.stress);
+  if (a.reading) {
+    v.rest = Math.fround(Math.min(rest, 1 - strain));
+    archivedRest.set(v, { rest, strain, combined: v.rest });
+  }
+  a.fields(v, {
     health: f32,
     home: i32,
     job: i32,
@@ -372,6 +403,12 @@ function personFields(a: SaveArchive, v: Person): void {
     faith: u8,
     past: string,
   });
+  if (a.formatVersion >= 23) {
+    a.fields(v, { herdAnimal: i32, refining: u8, refineProgress: f64 });
+    if (![Product.None, Product.IronIngot, Product.BoundFrostwood, Product.Embersteel].includes(v.refining) ||
+        !Number.isFinite(v.refineProgress) || v.refineProgress < 0 || v.refineProgress > 10)
+      throw new Error('Invalid foundry progress');
+  }
   if (a.formatVersion >= 3) a.fields(v, { level: i32, experience: i32 });
   // Original v8 values 0/1 remain unchanged; bit 2 adds health recovery.
   // Earlier v8 readers reject health bits rather than silently losing that state.
@@ -447,6 +484,12 @@ function personFields(a: SaveArchive, v: Person): void {
       (!Number.isFinite(v.abilityReadyAt2) || !Number.isFinite(v.abilityUntil2) || v.abilityAuto2 < -1 || v.abilityAuto2 > 1)
     )
       throw new Error('Invalid second skill');
+  }
+  if (a.formatVersion >= 20) {
+    a.fields(v, { birthStrength: u8, birthVitality: u8 });
+    if (![v.birthStrength, v.birthVitality].every((points) => Number.isInteger(points) && points >= 0) ||
+        v.birthStrength + v.birthVitality > 1 + maxOfferingBonus)
+      throw new Error('Invalid resident aptitudes');
   }
   if (
     a.reading &&
@@ -612,6 +655,14 @@ function townFields(a: SaveArchive, v: SaveTown): void {
           building.productionProgress > 30
         )
           throw new Error('Invalid production progress');
+        if (building.kind === Structure.Ranch) {
+          if (a.formatVersion >= 24) {
+            a.fields(building, { eggs: u8, pigBreeding: f64, cowBreeding: f64 });
+            if (building.eggs > nestCapacity || building.productionProgress >= 1 ||
+                ![building.pigBreeding, building.cowBreeding].every(t => Number.isFinite(t) && t >= 0 && t <= TownState.secondsPerDay))
+              throw new Error('Invalid ranch production');
+          } else if (a.reading) building.productionProgress = 0;
+        }
         if (
           !Number.isFinite(building.repairCredit) ||
           building.repairCredit < 0 ||
@@ -691,6 +742,30 @@ function townFields(a: SaveArchive, v: SaveTown): void {
           (v.thor.present && (v.thor.arrivedDay < 0 || !v.world.inside(Math.floor(v.thor.position.x), Math.floor(v.thor.position.y)))))
       )
         throw new Error('Invalid visit');
+    }
+    if (a.formatVersion >= 22) {
+      const first = v.firstExpedition;
+      a.fields(first, { departureSeconds: f64, withdrew: boolean, slam: u8 });
+      if (a.reading && (!Number.isFinite(first.departureSeconds) || first.departureSeconds < -1 || first.slam > FirstSlam.Unfinished))
+        throw new Error('Invalid first expedition');
+      const hasPassage = a.value(boolean, !!v.world.passageCells);
+      if (a.reading && hasPassage) {
+        const plan = realmPlan.call(v);
+        if (!plan) throw new Error('Missing passage floor');
+        preparePassage(plan, v.world.destination(v.world.sites[v.realmGate]));
+        if (!plan.passage) throw new Error('Invalid passage world');
+        markPassage(v.world, plan);
+      }
+      const guardian = v.beasts.find((m) => m.id === v.realmGuardian && m.health > 0);
+      if (guardian && guardian.windupUntil >= 0) {
+        const center = a.value(pointCodec, v.combatState.slamCenter.get(guardian.id) ?? guardian.position);
+        if (a.reading) {
+          v.combatState.slamCenter.set(guardian.id, center);
+          const duration = first.slam === FirstSlam.Winding ? rankRules.firstSlamWindup : rankRules.slamWindup;
+          v.emit(CombatCue.Telegraph, center, { creature: guardian.id, radius: rankRules.slamRadius, duration });
+          v.events[v.events.length - 1].at = guardian.windupUntil - duration;
+        }
+      }
     }
     const extent = a.cursor - start,
       stored = a.value(u32, extent);
@@ -810,12 +885,44 @@ function townFields(a: SaveArchive, v: SaveTown): void {
       )
         throw new Error('Invalid wildlife habitat');
     if (a.formatVersion < 19) settleOldStations(v);
+    releaseFormerWorkers(v);
+    for (const b of v.placed) coverDeposits(v.world, b.footprint());
     const obstacles = v.placed.filter((b) => b.kind !== Structure.Torch).map((b) => b.footprint());
     v.grid.rebuild(v.world, v.network, obstacles);
     v.walkRevision = v.changes = 1n;
     v.roadChanges = 1n;
     v.roadOnlyChanges = 0n;
     v.recount();
+  }
+}
+/** Earlier watchtowers and training yards had posts that could still be assigned in a saved game. */
+function releaseFormerWorkers(town: SaveTown): void {
+  const former = new Set<number>();
+  for (const b of town.placed) {
+    if (b.kind !== Structure.Watchtower && b.kind !== Structure.TrainingYard) continue;
+    former.add(b.id);
+    if (b.wanted > 0) b.wanted = 0;
+  }
+  for (const p of town.folk) {
+    const hadJob = former.has(p.job), hadOrder = p.task === Activity.Working && former.has(p.taskSite);
+    // A freshly issued work order can be walking before it has a doorway target.
+    const destination = hadOrder && p.target < 0 ? p.taskSite : p.target;
+    if (hadJob) p.job = -1;
+    if (hadOrder) {
+      p.task = Activity.Idle;
+      p.taskSite = -1;
+      p.autoMode = true;
+      p.approachingOrder = p.ordered = false;
+    }
+    if (former.has(destination) && (p.activity === Activity.Working || ((hadJob || hadOrder) && p.activity === Activity.Moving))) {
+      if (p.inside || p.crossingDoorway()) p.position = town.building(destination)!.door();
+      p.inside = false;
+      p.doorway = 0;
+      p.path = [];
+      p.activity = Activity.Idle;
+      p.target = -1;
+      p.until = town.time;
+    }
   }
 }
 /** Before station levels: a workbench is level 1; a weaponsmith or an armorer becomes a smithy of level 2, or 3 once a
@@ -911,7 +1018,31 @@ export function encodeTownPayload(town: SaveTown): Uint8Array {
     town.folk.some((p) => craftOrder(p.craftItem)?.kind === 'upgrade' || craftOrder(p.craftItem)?.kind === 'station');
   // Version 17 carries which first-time explanations the player has been given.
   // Version 18 carries Thor's visits, once the settlement has called him.
-  a.formatVersion = stations
+  // Ore veins and frostwood stands are derived from the terrain. Only possessions, recipes and the foundry need v21.
+  const regional = (r: Resources) => craftMaterialKeys.some((key) => r[key] !== 0);
+  const newItem = (id: string) => {
+    const item = itemSpec(id);
+    return !!item && (item.product > Product.Bones || item.tier >= 4 || id === 'snow-boots');
+  };
+  const foundry = [town.provisions, ...town.villages, ...town.neutralSettlements].some((v) => regional(v.stock)) ||
+    regional(town.realmLoot) || town.placed.some((b) => b.kind === Structure.Foundry) ||
+    [...town.placed, ...town.network.list].some((site) => regional(site.materials.required) || regional(site.materials.delivered)) ||
+    town.folk.some((p) => {
+      const making = orderItem(p.craftItem);
+      return (p.carrying > 0 && p.carriedProduct > Product.Bones) || p.inventory.some((s) => s && newItem(s.item)) ||
+        (making && (newItem(making.id) || making.id === 'boots'));
+    });
+  const expedition = town.firstExpedition.departureSeconds >= 0 || town.firstExpedition.withdrew ||
+    town.firstExpedition.slam !== FirstSlam.Unseen || !!town.world.passageCells ||
+    town.folk.some((p) => p.inventory.some((s) => s?.item === 'embersteel-boots') || orderItem(p.craftItem)?.lavaProof);
+  const livestockOrRefining = town.placed.some(b => b.kind === Structure.Ranch) || town.animals.some(a => a.pen >= 0) ||
+    town.folk.some(p => p.task === Activity.Herding || p.refining !== Product.None);
+  const ranchCycle = town.placed.some(b => b.kind === Structure.Ranch &&
+    (b.productionProgress > 0 || b.eggs > 0 || b.pigBreeding > 0 || b.cowBreeding > 0)) ||
+    town.animals.some(a => a.ranchBornAt >= 0) || town.folk.some(p => isRanchHarvest(p.task));
+  a.formatVersion = ranchCycle ? 24 : livestockOrRefining ? 23 : expedition ? 22 : foundry ? 21 : town.folk.some((p) => p.birthStrength !== 0 || p.birthVitality !== 0)
+    ? 20
+    : stations
     ? 19
     : town.thor.present || town.thor.visits > 0 || town.thor.nextVisit >= 0
     ? 18
@@ -975,10 +1106,10 @@ export function decodeTown<T extends SaveTown>(encoded: string, create: (map: Wo
     endian = u32.read(a),
     appearanceSize = u32.read(a);
   let climateSize = 0;
-  if (version >= 2 && version <= 19) climateSize = u32.read(a);
+  if (version >= 2 && version <= 24) climateSize = u32.read(a);
   if (
     version < 2 ||
-    version > 19 ||
+    version > 24 ||
     endian !== 0x01020304 ||
     appearanceSize !== nativeAppearanceSize ||
     climateSize !== nativeClimateSize

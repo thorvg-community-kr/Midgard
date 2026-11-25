@@ -1,13 +1,15 @@
 import { point, type Point } from '../../engine/src/geometry';
-import { SceneNode, type Matrix } from './paint';
+import { identity, SceneNode, type Matrix } from './paint';
 import { poly, oval, stroke } from './sprite-primitives';
-import { poseArm, reachArm } from './person-arm';
-import { animateGather, animateWork, poseFromClip, stand, swing, type ActionPose } from './action-motion';
+import { handOf, poseArm, reachArm } from './person-arm';
+import { animateGather, animateWork, poseFromClip, stand, swing, toolRestAngle, type ActionPose } from './action-motion';
 import { Structure } from '../../engine/src/building-catalog';
 import { hammerTiming } from '../../engine/src/work-timing';
 import { humanoidClips } from './humanoid-rig';
 import type { HeldTool } from './person-equipment';
 import type { PersonParts } from './world-sprites';
+import { animateReap, animateSpade, liftFromGround, scatterSoil } from './site-work-motion';
+import { workHand, workPiece } from './work-pieces';
 
 export function createWorkProps(root: SceneNode, parts: PersonParts): void {
   const drops = new SceneNode(),
@@ -17,8 +19,11 @@ export function createWorkProps(root: SceneNode, parts: PersonParts): void {
   for (let i = 0; i < 7; i++) drops.add(oval([0, 0], 0.35, 0.65, [157, 204, 211, 220]));
   for (let i = 0; i < 4; i++) dust.add(oval([0, 0], 0.65, 0.4, [157, 128, 81, 145]));
   log.add(stroke([7, -3], [7, 0], 1.2, [74, 53, 34])).add(stroke([18, -3], [18, 0], 1.2, [74, 53, 34]));
-  log.add(stroke([5, -4], [19, -4], 3.5, [112, 76, 43])).add(oval([19, -4], 1.4, 1.7, [179, 135, 78]));
-  log.add(stroke([6, -5], [17, -5], 0.5, [168, 117, 65]));
+  const billet = new SceneNode();
+  billet.add(stroke([5, -4], [19, -4], 3.5, [112, 76, 43])).add(oval([19, -4], 1.4, 1.7, [179, 135, 78]));
+  billet.add(stroke([6, -5], [17, -5], 0.5, [168, 117, 65]));
+  log.add(billet);
+  parts.billet = billet;
   stone.add(
     poly(
       [
@@ -47,22 +52,106 @@ export function createWorkProps(root: SceneNode, parts: PersonParts): void {
   parts.soilDust = dust;
   parts.sawLog = log;
   parts.workStone = stone;
+  // These sit just behind the fingers. Their grip follows the wrist without inheriting arm foreshortening.
+  const bread = new SceneNode();
+  bread.add(
+    poly(
+      [
+        [-2.5, -0.8],
+        [-1.8, -2],
+        [0, -2.1],
+        [1, -1],
+        [0.4, 0.8],
+        [-1.7, 0.6],
+      ],
+      [182, 119, 61],
+    ),
+  );
+  bread.add(
+    poly(
+      [
+        [-2.5, -0.8],
+        [-1.8, -2],
+        [-0.3, -2.1],
+        [-0.7, -0.6],
+        [-1.8, -0.2],
+      ],
+      [234, 191, 122],
+    ),
+  );
+  const cup = new SceneNode();
+  cup.add(
+    poly(
+      [
+        [-1.6, -2.2],
+        [1.8, -2.2],
+        [1.3, 1.1],
+        [-1.1, 1.1],
+      ],
+      [156, 105, 67],
+    ),
+  );
+  cup.add(
+    poly(
+      [
+        [0.6, -2.2],
+        [1.8, -2.2],
+        [1.3, 1.1],
+        [0.3, 1.1],
+      ],
+      [101, 68, 51],
+    ),
+  );
+  cup.add(oval([0.1, -2.2], 1.7, 0.5, [219, 180, 125]));
+  cup.add(oval([0.1, -2.25], 1.2, 0.27, [99, 148, 156]));
+  parts.bread = bread;
+  parts.cup = cup;
+  parts.body!.add(bread.opacity(0)).add(cup.opacity(0));
   for (const paint of [drops, dust, log, stone]) {
     paint.opacity(0);
     root.add(paint);
   }
 }
 export function clearWorkProps(parts: PersonParts): void {
-  for (const paint of [parts.waterDrops, parts.soilDust, parts.sawLog, parts.workStone, parts.chisel])
-    paint?.opacity(0);
+  if (parts.activePiece) {
+    parts.activePiece.opacity(0);
+    parts.activePiece = null;
+  }
+  if (parts.workGrip) {
+    parts.workGrip.transform(identity);
+    parts.workGrip = null;
+  }
+  for (const paint of [
+    parts.waterDrops,
+    parts.soilDust,
+    parts.sawLog,
+    parts.workStone,
+    parts.chisel,
+    parts.bread,
+    parts.cup,
+  ])
+    if (paint?.alpha) paint.opacity(0);
 }
 const transform = (m: Matrix, p: Point): Point =>
   point(m[0] * p.x + m[1] * p.y + m[2], m[3] * p.x + m[4] * p.y + m[5]);
 const handPoint = (parts: PersonParts, p: Point): Point =>
   transform(
     parts.body!.matrix,
-    transform(parts.arms[1].forearm!.matrix, transform(parts.arms[1].hand!.matrix, p)),
+    transform(
+      parts.arms[1].forearm!.matrix,
+      transform(parts.arms[1].hand!.matrix, parts.workGrip ? transform(parts.workGrip.matrix, p) : p),
+    ),
   );
+
+function pourWater(parts: PersonParts, from: Point, seconds: number, amount: number): void {
+  if (amount <= 0) return;
+  parts.waterDrops?.opacity(Math.round(255 * amount));
+  parts.waterDrops?.children.forEach((drop, i) => {
+    const t = (seconds * 1.6 + i / 7) % 1;
+    drop.translate(from.x + t * 3 * amount, from.y + (1 - from.y) * t * t);
+    drop.opacity(Math.round(220 * Math.sin(t * Math.PI)));
+  });
+}
 
 // Breaking soil: the hoe lifted beside the head, driven into the row, then drawn back through it.
 const till: readonly TillKey[] = [
@@ -98,75 +187,111 @@ export function animateFieldWork(
   parts: PersonParts,
   watering: boolean,
   seconds: number,
-  tool: HeldTool = 'hoe',
+  tool: HeldTool | null = 'hoe',
 ): void {
   const phase = (seconds % 1.25) / 1.25;
   if (watering) {
+    if (!tool) {
+      // Cup water in the hands and let a little run between the fingers over the row.
+      const pour = 0.5 - 0.5 * Math.cos(phase * Math.PI * 2);
+      poseArm(parts.arms[1], -0.68 - 0.3 * pour, -1.18 + 0.82 * pour, 0.24 * pour);
+      if (parts.arms[0].free) poseArm(parts.arms[0], -1.03, -0.83 + 0.45 * pour);
+      stand(
+        parts,
+        { lean: 0.075 * pour, crouch: 0.04 + 0.06 * pour, forward: 0.42 * pour, lift: 0, nod: 0.13 * pour },
+        0.35,
+      );
+      pourWater(
+        parts,
+        transform(parts.body!.matrix, handOf(parts.arms[1])),
+        seconds,
+        Math.max(0, (pour - 0.5) * 1.5),
+      );
+      return;
+    }
     // The can is carried along the row at a steady tilt, the gardener watching it fall.
     const sway = Math.sin(seconds * 1.5),
       upper = -0.95 + 0.06 * sway,
       elbow = -0.25,
       tilt = 0.45 + Math.sin(seconds * 1.7) * 0.07;
-    poseArm(parts.arms[1], upper, elbow, tilt - upper - elbow);
-    poseArm(parts.arms[0], -0.3, -0.5, 0.1);
+    const pose = {
+      upper,
+      elbow,
+      direction: toolRestAngle + tilt,
+      lean: 0.06,
+      forward: 0.35 + 0.3 * sway,
+      crouch: 0.03,
+      nod: 0.13,
+      lift: 0,
+    };
+    swing(parts, 'wateringCan', pose, null, 1.55);
+    stand(parts, pose, 0.55);
+    const wrist = parts.arms[1].wrist,
+      spout = handPoint(parts, point(wrist.x + 9, wrist.y - 1.5));
+    pourWater(parts, spout, seconds, 1);
+    return;
+  }
+  if (!tool) return liftFromGround(parts, phase, true);
+  if (tool === 'shovel') return animateSpade(parts, phase);
+  if (tool === 'sickle') return animateReap(parts, phase);
+  const pose = tillPose(phase);
+  swing(parts, tool, pose, null, 2);
+  stand(parts, pose, 0.55);
+  scatterSoil(parts, phase, 12, 0.2);
+}
+
+export function animateProcessingWork(
+  parts: PersonParts,
+  sawing: boolean,
+  seconds: number,
+  tooled = true,
+): void {
+  const beat = Math.sin(seconds * 6),
+    shoulder = parts.arms[1].shoulder.y;
+  if (!tooled) {
+    // Roll the timber along the trestle or turn a block on its bed, keeping the other hand against it.
+    const rock = Math.sin(seconds * (sawing ? 2.8 : 4));
+    poseArm(parts.arms[1], -0.93 + (sawing ? 0.4 : 0.16) * rock, -0.42 - 0.25 * rock);
+    if (parts.arms[0].free) poseArm(parts.arms[0], -1.18 - 0.22 * rock, -0.32 + 0.15 * rock);
     stand(
       parts,
       {
-        upper,
-        elbow,
-        direction: tilt,
-        lean: 0.06,
-        forward: 0.35 + 0.3 * sway,
-        crouch: 0.03,
-        nod: 0.13,
+        lean: 0.1 + 0.035 * rock,
+        forward: 0.38 + 0.32 * rock,
+        crouch: sawing ? 0.1 : 0.2,
         lift: 0,
+        nod: 0.16 + 0.025 * rock,
       },
-      0.55,
+      0.5,
     );
-    const wrist = parts.arms[1].wrist,
-      spout = handPoint(parts, point(wrist.x + 9, wrist.y - 1.5));
-    parts.waterDrops?.opacity(255);
-    parts.waterDrops?.children.forEach((drop, i) => {
-      const t = (seconds * 1.6 + i / 7) % 1;
-      drop.translate(spout.x + t * 3, spout.y + (1 - spout.y) * t * t);
-      drop.opacity(Math.round(220 * Math.sin(t * Math.PI)));
-    });
+    if (sawing) {
+      parts.billet?.translate(-1.1 + rock * 0.85, 0);
+      parts.sawLog?.opacity(255);
+    } else {
+      const angle = 0.1 * rock,
+        c = Math.cos(angle),
+        s = Math.sin(angle);
+      parts.workStone?.transform([c, -s, 8 * (1 - c) - 1, s, c, -8 * s, 0, 0, 1]).opacity(255);
+    }
     return;
   }
-  const pose = tillPose(phase);
-  swing(parts, tool, pose, null);
-  stand(parts, pose, 0.55);
-  parts.soilDust?.opacity(phase > 0.48 && phase < 0.83 ? 255 : 0);
-  parts.soilDust?.children.forEach((dust, i) => {
-    const t = Math.max(0, (phase - 0.48) / 0.35);
-    dust.translate(12 + i * 1.2 - t * 3, 0.2 - Math.sin(t * Math.PI) * (1 + i * 0.4));
-    dust.opacity(Math.round((1 - t) * 180));
-  });
-}
-
-export function animateProcessingWork(parts: PersonParts, sawing: boolean, seconds: number): void {
-  const beat = Math.sin(seconds * 6),
-    shoulder = parts.arms[1].shoulder.y;
   if (sawing) {
     // Long strokes from the shoulder, the body rocking with them, the other hand on the log.
     const upper = -1.1 + beat * 0.26,
       elbow = -0.35 - beat * 0.28;
-    poseArm(parts.arms[1], upper, elbow, -0.12 + 0.14 - upper - elbow);
-    reachArm(parts.arms[0], point(6.2, shoulder + 4.2), 1, 0, 0);
-    stand(
-      parts,
-      {
-        upper,
-        elbow,
-        direction: -0.12,
-        lean: 0.07 + beat * 0.025,
-        forward: 0.45 + beat * 0.4,
-        crouch: 0.04,
-        nod: 0.12,
-        lift: 0,
-      },
-      0.55,
-    );
+    const pose = {
+      upper,
+      elbow,
+      direction: toolRestAngle + 0.02,
+      lean: 0.07 + beat * 0.025,
+      forward: 0.45 + beat * 0.4,
+      crouch: 0.04,
+      nod: 0.12,
+      lift: 0,
+    };
+    swing(parts, 'saw', pose, point(6.2, shoulder + 4.2), 1.4);
+    stand(parts, pose, 0.55);
+    parts.billet?.translate(0, 0);
     parts.sawLog?.opacity(255);
     return;
   }
@@ -175,30 +300,28 @@ export function animateProcessingWork(parts: PersonParts, sawing: boolean, secon
     upper = -1.1 - 0.5 * raise,
     elbow = -0.2 - 0.3 * raise,
     direction = 0.42 - 0.95 * raise;
-  poseArm(parts.arms[1], upper, elbow, direction - Math.atan2(-7.8, 5.3) - upper - elbow);
-  poseArm(parts.arms[0], -1.3, 0, 1.3);
-  stand(
-    parts,
-    {
-      upper,
-      elbow,
-      direction,
-      lean: 0.07,
-      forward: 0.4 + (1 - raise) * 0.2,
-      crouch: 0.045 + (1 - raise) * 0.015,
-      nod: 0.1 + (1 - raise) * 0.05,
-      lift: 0,
-    },
-    0.5,
-  );
-  parts.workStone?.opacity(255);
-  parts.chisel?.opacity(255);
+  const pose = {
+    upper,
+    elbow,
+    direction,
+    lean: 0.07,
+    forward: 0.4 + (1 - raise) * 0.2,
+    crouch: 0.045 + (1 - raise) * 0.015,
+    nod: 0.1 + (1 - raise) * 0.05,
+    lift: 0,
+  };
+  swing(parts, 'hammer', pose, null, 2.45);
+  if (parts.arms[0].free) {
+    poseArm(parts.arms[0], -1.3, 0, 0.2);
+    parts.chisel?.opacity(255);
+  }
+  stand(parts, pose, 0.5);
+  parts.workStone?.transform(identity).opacity(255);
 }
 
 /**
- * Making an item at a craft station. With `pounding` the crafter's own hammer beats the piece into
- * shape; otherwise a blade, or the bare hand, is drawn along it. `lift` (0..1) takes the finished
- * piece up from the bench and holds it to the light.
+ * The smith fits the piece, beats it into shape with a carried hammer, and raises the finished weapon
+ * to the light as its order ends.
  */
 export function animateCraft(
   parts: PersonParts,
@@ -212,8 +335,43 @@ export function animateCraft(
   else poseFromClip(parts, humanoidClips.whittle, seconds * 30, tool);
 }
 
+/** Pump the furnace bellows, or hold a length of frostwood steady and cinch its binding. */
+export function animateFoundry(parts: PersonParts, binding: boolean, seconds: number): void {
+  const pull = 0.5 - 0.5 * Math.cos(seconds * (binding ? 4.2 : 2.8));
+  const [left, right] = parts.arms;
+  if (binding) {
+    poseArm(right, -1.12 + 0.63 * pull, -0.43 - 0.92 * pull, -0.12 * pull);
+    if (left.free) poseArm(left, -1.14, -0.52);
+  } else {
+    poseArm(right, -1.25 + 0.75 * pull, -0.9 + 0.58 * pull, 0.12 * pull);
+    if (left.free) poseArm(left, -1.35 + 0.65 * pull, -0.68 + 0.41 * pull);
+  }
+  stand(
+    parts,
+    {
+      lean: 0.04 + 0.06 * pull,
+      crouch: 0.03 + (binding ? 0.02 : 0.08) * pull,
+      forward: 0.28 * pull,
+      lift: 0,
+      nod: 0.11 + 0.04 * pull,
+    },
+    0.45,
+  );
+  const hand = workHand(parts);
+  if (binding)
+    workPiece(parts, 'frostwood')
+      .translate(hand.x - 1.2, hand.y + 0.65)
+      .opacity(255);
+  else {
+    const nozzle = point(12.5, -2.8);
+    workPiece(parts, 'bellows')
+      .transform([(nozzle.x - hand.x) / 7.4, 0, nozzle.x, 0, (nozzle.y - hand.y) / 4, nozzle.y, 0, 0, 1])
+      .opacity(255);
+  }
+}
+
 /** What a worker's hands do while standing at a workplace that has no tool of its own. */
-export type Trade = 'haul' | 'stack' | 'counter' | 'channel' | 'watch';
+export type Trade = 'haul' | 'stack' | 'counter' | 'channel' | 'watch' | 'bless';
 export function tradeOf(kind: Structure): Trade | null {
   switch (kind) {
     case Structure.Well:
@@ -227,6 +385,7 @@ export function tradeOf(kind: Structure): Trade | null {
     case Structure.Quarry:
       return 'stack';
     case Structure.Apothecary:
+    case Structure.Farm:
     case Structure.Tavern:
     case Structure.Hostel:
     case Structure.Inn:
@@ -240,6 +399,8 @@ export function tradeOf(kind: Structure): Trade | null {
       return 'channel';
     case Structure.Watchtower:
       return 'watch';
+    case Structure.Chapel:
+      return 'bless';
     default:
       return null;
   }
@@ -288,6 +449,12 @@ export function animateTrade(parts: PersonParts, trade: Trade, seconds: number):
     reachArm(right, point(2.5 + 0.45 * Math.cos(turn), shoulder + 2.7 + 0.3 * Math.sin(turn)), 1, 0, 0);
     if (left.free) reachArm(left, point(1.5, shoulder + 3.5), 1, 0, 0);
     stand(parts, { ...still, crouch: 0.01, lean: 0.02, nod: 0.13 + 0.015 * Math.sin(turn * 0.5) }, 0.2);
+  } else if (trade === 'bless') {
+    // Gather the hands over the breast, then open one palm in a blessing.
+    const open = 0.5 - 0.5 * Math.cos(seconds * 1.8);
+    poseArm(right, -0.2 - 1.05 * open, -1.65 + 0.95 * open, -0.1 * open);
+    if (left.free) reachArm(left, point(-0.65, shoulder + 2.7), 0.86, 0, 0);
+    stand(parts, { ...still, lean: 0.035 * (1 - open), nod: 0.03 + 0.17 * (1 - open) }, 0.25);
   } else if (trade === 'watch') {
     // A lookout shades the eyes and sweeps the horizon, slowly.
     const sweep = Math.sin(seconds * 0.7);

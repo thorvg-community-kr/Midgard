@@ -74,9 +74,8 @@ try {
         this.now += dt;
         const preview = new Preview();
         preview.zoom = camera.zoom;
+        renderer.mistLifted = true;
         renderer.update(town, traffic, camera, 1280, 800, this.now, preview, []);
-        renderer.fog.opacity(0);
-        renderer.adapter.sync(renderer.root);
         canvas.update().render();
       },
       set(x, y, zoom, weather, intensity) {

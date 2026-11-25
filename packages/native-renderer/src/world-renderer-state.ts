@@ -6,17 +6,7 @@ import { Weather } from '../../engine/src/climate';
 import type { Strike } from '../../engine/src/thunderstorm';
 import type { Hit } from '../../engine/src/person';
 import { Rect } from '../../native-ui/src/types';
-import {
-  PaintNode,
-  ShapeNode,
-  SceneNode,
-  TextNode,
-  PictureNode,
-  AnimationNode,
-  identity,
-  type Matrix,
-  type Rgb,
-} from './paint';
+import { PaintNode, ShapeNode, SceneNode, TextNode, AnimationNode, identity, type Matrix, type Rgb, PictureNode } from './paint';
 import { SUN_PASSES, blendLayer } from './vector-paint';
 import { WebCanvasAdapter } from './webcanvas-adapter';
 import { Flicker } from './light-flicker';
@@ -27,9 +17,11 @@ import type { TileRegion } from './render-types';
 import type { YmirLight } from './ymir-statue';
 import type { VolcanoLight } from './volcano-painter';
 import type { CloudMottle } from './cloud-mottle';
+import type { MistField } from './mist-bands';
 export const isoLayer = (): SceneNode => new SceneNode().transform(isoMatrix() as unknown as Matrix);
 export interface Visual {
   picture: AnimationNode;
+  nestEggs?: ShapeNode[];
   layout: RiseAnimation;
   version: number;
   appearances: bigint[];
@@ -50,6 +42,8 @@ export interface Figure extends Sprite {
   stride: number;
   facing: number;
   striding: boolean;
+  /** Visible feet and progress of a newly arriving resident while their work continues in simulation. */
+  arrival?: { foot: Point; rising: boolean };
   /** When the figure was last drawn, and the flinch spring a blow sets off. */
   shown?: number;
   squish?: number;
@@ -57,6 +51,8 @@ export interface Figure extends Sprite {
   shownHealth?: number;
   /** 0 standing, 1 flat on the ground: eased toward whichever the resident is. */
   lying?: number;
+  /** Laying a road at its front: the small steps that keep them there do not turn the figure. */
+  laying?: boolean;
 }
 export interface Pool {
   center: Point;
@@ -126,8 +122,14 @@ export class WorldRendererState {
   /** The serpent over the veil of known sea, and its silhouette over a lightning flash. */
   serpentLit = new SceneNode();
   serpentShade = new SceneNode();
+  /** Surface details that disappear under each strip of freshly tilled soil. */
+  groundCover = new SceneNode();
   farmland = isoLayer();
-  fog = isoLayer();
+  /**
+   * The fog of war, flat on the ground under all that stands: the tint on land only remembered and the bank on
+   * land unknown. What stands is told whole from the same fields (`world-depth.ts`), so nothing is cut.
+   */
+  mist = isoLayer();
   roads = isoLayer();
   lights = new SceneNode();
   roadLights = new SceneNode();
@@ -141,8 +143,11 @@ export class WorldRendererState {
   vignette = new SceneNode();
   darkness = new SceneNode();
   warmth = new SceneNode();
-  memory = isoLayer();
-  clouds = new SceneNode();
+  cloudMistPicture = new PictureNode(new Uint8Array(4), 1, 1);
+  /** Keep the mask scene attached while the fog picture inside it is refreshed. */
+  cloudMist = isoLayer().add(this.cloudMistPicture).opacity(0);
+  /** Cloud shadows fall across the land, figures and daylight and fade under the mist. */
+  clouds = new SceneNode().mask(this.cloudMist, 'inverseAlpha');
   sunlight = new SceneNode();
   ornaments = new SceneNode();
   combat = new SceneNode();
@@ -187,9 +192,25 @@ export class WorldRendererState {
   vision: { center: Point; radius: number }[] = [];
   exploredVisibility = new VisibilityMap();
   currentVisibility = new VisibilityMap();
-  visibilityPixels = new Uint32Array();
-  visibilityPicture: PictureNode | null = null;
-  fogBorder: ShapeNode | null = null;
+  /** Vision has run: the world has a fog of war (the editors and scene views have none). */
+  fogged = false;
+  mistField: MistField | null = null;
+  /** The mist's soft picture, once the fog of war is on. */
+  mistPicture: PictureNode | null = null;
+  /** The warm pass of the day's light as a picture that thins out under the mist, and the scene it is blended through. */
+  warmPicture = new PictureNode(new Uint8Array(4), 1, 1);
+  warmLayer = isoLayer().blend('add');
+  /** When the mist was last redrawn, how many times so far, and the view and sight it was drawn for. */
+  mistAt = -1;
+  mistTick = 0;
+  mistView = [0, 0, 0, 0];
+  mistKey = '';
+  /** Shows the land itself, as if all of it were in sight: for pictures and checks of the world. */
+  mistLifted = false;
+  /** Whether the warm pass of the day's light is the picture that spares the mist. */
+  warmthCut = false;
+  /** Landmarks seen so far, by their depth key: the bank keeps off their whole ground from then on. */
+  mistKnown = new Map<string, { center: Point; radius: number }>();
   cloudShapes: SceneNode[] = [];
   mottle: CloudMottle | null = null;
   ornamentLook = -1n;
@@ -199,6 +220,8 @@ export class WorldRendererState {
   /** Screen-space centre of the latest terrain edit; its nearest ground chunks repaint first. */
   terrainEditFocus = { x: 0, y: 0 };
   sunPasses: ShapeNode[] = [];
+  /** The scene each pass of the day's light is blended through, in the same order. */
+  sunLayers: SceneNode[] = [];
   darkVeil: ShapeNode | null = null;
   fitted = [0, 0, 0, 0];
   shownGrey = 0;
@@ -240,6 +263,8 @@ export class WorldRendererState {
   growingTrees: GrowingTree[] = [];
   treeCounts = new Uint8Array();
   renderedAt = 0;
+  /** Wall time for an altar arrival while the settlement clock is paused. */
+  arrivalSeconds?: number;
   seenTreeEvent = 0n;
   /** Keeps water and other ambient motion still; the app may set it from its own preference. */
   reducedMotion = false;
@@ -251,12 +276,14 @@ export class WorldRendererState {
     for (const layer of [
       this.ground,
       this.serpent,
+      this.groundCover,
       this.farmland,
       this.ornaments,
       this.roads,
       this.prints,
       this.splashes,
       this.lights,
+      this.mist,
       // Combat marks lie under the selection and hover rings, so a ring stays readable on a skill's disc.
       this.combatGround,
       this.selection,
@@ -267,8 +294,6 @@ export class WorldRendererState {
       this.clouds,
       this.darkness,
       this.warmth,
-      this.memory,
-      this.fog,
       this.serpentLit,
       this.combat,
       this.mapName,
@@ -282,9 +307,12 @@ export class WorldRendererState {
       const pass = new ShapeNode()
         .appendRect(0, 0, 1, 1)
         .fill(spec.color[0], spec.color[1], spec.color[2], spec.color[3]);
-      this.sunlight.add(blendLayer(pass, spec.method));
+      const layer = blendLayer(pass, spec.method);
+      this.sunlight.add(layer);
       this.sunPasses.push(pass);
+      this.sunLayers.push(layer);
     }
+    this.sunlight.add(this.warmLayer.add(this.warmPicture).opacity(0));
   }
   scene(): Scene {
     return this.adapter.sync(this.root) as Scene;

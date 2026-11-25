@@ -9,6 +9,13 @@ export interface PickSource {
   foot: Point;
   groundOutline?: readonly Point[];
   ellipse?: { rx: number; ry: number };
+  /** A unit's fixed reach around its feet in world pixels, whatever pose it is drawn in. */
+  stand?: Stand;
+}
+export interface Stand {
+  above: number;
+  below: number;
+  half: number;
 }
 const sources = new WeakMap<PaintNode, PickSource>();
 /** The existing retained paint owns picking metadata; no duplicated scene or native reference is created. */

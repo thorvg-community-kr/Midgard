@@ -53,6 +53,13 @@ export function contourCell(i: number, j: number, sample: Sample): ContourCell {
     cell.edges.push({ a: cell.inside[crossing], b: first, from: crossingSide, to: firstSide });
   return cell;
 }
+// For the sixteen corner patterns, the winding and ordering of the crossing sides
+// are fixed. Only the positions along those sides depend on the scalar values.
+const crossingSides = Array.from({ length: 16 }, (_, mask) =>
+  contourCell(0, 0, (x, y) => mask & (1 << (y === 0 ? x : 3 - x)) ? 1 : -1)
+    .edges.map(({ from, to }) => ({ from, to })),
+);
+
 export function sampleArea(
   map: Pick<TerrainMap, 'width' | 'height'>,
   margin: number,
@@ -80,11 +87,17 @@ export function eachCell(
   area?: TileRegion,
 ): void {
   const b = sampleArea(map, margin, area);
-  for (let j = b.top; j < b.bottom; j++)
+  for (let j = b.top; j < b.bottom; j++) {
+    let top = f(sample(b.left, j)) >= 0,
+      bottom = f(sample(b.left, j + 1)) >= 0;
     for (let i = b.left; i < b.right; i++) {
-      const cell = contourCell(i, j, sample);
-      if (cell.inside.length) visit(cell);
+      const nextTop = f(sample(i + 1, j)) >= 0,
+        nextBottom = f(sample(i + 1, j + 1)) >= 0;
+      if (top !== bottom || top !== nextTop || top !== nextBottom) visit(contourCell(i, j, sample));
+      top = nextTop;
+      bottom = nextBottom;
     }
+  }
 }
 export function appendOutline(shape: ShapeNode, points: Point[], shift: Point = { x: 0, y: 0 }): void {
   if (!points.length) return;
@@ -130,21 +143,37 @@ export function region(
     if (side === 2) j++;
     return node(i, j) * 2 + (side % 2);
   };
-  for (let j = bounds.top; j < bounds.bottom; j++)
-    for (let i = bounds.left; i < bounds.right; i++) {
-      if (values) {
-        const at = (j - bounds.top) * stride + i - bounds.left,
-          inside =
-            Number(values[at] >= 0) +
-            Number(values[at + 1] >= 0) +
-            Number(values[at + stride + 1] >= 0) +
-            Number(values[at + stride] >= 0);
-        // Uniform cells have no contour edges and need no temporary polygons.
-        if (inside === 0 || inside === 4) continue;
+  if (values) {
+    const field = values, offsets = [0, 1, stride + 1, stride];
+    const intersection = (i: number, j: number, at: number, side: number): Point => {
+      const next = (side + 1) % 4,
+        a = field[at + offsets[side]], b = field[at + offsets[next]],
+        t = f(a / f(a - b)),
+        [ax, ay] = corners[side], [bx, by] = corners[next];
+      return {
+        x: f(f((i + ax) * SAMPLE_STEP) + f((bx - ax) * SAMPLE_STEP * t)),
+        y: f(f((j + ay) * SAMPLE_STEP) + f((by - ay) * SAMPLE_STEP * t)),
+      };
+    };
+    for (let j = bounds.top; j < bounds.bottom; ++j) {
+      let at = (j - bounds.top) * stride;
+      for (let i = bounds.left; i < bounds.right; ++i, ++at) {
+        const mask = Number(field[at] >= 0) | (Number(field[at + 1] >= 0) << 1)
+          | (Number(field[at + stride + 1] >= 0) << 2) | (Number(field[at + stride] >= 0) << 3);
+        if (mask === 0 || mask === 15) continue;
+        for (const { from, to } of crossingSides[mask])
+          edges.push({
+            a: intersection(i, j, at, from), b: intersection(i, j, at, to),
+            from: crossing(i, j, from), to: crossing(i, j, to),
+          });
       }
-      for (const edge of contourCell(i, j, read).edges)
-        edges.push({ a: edge.a, b: edge.b, from: crossing(i, j, edge.from), to: crossing(i, j, edge.to) });
     }
+  } else {
+    for (let j = bounds.top; j < bounds.bottom; ++j)
+      for (let i = bounds.left; i < bounds.right; ++i)
+        for (const edge of contourCell(i, j, read).edges)
+          edges.push({ a: edge.a, b: edge.b, from: crossing(i, j, edge.from), to: crossing(i, j, edge.to) });
+  }
   const border = (i: number, j: number, nextI: number, nextJ: number, edge: number) => {
     const a = f(read(i, j)),
       b = f(read(nextI, nextJ));

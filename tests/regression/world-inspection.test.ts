@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Person, Role, Calling, Race, Monster, AnimalKind } from '../../packages/engine/src/person';
 import { Building } from '../../packages/engine/src/town-models';
 import { Structure } from '../../packages/engine/src/building-catalog';
+import { Terrain } from '../../packages/engine/src/world-types';
 import { point } from '../../packages/engine/src/geometry';
 import { targetsInBox, worldTarget, hoveredTarget, targetKey } from '../../apps/web/src/native/world-targets';
 import type { GameCommandApp } from '../../apps/web/src/native/game-commands';
@@ -57,6 +58,7 @@ function fixture() {
     },
     context: { controlAt: () => false },
     town: {
+      map: () => ({ width: () => 32, inside: (x: number, y: number) => x === 9 && y === 10, at: () => ({ terrain: Terrain.Frost }) }),
       person: (id: number) => people[id] ?? null,
       building: (id: number) => (id === 4 ? building : null),
       creature: (id: number) => (id === 6 ? monster : id === 7 ? animal : null),
@@ -106,7 +108,9 @@ describe('presented world inspection', () => {
     tall.bounds = { x: 10, y: 10, w: 30, h: 60 };
     geometry.set('tree:329:1', tall);
     expect(worldTarget(app, { kind: 'tree', id: 329, instanceIndex: 0 })!.bounds).toEqual(tiny.bounds);
-    expect(worldTarget(app, { kind: 'tree', id: 329, instanceIndex: 1 })!.bounds).toBe(tall.bounds);
+    const spruce = worldTarget(app, { kind: 'tree', id: 329, instanceIndex: 1 })!;
+    expect(spruce.bounds).toBe(tall.bounds);
+    expect(spruce.name).toBe('Frostwood spruce');
     app.hoveredWorldTarget!.hit = presentedHit('tree', 329, 0);
     select.call(app);
     expect(app.selectedTree).toBe(329);

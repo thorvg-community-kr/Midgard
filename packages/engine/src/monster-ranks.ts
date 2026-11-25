@@ -26,8 +26,8 @@ export const rankRules = {
   spitShy: 2.4,
   /** Farthest a spitter backs off from its home. */
   spitRoam: 4,
-  /** Monsters beyond a gate have a hide that turns aside this much of every blow: weapons and levels tell, bare
-   * hands barely scratch them. A blow always keeps a fifth of its force. */
+  /** Hide absorbs this much of a blow. A strong, well-matched weapon cuts through it more readily.
+   * A blow always keeps a fifth of its force. */
   hide: 0.9,
   denHealth: 4,
   /** Seconds between swarmers of a roused den, the first sooner; slower while it was struck in the last `denStruck`
@@ -43,6 +43,7 @@ export const rankRules = {
   /** Seconds before the next wind-up after an Aimed Shot breaks one. */
   slamBroken: 6,
   slamWindup: 2.2,
+  firstSlamWindup: 3.2,
   slamRadius: 2.2,
   /** The slam hits as hard as this many of the guardian's bites; armour only softens half as much. */
   slamPower: 15,

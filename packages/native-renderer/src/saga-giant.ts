@@ -1,6 +1,6 @@
 // Ymir for the opening saga: one head and one body for every panel, rigged so mane and beard sway.
 import { SceneNode, ShapeNode, type Rgb } from './paint';
-import { mirrored, oval, pen, shapeOf, type Contour, type Form } from './outline-form';
+import { mirrored, moved, oval, pen, shapeOf, type Contour, type Form } from './outline-form';
 import { dusk, paintForm } from './form-paint';
 import { darkEye, flat, frost, iceGlint, lock, rime, sagaFinish, scatter, stroke, turn } from './saga-panel';
 
@@ -29,19 +29,25 @@ export interface Giant {
 }
 const deepShade: Rgb = [108, 132, 186];
 
-function strand(
-  scene: SceneNode,
-  shape: Contour,
-  x: number,
-  y: number,
-  reach: number,
-  phase: number,
+/**
+ * A lock of rime in two tones, lit from the upper left like every form here. `make` draws it with its root
+ * moved and its width cut. The lit part is the lock itself, kept to where the same lock moved toward the
+ * light covers it, as in every two-tone form, or a slimmer copy that shares its point does: so the shaded
+ * edge runs out to nothing at the tip instead of filling it, and the lit edge is the lock's own edge with no
+ * dark hair beside it. `rootLit` is lit whatever its side, so a lock that grows out of a mass shows no shaded
+ * edge until it has parted from its neighbours.
+ */
+function rimeLock(
+  make: (dx: number, dy: number, slimmer: number) => Contour,
   rim: number,
-): Strand {
-  const node = new SceneNode();
-  paintForm(node, [shape], rime, { ink: 0, rim });
-  scene.add(node);
-  return { node, x, y, reach, phase };
+  rootLit: Form = [],
+): SceneNode {
+  const whole = make(0, 0, 0),
+    shade = flat([whole], dusk(rime)),
+    lit = flat([whole], rime).clip(
+      shapeOf([make(-rim * 0.5, -rim * 0.42, rim), ...moved([whole], -rim, -rim * 0.85), ...rootLit]),
+    );
+  return new SceneNode().add(shade).add(lit);
 }
 export function giantHead(): GiantHead {
   const scene = new SceneNode(),
@@ -56,17 +62,15 @@ export function giantHead(): GiantHead {
       sy = Math.sin(a),
       x = cx * 96,
       y = -122 - sy * 100;
-    strands.push(
-      strand(
-        scene,
-        lock(x, y, cx * reach * 0.94, -122 - sy * reach, 82, i % 2 ? 0.14 : -0.14),
-        x,
-        y,
-        0.045,
-        i * 0.7,
-        8,
-      ),
-    );
+    const tx = cx * reach * 0.94,
+      ty = -122 - sy * reach,
+      bend = i % 2 ? 0.14 : -0.14;
+    // Round the face the mane is one mass: a spike takes its shaded edge only over its outer half.
+    const node = rimeLock((dx, dy, slimmer) => lock(x + dx, y + dy, tx, ty, 82 - slimmer, bend), 8, [
+      lock(x, y, x + (tx - x) * 0.5, y + (ty - y) * 0.5, 92, bend, 0.5),
+    ]);
+    scene.add(node);
+    strands.push({ node, x, y, reach: 0.045, phase: i * 0.7 });
   }
   paintForm(
     scene,
@@ -155,11 +159,16 @@ export function giantHead(): GiantHead {
       ),
     );
   }
-  paintForm(scene, [lock(-8, -140, -122, -180, 48, -0.12), lock(8, -140, 122, -180, 48, 0.12)], rime, {
-    ink: 0,
-    rim: 4,
-  });
-  // The beard: a band under the face, and icicles that swing like a slow wave across it.
+  // The two halves of the brow meet over the nose with no gap between them.
+  for (const side of [-1, 1])
+    scene.add(
+      rimeLock(
+        (dx, dy, slimmer) => lock(side * 2 + dx, -140 + dy, side * 122, -180, 48 - slimmer, side * 0.12, 0.4),
+        4,
+      ),
+    );
+  // The beard: a band under the face, and icicles that swing like a slow wave across it. Each icicle keeps
+  // the plain two tones of every form, a clear band of shadow down the side away from the light.
   paintForm(
     scene,
     [
@@ -174,33 +183,29 @@ export function giantHead(): GiantHead {
   for (let i = 0; i < 7; i++) {
     const x = -78 + i * 26,
       drop = 104 + 84 * Math.sin((i / 6) * Math.PI) + 24 * scatter(i, 10);
-    const tuft = strand(
-      scene,
-      lock(x, -56, x + (i - 3) * 5, -56 + drop, 36, i % 2 ? 0.07 : -0.07),
-      x,
-      -56,
-      0.05,
-      2 + i * 0.5,
-      5,
-    );
-    // This root's shaded cap can peek through the outer right lock as a detached chip.
-    if (i === 5) tuft.node.children[0].clip(new ShapeNode().appendRect(x - 64, -50, 128, drop + 64));
-    strands.push(tuft);
+    const node = new SceneNode();
+    paintForm(node, [lock(x, -56, x + (i - 3) * 5, -56 + drop, 36, i % 2 ? 0.07 : -0.07)], rime, {
+      ink: 0,
+      rim: 5,
+    });
+    // The shade starts a little below the root, where the next icicle covers it: higher, on the rounded cap,
+    // it peeks past that icicle as a small slanted stroke. The last icicle has none beside it, and its shade
+    // runs on up under the moustache.
+    if (i < 6) node.children[0].clip(new ShapeNode().appendRect(x - 64, -50, 128, drop + 64));
+    scene.add(node);
+    strands.push({ node, x, y: -56, reach: 0.05, phase: 2 + i * 0.5 });
   }
   // Mirror one moustache half exactly, including its sway about the opposite root.
-  const moustache = lock(6, -84, 108, -50, 30, -0.2);
-  for (const side of [-1, 1])
-    strands.push(
-      strand(
-        scene,
-        side < 0 ? mirrored([moustache])[0] : moustache,
-        side * 6,
-        -84,
-        side * 0.03,
-        1,
-        4,
-      ),
-    );
+  for (const side of [-1, 1]) {
+    // One half is drawn and the other is its mirror image, so the two match; the light still falls from the
+    // left on both.
+    const node = rimeLock((dx, dy, slimmer) => {
+      const half = lock(6 + side * dx, -84 + dy, 108, -50, 30 - slimmer, -0.2, 0.4);
+      return side < 0 ? mirrored([half])[0] : half;
+    }, 4);
+    scene.add(node);
+    strands.push({ node, x: side * 6, y: -84, reach: side * 0.03, phase: 1 });
+  }
   const head: GiantHead = {
     scene,
     look(shown) {
@@ -298,9 +303,13 @@ export function frostGiant(breadth = 1): Giant {
     const x = (-300 + i * 66.5) * b,
       y = -6 - 35 * Math.sin((i / 9) * Math.PI);
     if (Math.abs(x) < 88) continue;
-    const shape = lock(x, y, x + (i - 4.5) * 4.7, 53 + 35 * scatter(i, 25), 49 * b, i % 2 ? 0.1 : -0.1),
-      node = new SceneNode().add(flat([shape], deepShade).translate(0, 15));
-    paintForm(node, [shape], rime, { ink: 0, rim: 6 });
+    const tip: [number, number] = [x + (i - 4.5) * 4.7, 53 + 35 * scatter(i, 25)],
+      bend = i % 2 ? 0.1 : -0.1,
+      // Its shadow on the chest is cast by the thick of it only, so no dark point trails below the tip.
+      cast = lock(x, y, x + (tip[0] - x) * 0.7, y + (tip[1] - y) * 0.7, 49 * b, bend),
+      node = new SceneNode()
+        .add(flat([cast], deepShade).translate(0, 15))
+        .add(rimeLock((dx, dy, slimmer) => lock(x + dx, y + dy, tip[0], tip[1], 49 * b - slimmer, bend), 6));
     hung.add(node);
     locks.push({ node, x, y, reach: 0.05, phase: i * 0.9 });
   }
@@ -315,6 +324,9 @@ export function frostGiant(breadth = 1): Giant {
     fringe.add(node);
     locks.push({ node, x, y, reach: 0.07, phase: 1.3 + i * 0.6 });
   }
+  // No lock stands up over the shoulder line or pokes out past it: each is cut to the mantle and the body
+  // under it.
+  for (const group of [hung, fringe]) group.clip(shapeOf([...mantle, ...torso]));
   body.add(flat(mantle, deepShade).translate(0, 15)).add(hung);
   paintForm(body, mantle, rime, { ink: 0, rim: 6 });
   body.add(fringe);

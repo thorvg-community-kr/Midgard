@@ -209,11 +209,11 @@ describe('gates', () => {
     DungeonKind.GiantHall,
     DungeonKind.Return,
   ];
-  const draw = (kind: DungeonKind, world: World, sealed: boolean) => {
+  const draw = (kind: DungeonKind, world: World, sealed: boolean, dormant = false) => {
     const objects = new SceneNode(),
       lights = new SceneNode(),
       site = { name: 'Gate', kind, origin: { x: 10, y: 10 }, discovered: true },
-      pulse = gateSprite(objects, lights, { site, world, sealed });
+      pulse = gateSprite(objects, lights, { site, world, sealed, dormant });
     return { objects, lights, pulse, body: gateBody(objects) };
   };
   it('draws every kind with a pick body, and an open gate pulses with the light of its world', () => {
@@ -256,7 +256,11 @@ describe('gates', () => {
   it('shuts a sealed gate for good: a slab and rune, no pulse and no light', () => {
     for (const kind of [DungeonKind.Cave, DungeonKind.Crypt, DungeonKind.Portal, DungeonKind.Ruin]) {
       const open = draw(kind, World.Helheim, false),
-        sealed = draw(kind, World.Helheim, true);
+        sealed = draw(kind, World.Helheim, true),
+        dormant = draw(kind, World.Helheim, false, true);
+      expect(dormant.pulse).toBeNull();
+      expect(dormant.lights.children).toHaveLength(0);
+      expect(dormant.objects.children).toHaveLength(sealed.objects.children.length - 1);
       expect(sealed.pulse, DungeonKind[kind]).toBeNull();
       expect(sealed.lights.children.length).toBe(0);
       expect(

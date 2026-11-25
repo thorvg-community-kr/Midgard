@@ -1,3 +1,4 @@
+import { isRanchHarvest, leadLivestock, livestockKind, localRanches, orderRanchHarvest, workWithLivestock } from '../../../../packages/engine/src/livestock';
 import { DungeonKind } from '../../../../packages/engine/src/world-types';
 import { openExpedition } from './expedition-window';
 // Direct translation of native game_commands.cpp.
@@ -10,8 +11,9 @@ import { isHome, structureSpec, Structure } from '../../../../packages/engine/sr
 import type { Building } from '../../../../packages/engine/src/town-models';
 import { TownState } from '../../../../packages/engine/src/town-state';
 import { treePosition } from '../../../../packages/engine/src/world-map';
+import { canHarvest, harvestNeeds, harvestProduct } from '../../../../packages/engine/src/harvest-material';
 import * as mining from '../../../../packages/engine/src/mining';
-import { cachedWorldHit } from './world-targets';
+import { cachedWorldHit, struckByAttack } from './world-targets';
 import { isCraftStation } from '../../../../packages/engine/src/equipment';
 import { openStation } from './craft-station-hud';
 import {
@@ -19,7 +21,6 @@ import {
   isPlayerBuilding,
   buildingControlReason,
   belongsToFaction,
-  isPlayerResident,
 } from '../../../../packages/engine/src/faction';
 import { controllableIds, selectionControlReason } from './game-control';
 import { Cue } from '../../../../packages/native-audio/src/sound-types';
@@ -111,7 +112,7 @@ function farmOfField(app: GameCommandApp, id: number): Building | null {
 }
 export function prepare(this: GameCommandApp, order: Order): void {
   if (!this.chosen.length) {
-    if (this.selectedAnimal >= 0 && order === Order.Attack) {
+    if (this.selectedAnimal >= 0 && (order === Order.Attack || order === Order.Work)) {
       // Attack on a selected animal sends whoever is nearest and free; with nobody free it does nothing.
       const animal = this.town.creature(this.selectedAnimal),
         candidates: { busy: boolean; distance: number; id: number }[] = [];
@@ -122,7 +123,9 @@ export function prepare(this: GameCommandApp, order: Order): void {
           candidates.push({ busy: !idle, distance: distance(p.position, animal.position), id: p.id });
         }
       candidates.sort((a, b) => Number(a.busy) - Number(b.busy) || a.distance - b.distance || a.id - b.id);
-      if (candidates.some((candidate) => this.town.orderAttack([candidate.id], this.selectedAnimal)))
+      if (candidates.some(candidate => order === Order.Work && animal && livestockKind(animal.animal)
+          ? workWithLivestock(this.town, this.town.person(candidate.id)!, animal)
+          : this.town.orderAttack([candidate.id], this.selectedAnimal)))
         this.cue(Cue.Order);
     }
     if (this.selectedTree >= 0 && (order === Order.Attack || order === Order.Work)) {
@@ -174,24 +177,9 @@ export function toggleAuto(this: GameCommandApp): void {
     this.town.setAuto(id, enabled);
   }
 }
-export function stopSelected(this: GameCommandApp): void {
-  const ids = controllableIds(this.town, this.chosen);
-  this.town.orderStop(ids);
-  for (const id of ids) this.stoppedWork.set(id, this.workSerial);
-  this.selectTool(Tool.Select);
-  this.card = this.globalCard = -1;
-  this.pending = Order.None;
-  this.cancelPointer();
-}
-export function leaveSelected(this: GameCommandApp): void {
-  const ids = controllableIds(this.town, this.chosen);
-  if (!this.town.orderLeave(ids)) return;
-  for (const id of ids) this.stoppedWork.set(id, this.workSerial);
-  this.selectTool(Tool.Select);
-  this.card = this.globalCard = -1;
-  this.pending = Order.None;
-  this.cancelPointer();
-  this.cue(Cue.Order);
+/** One press brings out everyone who sleeps, rests or shelters indoors. */
+export function wakeEveryone(this: GameCommandApp): void {
+  if (this.town.wakeAll()) this.cue(Cue.Order);
 }
 export function command(this: GameCommandApp): void {
   this.issueOrder(Order.Work);
@@ -209,8 +197,13 @@ export function issueOrder(this: GameCommandApp, order: Order): void {
     creature =
       hit?.kind === 'animal' || hit?.kind === 'monster' ? this.town.creature(hit.id) : null,
     place = hit?.kind === 'building' ? this.town.building(hit.id) : null,
+    // The aim marks exactly what this says a click strikes.
+    struck = struckByAttack(this, hit),
     // A downed body is not pickable, so it is found by distance on screen.
     fallen = order === Order.Work && !personTarget && !creature ? downedUnderCursor(this) : null,
+    handlers = creature && livestockKind(creature.animal)
+      ? ids.map(id => this.town.person(id)!).filter(p => localRanches(this.town, p).length)
+      : [],
     moving: number[] = [];
   if (order === Order.Move) this.town.orderMove(ids, this.cursor);
   else if (fallen) {
@@ -239,7 +232,7 @@ export function issueOrder(this: GameCommandApp, order: Order): void {
     }
   } else if (personTarget) {
     // Companions are never attacked: an Attack click on one is an attack-move to where they stand.
-    if (order === Order.Attack && isPlayerResident(personTarget)) this.town.orderAttackMove(ids, this.cursor);
+    if (order === Order.Attack && !struck) this.town.orderAttackMove(ids, this.cursor);
     else if (order === Order.Attack) this.town.orderAttackPerson(ids, personTarget.id);
     else this.town.orderMove(ids, personTarget.position);
   } else if (order === Order.Work && hit?.kind === 'dungeon') {
@@ -253,10 +246,14 @@ export function issueOrder(this: GameCommandApp, order: Order): void {
     if (!openExpedition(this, hit.id, ids)) this.town.orderMove(ids, this.cursor);
     return;
   } else if (order === Order.Work && place && isPlayerBuilding(place) && place.built() && isCraftStation(place.kind)) {
-    // A crafting station opens its recipes with the first selected resident as crafter; nothing starts by itself.
-    openStation(this, place, ids[0]);
+    // A crafting station opens its recipes; it picks who gets an item itself, so the selection is not bound to it.
+    openStation(this, place);
     return;
-  } else if (order === Order.Attack && !creature && hit?.kind !== 'tree' && hit?.kind !== 'rock') {
+  } else if (creature && handlers.length) {
+    handlers.sort((a, b) => distance(a.position, creature.position) - distance(b.position, creature.position) || a.id - b.id);
+    if (creature.pen >= 0 && order !== Order.Work) return;
+    if (!handlers.some(p => workWithLivestock(this.town, p, creature))) return;
+  } else if (order === Order.Attack && !struck && hit?.kind !== 'tree' && hit?.kind !== 'rock') {
     this.town.orderAttackMove(ids, this.cursor);
   } else {
     for (const id of ids) {
@@ -264,11 +261,20 @@ export function issueOrder(this: GameCommandApp, order: Order): void {
       let accepted = false;
       if (creature && (creature.animal === null || order === Order.Attack || creature.angry))
         accepted = this.town.orderAttack(unit, creature.id);
-      else if (hit?.kind === 'tree') accepted = this.town.orderChop(unit, hit.id);
-      else if (hit?.kind === 'rock') accepted = this.town.orderMine(unit, hit.id);
+      else if (hit?.kind === 'tree' || hit?.kind === 'rock') {
+        const map = this.town.map(), x = hit.id % map.width(), y = Math.floor(hit.id / map.width());
+        if (!map.inside(x, y)) continue;
+        const stone = hit.kind === 'rock', product = harvestProduct(map, x, y, stone), basalt = stone && hit.id === map.basaltCell;
+        if (!canHarvest(this.town.person(id)!, product, basalt)) {
+          this.status = harvestNeeds(product, basalt);
+          continue;
+        }
+        accepted = stone ? this.town.orderMine(unit, hit.id) : this.town.orderChop(unit, hit.id);
+      }
       else if (place && !isPlayerBuilding(place)) this.status = buildingControlReason(place);
       else if (place && (!place.built() || place.health < 1))
         accepted = this.town.orderBuild(unit, place.id);
+      else if (place?.kind === Structure.Ranch) accepted = orderRanchHarvest(this.town, this.town.person(id)!, place) || leadLivestock(this.town, this.town.person(id)!, undefined, place);
       else if (place && isHome(place.kind)) accepted = this.town.orderRest(unit, place.id);
       else if (place && structureSpec(place.kind).jobs > 0) accepted = this.town.assignJob(unit, place.id);
       else if (hit?.kind === 'road') {
@@ -277,7 +283,8 @@ export function issueOrder(this: GameCommandApp, order: Order): void {
           accepted = this.town.orderRoadwork(unit, hit.id);
       }
       if (accepted) {
-        if (!creature || creature.animal === null) this.town.approachOrder(unit, this.cursor);
+        const task = this.town.person(id)!.task;
+        if ((!creature || creature.animal === null) && task !== Activity.Herding && !isRanchHarvest(task)) this.town.approachOrder(unit, this.cursor);
       } else moving.push(id);
     }
     if (moving.length) this.town.orderMove(moving, place ? place.door() : this.cursor);

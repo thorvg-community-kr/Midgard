@@ -1,3 +1,7 @@
+import { orderRanchHarvest, ranchWorker, type RanchHarvest } from '../../../../packages/engine/src/livestock';
+import { nestCapacity, penCapacity, readyForMeat, stockInPen } from '../../../../packages/engine/src/ranch-cycle';
+import { Activity, AnimalKind } from '../../../../packages/engine/src/person';
+import { animalSpec } from '../../../../packages/engine/src/wildlife';
 import {
   Rect,
   Align,
@@ -10,7 +14,7 @@ import {
   type Color,
   type Context,
 } from '../../../../packages/native-ui/src';
-import { Tool, Order, toolStructure } from '../../../../packages/engine/src/game-tools';
+import { Tool, Order, drawsArea, toolStructure } from '../../../../packages/engine/src/game-tools';
 import { noticeToast } from './notice-toast';
 import { toolInfo, buildMenuGroups, type BuildGroup } from './build-menu-tools';
 import { toolAvailable } from '../../../../packages/engine/src/settlement-progression';
@@ -28,6 +32,7 @@ import {
   describe,
 } from '../../../../packages/engine/src/building-catalog';
 import { DungeonKind } from '../../../../packages/engine/src/world-types';
+import { isCraftStation } from '../../../../packages/engine/src/equipment';
 import { worldName } from '../../../../packages/engine/src/world-map';
 import { point, project, sub, distance } from '../../../../packages/engine/src/geometry';
 import { f32, clamp, lround } from '../../../../packages/engine/src/numeric';
@@ -38,9 +43,10 @@ import { buildingAppearanceRevision } from '../../../../packages/native-renderer
 import type { GameHudApp } from './game-hud-contract';
 import { isPlayerBuilding } from '../../../../packages/engine/src/faction';
 import { civicInspector } from './game-civic-panel';
+import { stationPagerWidth, stationProfile } from './craft-station-hud';
 import { drawProfiles, hasProfiles, profileRows, profilesHeight } from './home-profiles-hud';
 import { hudPaint } from './hud-paint';
-import { winterOutlookLine, winterLineHeight, type CampMarker } from './camp-resource-hud';
+import { materialRowsHeight, winterOutlookLine, winterLineHeight, type CampMarker } from './camp-resource-hud';
 import { actionButton } from './hud-actions';
 import {
   wrapText,
@@ -52,13 +58,15 @@ import {
   type InspectorRows,
 } from './game-progress-hud';
 import { clearRows } from './clear-order-hud';
-import { touchPlacementHeight } from './mobile-layout';
+import { inspectorHeightLimit, touchPlacementHeight } from './mobile-layout';
 import { combatOverlays } from './game-combat-hud';
 import { guideHud } from './game-guide-panel';
-import { unitOrdersCard } from './unit-orders-card';
+import { orderRail, unitOrderRail } from './unit-orders-card';
 import { groupTabs } from './control-groups';
 import { aimPrompt, currentAim } from './skill-commands';
 import { gateKindName, gateLock, openExpedition } from './expedition-window';
+import { gateSealed } from '../../../../packages/engine/src/gate-seals';
+import { gateActive } from '../../../../packages/engine/src/gate-progression';
 const tools = toolInfo;
 /** Every group, in page order: a group's page number never changes while the settlement grows. */
 export function buildGroups(_town: Town): BuildGroup[] {
@@ -119,7 +127,10 @@ export function hud(this: GameHudApp, width: number, height: number): void {
         ? this.status || this.current.problem
         : '',
     guided = !!warning || this.pending !== Order.None || !!currentAim(this),
-    line = new Rect(12, f32(this.dockBounds.y - 32), f32(width - 24), 22);
+    // What stands right above the dock keeps left of the order rail of a touch player.
+    rail = orderRail(this, width, height),
+    right = rail && !rail.beside && this.dockBounds.y - 130 < rail.bounds.y + rail.bounds.h ? f32(rail.bounds.x - 8) : width - 12,
+    line = new Rect(12, f32(this.dockBounds.y - 32), f32(right - 12), 22);
   if (warning) strip(c, warning, line, t.inkDanger, 13);
   else if (this.pending !== Order.None)
     strip(
@@ -156,13 +167,14 @@ export function hud(this: GameHudApp, width: number, height: number): void {
       y = f32(y + 24);
     }
   }
-  noticeToast(this, width, height, guided ? 28 : 0);
+  noticeToast(this, width, height, guided ? 28 : 0, right);
   this.objectives(width, height, this.touchMode ? (this.timeExpanded ? 116 : 64) : width < 900 ? 104 : 64);
   this.realmPanel(width, height);
   this.timeControls(width);
   this.campSupplies(width, height);
   this.calendarDetails(width);
   this.taskbar(width, height);
+  unitOrderRail(this, width, height);
   if (!this.town.isTitleAutoplay()) groupTabs(this, height);
   combatOverlays(this, width, height);
   this.realmRewardBanner(width, height);
@@ -216,7 +228,7 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
     building = this.selected >= 0 ? this.town.building(this.selected) : null;
   if (!building && this.selectedDungeon < 0) return 0;
   if (this.touchMode && building?.built() && isSeat(building.kind)) {
-    const stores = 180 + (winterOutlookLine(this.town, building.id) ? winterLineHeight : 0),
+    const stores = 180 + materialRowsHeight(this.town.stock(building.id)) + (winterOutlookLine(this.town, building.id) ? winterLineHeight : 0),
       width = f32(panel.w - 16),
       profiles = profilesHeight(this, building, width);
     if (draw) drawProfiles(this, building, f32(panel.x + 8), f32(panel.y + stores + 12), width);
@@ -233,18 +245,30 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
   if (building?.built() && [Structure.Shrine, Structure.Guild, Structure.GuildHall].includes(building.kind))
     return civicInspector.call(this, building, panel, draw);
   let y = 12;
-  const left = f32(panel.x + 112),
-    inner = f32(panel.w - 128),
+  const station = building && isCraftStation(building.kind),
+    left = f32(panel.x + (station ? 14 : 112)),
+    inner = f32(panel.w - (station ? 28 : 128)),
     top = panel.y,
+    frame = station
+      ? new Rect(left, f32(top + y), 44, 44)
+      : new Rect(f32(panel.x + 12), f32(top + y), 84, 94),
     rows: (() => void)[] = [],
-    textRow = (text: string, color: Color, size = 13, bold = false) => {
+    textRow = (text: string, color: Color, size = 13, bold = false, lineHeight = size + 9) => {
       const at = y;
-      rows.push(() => c.text(new Rect(left, f32(top + at), inner, f32(size + 8)), text, color, size, bold));
-      y = f32(y + f32(size + 9));
+      rows.push(() => c.text(new Rect(left, f32(top + at), inner, f32(lineHeight - 1)), text, color, size, bold));
+      y = f32(y + lineHeight);
     };
   if (building) {
     const spec = structureSpec(building.kind);
-    textRow(spec.name, t.text, 17, true);
+    if (station) {
+      const profile: InspectorRows = { rows, left, inner, top, y };
+      stationProfile(this, building, profile, frame);
+      y = profile.y;
+    } else {
+      const severalCamps = isSeat(building.kind) && isPlayerBuilding(building) &&
+        this.town.buildings().filter(b => isPlayerBuilding(b) && isSeat(b.kind) && b.built()).length > 1;
+      textRow(severalCamps ? `${spec.name} #${building.id + 1}` : spec.name, t.text, 17, true);
+    }
     if (building.faction > 0)
       textRow(`Neutral settlement #${building.faction} · inspection only`, t.accent, 12, true);
     if (building.built() && building.health < 1)
@@ -254,7 +278,7 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
         12,
         true,
       );
-    for (const line of wrap(c, spec.description, inner, 12)) textRow(line, t.muted, 12);
+    for (const line of wrap(c, spec.description, inner, 12)) textRow(line, t.muted, 12, false, station ? 17 : 21);
     y = f32(y + 4);
     if (!building.built()) {
       textRow(`Under construction: ${Math.trunc(f32(building.progress * 100))}%`, t.accent, 13, true);
@@ -316,6 +340,41 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
           );
       });
       y = f32(y + 32);
+    }
+    if (building.kind === Structure.Ranch && building.built()) {
+      const stock = stockInPen(this.town, building.id), adults = stock.filter(a => a.ranchBornAt < 0);
+      const ready = readyForMeat(stock, this.town.clock());
+      textRow(`Breeding stalls ${adults.length} / ${penCapacity}`, t.text, 13, true);
+      const hens = adults.filter(a => a.animal === AnimalKind.Chicken).length;
+      textRow(`Chickens ${hens} · Eggs in nest ${building.eggs} / ${nestCapacity}`, building.eggs ? t.success : t.muted, 12);
+      for (const kind of [AnimalKind.Pig, AnimalKind.Cow]) {
+        const family = stock.filter(a => a.animal === kind), count = family.length;
+        const young = family.find(a => a.ranchBornAt >= 0);
+        const state = young ? (ready.includes(young) ? 'Ready for meat' : kind === AnimalKind.Pig ? 'Piglet growing' : 'Calf growing')
+          : count >= 2 ? 'Breeding' : count ? 'Needs a mate' : '';
+        const label = kind === AnimalKind.Pig ? `Pigs ${count}` : `Cows ${count}`;
+        textRow(state ? `${label} · ${state}` : label, young || count >= 2 ? t.success : t.muted, 12);
+      }
+      const worker = ranchWorker(this.town, building);
+      if (worker) textRow(worker.task === Activity.GatheringEggs ? `${worker.name} is collecting eggs` : `${worker.name} is preparing meat`, t.accent, 12);
+      else if (building.eggs || ready.length) {
+        const hands = this.town.stationFolk(building).filter(p => !p.ordered && p.job < 0 && !p.craftItem &&
+          (p.task === Activity.Idle || p.task === Activity.Felling || p.task === Activity.Mining));
+        const village = this.town.settlementOf(building);
+        const room = this.town.capacity(village).food - this.town.stock(village).food;
+        const action = (task: RanchHarvest, label: string, key: string, fits: boolean) => {
+          const at = y, height = this.touchMode ? 44 : 28;
+          rows.push(() => button(c, key, new Rect(left, top + at, inner, height), label,
+            () => { hands.some(p => orderRanchHarvest(this.town, p, building, task)); },
+            ButtonStyle.Default, fits && hands.length > 0 && isPlayerBuilding(building)));
+          y += height + 4;
+        };
+        if (building.eggs) action(Activity.GatheringEggs, 'Collect eggs', 'ranch-collect-eggs', room >= 1);
+        const meatFits = ready.some(a => animalSpec(a.animal!).food <= room);
+        if (ready.length) action(Activity.PreparingMeat, 'Prepare meat', 'ranch-prepare-meat', meatFits);
+        if (room < 1 || (ready.length && !meatFits)) textRow('Make room in food storage.', t.muted, 12);
+        else if (!hands.length) textRow('Waiting for a free resident.', t.muted, 12);
+      }
     }
     if (spec.jobs) {
       const at = y,
@@ -392,14 +451,16 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
           t.success,
           12,
         );
-      else if (spec.product !== Product.None)
-        textRow(
-          output.empty() ? 'No output' : `Makes ${describe(output)} a day`,
-          output.empty() ? t.danger : t.success,
-          12,
-        );
+      else if (spec.product === Product.Stone)
+        textRow('Miners gather stone from nearby deposits.', t.muted, 12);
+      else if (!output.empty()) textRow(`Makes ${describe(output)} a day`, t.success, 12);
+      else if (spec.product !== Product.None && !building.workers) textRow('Assign a worker to start production.', t.muted, 12);
     }
+    const footerWidth = station && building.built() ? Math.max(1, inner - stationPagerWidth(this.touchMode) - 8) : inner;
+    const footer: InspectorRows = { rows: [], left, inner: footerWidth, top, y: 0 };
+    if (isPlayerBuilding(building)) clearRows(this, { kind: 'building', id: building.id }, footer);
     const progress: InspectorRows = { rows, left, inner, top, y };
+    if (station && this.viewHeight > 1) progress.bottom = inspectorHeightLimit(this.viewHeight, true) - footer.y - 10;
     progressInspector(this, building, -1, progress);
     y = progress.y;
     const growth = this.town.growthStatus(building);
@@ -417,11 +478,9 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
         for (const line of wrap(c, growth.reason, inner, 12, 2))
           textRow(line, growth.ready ? t.muted : t.danger, 12);
     }
-    if (isPlayerBuilding(building)) {
-      const clearing: InspectorRows = { rows, left, inner, top, y };
-      clearRows(this, { kind: 'building', id: building.id }, clearing);
-      y = clearing.y;
-    }
+    footer.top = f32(top + y);
+    rows.push(...footer.rows);
+    y = f32(y + footer.y);
   } else {
     const site = this.town.map().dungeons()[this.selectedDungeon];
     textRow(site.name, t.text, 16, true);
@@ -448,6 +507,8 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
         12,
       ))
         textRow(line, t.muted, 12);
+    } else if (!gateActive(this.town, this.selectedDungeon) && !gateSealed(this.town, this.selectedDungeon)) {
+      textRow('Dormant gate', t.muted, 12, true);
     } else {
       const gate = this.selectedDungeon,
         floors = this.town.gateFloors(gate),
@@ -464,7 +525,7 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
         inner,
         12,
       ))
-        textRow(line, lock ? t.danger : t.muted, 12);
+        textRow(line, lock && !floors.sealed ? t.danger : t.muted, 12);
       const at = y;
       rows.push(() =>
         button(
@@ -477,20 +538,19 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
         ),
       );
       y = f32(y + (this.touchMode ? 52 : 36));
-      const progress: InspectorRows = { rows, left, inner, top, y };
-      progressInspector(this, null, gate, progress);
-      y = progress.y;
     }
+    const progress: InspectorRows = { rows, left, inner, top, y };
+    progressInspector(this, null, this.selectedDungeon, progress);
+    y = progress.y;
   }
   const h = Math.max(126, f32(y + 10));
   if (!draw) return h;
-  const frame = new Rect(f32(panel.x + 12), f32(panel.y + 12), 84, 94);
   pictureFrame(c, frame);
   if (building) {
-    const art = new Rect(f32(frame.x + 10), f32(frame.y + 10), f32(frame.w - 20), f32(frame.h - 20)),
+    const art = frame.inset(station ? 4 : 10),
       kind = building.kind;
     c.paint(
-      `inspect-${buildingAppearanceRevision(kind)}-${kind}-${Math.trunc(art.x)}-${Math.trunc(art.y)}`,
+      `inspect-${buildingAppearanceRevision(kind)}-${kind}-${art.w}-${Math.trunc(art.x)}-${Math.trunc(art.y)}`,
       () => {
         const holder = new c.tvg.Scene(),
           icon = hudPaint(c, structureIcon(kind, art.w, art.h));
@@ -553,10 +613,7 @@ export function commandCard(
         { ...appearance, ...look },
       );
     };
-  if (!buildMenu) {
-    unitOrdersCard(this, area, scale, global);
-    return;
-  }
+  if (!buildMenu) return;
   const groups = buildGroups(this.town),
     chosen = clamp(global ? this.globalCard : this.card, 0, groups.length),
     page = shownPage(this.town, chosen),
@@ -662,7 +719,10 @@ export function commandCard(
       if (!t.reducedMotion) c.requestAnimationFrame();
     }
     if (bounds.contains(this.mouse.x, this.mouse.y))
-      detail = kind !== undefined ? `${describe(structureSpec(kind).cost)} · ${tools[id].key}` : tools[id].hint;
+      detail =
+        kind !== undefined
+          ? `${describe(structureSpec(kind).cost)} · ${tools[id].key}${drawsArea(id) ? ' · Drag an area' : ''}`
+          : tools[id].hint;
   }
   c.text(
     new Rect(f32(area.x + 12), f32(f32(area.y + area.h) - 26), f32(area.w - 24), 18),
@@ -684,7 +744,7 @@ export function placementPanel(this: GameHudApp, panel: Rect): void {
       detail =
         kind !== undefined
           ? this.current.problem || `${describe(structureSpec(kind).cost)} · Tap or drag to position`
-          : this.tool === Tool.Road || this.tool === Tool.Field
+          : this.tool === Tool.Road || drawsArea(this.tool)
             ? 'Draw with one finger · Move or zoom with two'
             : 'Tap a target · Drag to move the map',
       y = panel.y + 56;
@@ -714,7 +774,7 @@ export function placementPanel(this: GameHudApp, panel: Rect): void {
         ButtonStyle.Primary,
         !!this.touchPlacement && this.current.preview.valid,
       );
-    } else if (this.tool === Tool.Field && this.outline.length) {
+    } else if (drawsArea(this.tool) && this.outline.length) {
       actionButton(c, 'placement-undo', new Rect(panel.x + 62, y, 44, 44), 'back', 'Undo point', () =>
         this.undoPoint(),
       );
@@ -757,7 +817,12 @@ export function placementPanel(this: GameHudApp, panel: Rect): void {
     true,
   );
   const kind = this.toolStructure(),
-    detail = kind !== undefined ? `${describe(structureSpec(kind).cost)} · R rotates` : tools[this.tool].hint;
+    detail =
+      kind !== undefined
+        ? `${describe(structureSpec(kind).cost)} · R rotates`
+        : this.tool === Tool.Farm
+          ? `${describe(structureSpec(Structure.Farm).cost)} · Drag an area for the farmhouse and its field`
+          : tools[this.tool].hint;
   c.text(
     new Rect(f32(panel.x + 12), f32(panel.y + 36), f32(panel.w - 24), 18),
     c.elideText(detail, f32(panel.w - 24), 11),

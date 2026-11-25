@@ -135,6 +135,7 @@ try {
             Camera,
             Cue,
             treeFallTiming,
+            harvestDuration,
             addInventory,
             workItem,
           } = probe;
@@ -209,7 +210,8 @@ try {
           let serial = 0n,
             fallEvent,
             groundWall = null;
-          for (let i = 0; i < Math.ceil((12 * 60) / rate); i++) {
+          const captureSeconds = mode === 'chop' ? 6 + harvestDuration(p) + 2 * rate : 12;
+          for (let i = 0; i < Math.ceil((captureSeconds * 60) / rate); i++) {
             const wall = (i + 1) / 60;
             if (title) town.advanceTitleAutoplay(1 / 60);
             game.render(640, 480, wall, !title);

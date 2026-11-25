@@ -1,72 +1,58 @@
 import {
-  Rect,
-  Align,
   ButtonStyle,
-  EventType,
   Key,
+  Rect,
   TextInput,
   board,
   button,
-  meter,
-  tag,
-  textField,
   rgba,
   setTransform,
+  textField,
   well,
 } from '../../../../packages/native-ui/src';
 import { Resources, Structure } from '../../../../packages/engine/src/building-catalog';
-import { Activity, callingName, type Person } from '../../../../packages/engine/src/person';
 import {
-  offeringKeys,
   defaultOffering,
-  offeringGradeOf,
-  gradeNameInSentence,
-  offeringAcceptedText,
-  refusalWord,
-  OfferingGrade,
+  maxOfferingGoods,
+  offeringBonus,
+  offeringKeys,
+  offeringStep,
+  offeringTotal,
+  residentStartingLevel,
   type OfferingKey,
 } from '../../../../packages/engine/src/prayer-offering';
 import { altarCap } from '../../../../packages/engine/src/altar-cap';
-import { canControl } from '../../../../packages/engine/src/faction';
-import { copyNative } from '../../../../packages/engine/src/native-copy';
-import { weatherName } from '../../../../packages/engine/src/climate';
 import type { Town } from '../../../../packages/engine/src/town';
-import { TownState } from '../../../../packages/engine/src/town-state';
+import type { Building } from '../../../../packages/engine/src/town-models';
+import { Cue, Sound } from '../../../../packages/native-audio/src/sound-types';
 import { OfferingScene, offeringIcon } from '../../../../packages/native-renderer/src/offering-scene';
-import { portraitBackdrop } from '../../../../packages/native-renderer/src/portrait-background';
 import { WebCanvasAdapter } from '../../../../packages/native-renderer/src/webcanvas-adapter';
-import { riteTimeline, type RiteTimeline } from '../../../../packages/native-renderer/src/offering-rite';
-import { reducedMotionPreferred } from './game-theme';
-import { riteCues, riteEnding, riteSound, type RiteCue } from './offering-rite-sound';
 import type { GameAppState } from './game-app-state';
 import type { AppEvent } from './application-contracts';
 import { hudPaint } from './hud-paint';
-import type { Building } from '../../../../packages/engine/src/town-models';
+import { renderResidentCreation, type ResidentCreationView } from './resident-creation';
+import { ResidentDraft } from './resident-draft';
+import { beginResidentArrival } from './resident-arrival';
+import { ResidentPresetPanel, renderResidentPresets } from './resident-preset-panel';
 
-const resourceNames: Record<OfferingKey, string> = {
-  water: 'Water',
-  bones: 'Bones',
-  gold: 'Gold',
-  food: 'Food',
-  stone: 'Stone',
+const resourceOrder: OfferingKey[] = ['food', 'water', 'bones', 'gold', 'stone'];
+const materials: Record<OfferingKey, { name: string; cue: Cue; take: Cue }> = {
+  food: { name: 'Food', cue: Cue.OfferFood, take: Cue.OfferTakeFood },
+  water: { name: 'Water', cue: Cue.OfferWater, take: Cue.OfferTakeWater },
+  bones: { name: 'Bones', cue: Cue.OfferBones, take: Cue.OfferTakeBones },
+  gold: { name: 'Gold', cue: Cue.OfferGold, take: Cue.OfferTakeGold },
+  stone: { name: 'Stone', cue: Cue.OfferStone, take: Cue.OfferTakeStone },
 };
-const resourceHints: Record<OfferingKey, string> = {
-  water: 'Water favors Clerics and Mages.',
-  bones: 'Bones strengthen vitality and favor Warriors.',
-  gold: 'Gold raises specialist odds; favors Mages and Bards.',
-  food: 'Food strengthens vitality and favors Rangers.',
-  stone: 'Stone raises potential level; favors Warriors and Clerics.',
-};
+const materialGain = 0.72;
+
 export function altarInspector(this: GameAppState, building: Building, panel: Rect, draw: boolean): number {
-  const h = this.viewHeight < 560 ? 118 : 148;
+  const h = 78;
   if (!draw) return h;
   const c = this.context,
     t = this.theme,
     x = panel.x + 12,
     w = panel.w - 24;
   c.text(new Rect(x, panel.y + 8, w, 24), 'Altar of Odin', t.text, 17, true);
-  c.text(new Rect(x, panel.y + 37, w, 19), 'Shape a new life from an offering.', t.muted, 12);
-  if (h > 120) c.text(new Rect(x, panel.y + 62, w, 26), 'Water · Bones · Gold · Food · Stone', t.accent, 11);
   button(
     c,
     'altar-pray',
@@ -79,27 +65,20 @@ export function altarInspector(this: GameAppState, building: Building, panel: Re
   return h;
 }
 
-export interface PrayerDialog {
+export interface PrayerDialog extends ResidentCreationView {
   town: Town;
   altar: number;
   previousPaused: boolean;
-  started: number;
-  finished: boolean;
-  committed: boolean;
-  born: Person | null;
-  /** Odin turned the gifts away at the end of the rite. */
-  refused: boolean;
+  editing: boolean;
+  presets: ResidentPresetPanel | null;
   error: string;
   offering: Resources;
   inputs: Record<OfferingKey, TextInput>;
   scene: OfferingScene;
   adapter: WebCanvasAdapter;
-  hour: string;
-  /** Set when the player offers: the beats of the rite for this offering's grade. */
-  rite: RiteTimeline | null;
-  schedule: RiteCue[];
-  heard: number;
 }
+
+type AltarApp = GameAppState & { selectPeople(ids: number[]): void };
 
 export function openPrayer(this: GameAppState, altar: number): void {
   const place = this.town.building(altar);
@@ -111,47 +90,24 @@ export function openPrayer(this: GameAppState, altar: number): void {
     place.faction !== this.town.controlFaction
   )
     return;
-  const village = this.town.settlementOf(place),
-    offering = defaultOffering(),
-    climate = copyNative(this.town.climate()),
-    people = this.town
-      .people()
-      .filter(
-        (p) =>
-          canControl(p, this.town.controlFaction) &&
-          this.town.settlementOf(p) === village &&
-          p.activity !== Activity.Expedition,
-      )
-      .slice(0, 3)
-      .map(copyNative);
-  const minutes = Math.floor(
-    ((this.town.clock() % TownState.secondsPerDay) / TownState.secondsPerDay) * 24 * 60 + 1e-7,
-  );
+  const offering = defaultOffering();
   this.prayer = {
     town: this.town,
     altar,
     previousPaused: this.paused,
-    started: -1,
-    finished: false,
-    committed: false,
-    born: null,
-    refused: false,
+    editing: false,
+    presets: null,
     error: '',
     offering,
     inputs: Object.fromEntries(
       offeringKeys.map((key) => [key, new TextInput(offering[key] ? String(offering[key]) : '')]),
     ) as Record<OfferingKey, TextInput>,
-    scene: new OfferingScene(
-      climate,
-      people,
-      portraitBackdrop(this.town.map(), place.center, climate),
-      reducedMotionPreferred(),
-    ),
+    draft: new ResidentDraft(this.town, place.center),
+    appearanceTab: 'hair',
+    mixedColor: null,
+    stylePicker: null,
+    scene: new OfferingScene(),
     adapter: new WebCanvasAdapter(this.context.tvg),
-    hour: `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`,
-    rite: null,
-    schedule: [],
-    heard: 0,
   };
   this.paused = true;
   this.pan.x = this.pan.y = 0;
@@ -160,112 +116,120 @@ export function openPrayer(this: GameAppState, altar: number): void {
 
 export function closePrayer(this: GameAppState): void {
   const state = this.prayer;
-  if (!state || (state.started >= 0 && !state.finished)) return;
+  if (!state) return;
   this.prayer = null;
   this.paused = state.previousPaused;
-  // Context.end first detaches the borrowed scene from the previous modal frame.
+  // The previous frame borrows the stage paint until Context.end detaches it.
   this.context.deferRelease(() => state.adapter.dispose());
 }
 
-/** Consume the entire input stream while modal: shortcuts and map orders cannot unpause or alter the rite. */
 export function handlePrayerEvent(this: GameAppState, event: AppEvent): boolean {
-  if (!this.prayer) return false;
+  const state = this.prayer;
+  if (!state) return false;
   const c = this.context;
   if (event.type === 'PointerMove') c.pointerMove(event.x, event.y);
   else if (event.type === 'PointerDown' && event.button === 1) c.pointerDown(event.x, event.y);
-  else if (event.type === 'PointerUp' && event.button === 1) c.pointerUp(event.x, event.y);
-  else if (event.type === 'PointerCancel') c.cancelPointer();
+  else if (event.type === 'PointerUp' && event.button === 1) {
+    c.pointerUp(event.x, event.y);
+    if (event.pointerType === 'touch') c.setPointerPosition(-1, -1);
+  } else if (event.type === 'PointerCancel') c.cancelPointer();
   else if (event.type === 'KeyDown') c.key(event.key, event.shift);
-  else if (event.type === 'Text' && /^[0-9]+$/.test(event.text) && event.text.length <= 4)
-    c.textInput(event.text);
+  else if (event.type === 'Text') {
+    if (state.presets) {
+      const panel = state.presets;
+      const id = c.focused();
+      if (id === 'prayer-preset-name' && panel.tab === 'saved') c.textInput(event.text);
+      if (id === 'prayer-code-input' && panel.tab === 'code') {
+        const value = event.text.trim();
+        // A whole code pasted from the keyboard replaces the previous entry just like the Paste button.
+        if (value.length <= 128 && /^MG\d+-/i.test(value)) {
+          panel.input.value = value;
+          panel.input.cursor = panel.input.byteLength();
+        } else if (panel.input.value.length + value.length <= 128) c.textInput(value);
+        else panel.message('Invalid appearance code.', true);
+      }
+    } else if (state.editing && c.focused() === 'prayer-name') {
+      const clean = event.text.replace(/[\u0000-\u001f\u007f]/gu, '');
+      if (state.draft.name.byteLength() + new TextEncoder().encode(clean).length <= 96) c.textInput(clean);
+    } else if (!state.editing && /^\d+$/.test(event.text) && event.text.length <= 4) {
+      const key = offeringKeys.find((key) => c.focused() === `offering-${key}`);
+      if (key) {
+        c.textInput(event.text);
+        updateOfferingAmount(this, state, key);
+      }
+    }
+  }
   return true;
 }
 
-export function renderPrayer(this: GameAppState, width: number, height: number): void {
-  const state = this.prayer;
-  if (!state) return;
-  if (state.town !== this.town) {
-    state.finished = true;
-    closePrayer.call(this);
+function readOffering(state: PrayerDialog): void {
+  for (const key of offeringKeys) {
+    const input = state.inputs[key];
+    if (input.value.length > 4) {
+      input.value = input.value.slice(0, 4);
+      input.cursor = input.byteLength();
+    }
+    state.offering[key] = Number(input.value || 0);
+  }
+}
+
+function updateOfferingAmount(app: GameAppState, state: PrayerDialog, key: OfferingKey): void {
+  const previous = state.offering[key];
+  readOffering(state);
+  const amount = state.offering[key];
+  if (amount === previous || offeringTotal(state.offering) > maxOfferingGoods) return;
+  const altar = state.town.building(state.altar);
+  if (!altar || amount > state.town.stock(state.town.settlementOf(altar))[key]) return;
+  const material = materials[key];
+  const sound = amount < previous ? new Sound(material.take, 0.58) : new Sound(material.cue, materialGain);
+  if (amount < previous) sound.pitch = 1.12;
+  app.cues.push(sound);
+}
+
+function creationProblem(state: PrayerDialog): string {
+  return (
+    state.town.altarOfferingReason(state.altar, state.offering) ||
+    (state.draft.name.value.trim() ? '' : 'Give your resident a name.')
+  );
+}
+
+function createResident(app: AltarApp, state: PrayerDialog): void {
+  if (app.prayer !== state || app.town !== state.town || state.presets) return;
+  // Text, button activation and keyboard repeats can arrive before the next draw.
+  readOffering(state);
+  if (creationProblem(state)) return;
+  const { born } = app.town.offerAtAltar(state.altar, state.offering, state.draft.identity());
+  if (!born) {
+    state.error = 'The offering could not be completed. No resources were consumed.';
     return;
   }
-  const c = this.context,
-    t = this.theme,
-    now = c.time();
-  for (const key of offeringKeys)
-    if (state.started < 0) {
-      const input = state.inputs[key];
-      if (input.value.length > 4) {
-        input.value = input.value.slice(0, 4);
-        input.cursor = input.byteLength();
-      }
-      state.offering[key] = input.value === '' ? 0 : Number(input.value);
-    }
-  const elapsed = state.started < 0 ? -1 : Math.max(0, now - state.started);
-  const rite = state.rite;
-  while (
-    rite &&
-    elapsed >= 0 &&
-    state.heard < state.schedule.length &&
-    state.schedule[state.heard].at <= elapsed
-  )
-    this.cues.push(riteSound(state.schedule[state.heard++]));
-  if (rite && elapsed >= rite.release && !state.committed) {
-    state.committed = true;
-    state.error = this.town.altarOfferingReason(state.altar, state.offering);
-    if (!state.error) {
-      const result = this.town.offerAtAltar(state.altar, state.offering);
-      state.born = result.born;
-      state.refused = result.refused;
-    }
-    state.schedule.push(...riteEnding(rite, state.refused));
-    if (!state.born && !state.refused)
-      state.error ||= 'The offering could not be completed. No resources were consumed.';
+  closePrayer.call(app);
+  app.selectPeople([born.id]);
+  // The altar introduces this resident; their selection voice belongs to a later player click.
+  app.heardChosen = [born.id];
+  beginResidentArrival(app, born);
+  // One sound per material in the paid offering, with time for each impact before the rune rings.
+  let delay = 0;
+  for (const key of resourceOrder) {
+    if (state.offering[key] <= 0) continue;
+    const sound = new Sound(materials[key].cue, materialGain);
+    sound.delay = delay;
+    app.cues.push(sound);
+    delay += 0.16;
   }
-  state.finished = !!rite && elapsed >= rite.end;
-  c.modal(state.started < 0 ? 'offering-food' : 'prayer-return', () => closePrayer.call(this));
-  c.control(
-    'prayer-backdrop',
-    new Rect(0, 0, width, height),
-    (event) => {
-      if (event.type === EventType.Activate) closePrayer.call(this);
-    },
-    true,
-    false,
-  );
-  c.rect(new Rect(0, 0, width, height), rgba(14, 12, 28, 200));
-  const w = Math.min(1000, width - 24),
-    h = Math.min(690, height - 24),
-    panel = new Rect((width - w) / 2, (height - h) / 2, w, h),
-    wide = w >= 720 || (w >= 550 && h < 480),
-    short = h < 490,
-    header = short ? 42 : 56,
-    footer = short ? 46 : 64;
-  c.control('prayer-panel', panel, undefined, true, false);
-  board(c, panel, { header: header - 6 });
-  c.text(
-    new Rect(panel.x + 18, panel.y + (short ? 7 : 8), w - 36, 24),
-    'An offering to Odin',
-    t.accent,
-    short ? 15 : 19,
-    true,
-  );
-  if (!short)
-    c.text(
-      new Rect(panel.x + 18, panel.y + 33, w - 36, 17),
-      `${state.hour} · ${weatherName(state.scene.climate.weather)} · Settlement paused`,
-      t.muted,
-      11,
-    );
-  const bodyH = h - header - footer,
-    sceneW = wide ? Math.max(220, w * 0.59 - 22) : w - 28,
-    sceneH = wide ? bodyH : Math.min(240, bodyH * 0.46),
-    stage = new Rect(panel.x + 14, panel.y + header, sceneW, sceneH),
-    form = wide
-      ? new Rect(stage.x + sceneW + 18, stage.y, w - sceneW - 46, bodyH)
-      : new Rect(panel.x + 14, stage.y + sceneH + 8, w - 28, bodyH - sceneH - 8);
-  state.scene.update(stage.w, stage.h, now, elapsed, state.offering, state.born, state.refused);
-  well(c, new Rect(stage.x - 2, stage.y - 2, stage.w + 4, stage.h + 4), undefined, { rim: t.border, cut: 0 });
+  const accepted = new Sound(Cue.OfferAccepted, 0.7);
+  // Let the rune ring as the resident emerges, after the last material has landed.
+  accepted.delay = Math.max(0.48, delay);
+  app.cues.push(accepted);
+}
+
+function showMaterials(app: GameAppState, state: PrayerDialog, stage: Rect): void {
+  const c = app.context;
+  state.scene.update(stage.w, stage.h, state.offering);
+  well(c, new Rect(stage.x - 2, stage.y - 2, stage.w + 4, stage.h + 4), undefined, {
+    rim: app.theme.border,
+    cut: 0,
+  });
   c.clip(stage, () => {
     const paint = state.adapter.sync(state.scene.root);
     setTransform(paint, {
@@ -282,226 +246,239 @@ export function renderPrayer(this: GameAppState, width: number, height: number):
     c.add(paint);
     state.adapter.collect([state.scene.root]);
   });
-  const reading = offeringGradeOf(
-      state.offering,
-      this.town.stock(this.town.settlementOf(this.town.building(state.altar)!)),
-    ),
-    reason = state.started < 0 ? this.town.altarOfferingReason(state.altar, state.offering) : state.error,
-    text = (y: number, value: string, color = t.text, size = 12, bold = false) =>
-      c.text(new Rect(form.x, y, form.w, 22), c.elideText(value, form.w, size, bold), color, size, bold);
-  if (state.started < 0) {
-    let hint = '';
-    const stock = this.town.stock(this.town.settlementOf(this.town.building(state.altar)!)),
-      rowH = Math.min(wide ? 52 : 36, Math.max(25, (form.h - (wide && !short ? 128 : short ? 50 : 84)) / 5));
-    offeringKeys.forEach((key, i) => {
-      const y = form.y + rowH * i,
-        iconSize = Math.min(30, rowH - 4);
-      c.paint(JSON.stringify(['offering-icon', key, form.x, y, iconSize]), () => {
-        const node = offeringIcon(key),
-          scale = iconSize / 30;
-        node.transform([scale, 0, form.x + iconSize / 2, 0, scale, y + rowH / 2, 0, 0, 1]);
-        return hudPaint(c, node);
-      });
-      const controlsX = form.x + form.w - 132,
-        labelX = form.x + iconSize + 7;
-      const info = c.control(
-        'offering-info-' + key,
-        new Rect(form.x, y, controlsX - form.x - 3, rowH),
-        undefined,
-        true,
-        false,
-      );
-      if (info.hovered) {
-        hint = resourceHints[key];
-        c.rect(new Rect(labelX - 3, y + 1, Math.max(1, controlsX - labelX - 4), rowH - 2), { ...t.raised, a: 150 }, 3);
-      }
-      c.text(
-        new Rect(labelX, y, Math.max(25, controlsX - labelX - 4), rowH * 0.55),
-        resourceNames[key],
-        t.text,
-        12,
-        true,
-      );
-      c.text(
-        new Rect(labelX, y + rowH * 0.5, Math.max(25, controlsX - labelX - 4), rowH * 0.45),
-        `${stock[key]} available`,
-        t.muted,
-        10,
-      );
-      const step = (delta: number) => {
-        const next = Math.max(0, Math.min(9999, stock[key], Number(state.inputs[key].value || 0) + delta));
-        state.inputs[key].value = String(next);
-        state.inputs[key].cursor = state.inputs[key].byteLength();
-      };
-      button(
-        c,
-        `offering-less-${key}`,
-        new Rect(controlsX, y + 2, 25, rowH - 4),
-        '−',
-        () => step(-1),
-        ButtonStyle.Quiet,
-        state.offering[key] > 0,
-      );
-      textField(
-        c,
-        `offering-${key}`,
-        new Rect(controlsX + 28, y + 2, 44, rowH - 4),
-        state.inputs[key],
-        '0',
-        true,
-        undefined,
-        undefined,
-        { fontSize: 12 },
-      );
-      button(
-        c,
-        `offering-more-${key}`,
-        new Rect(controlsX + 75, y + 2, 25, rowH - 4),
-        '+',
-        () => step(1),
-        ButtonStyle.Quiet,
-        state.offering[key] < Math.min(9999, stock[key]),
-      );
-      button(
-        c,
-        `offering-more10-${key}`,
-        new Rect(controlsX + 103, y + 2, 29, rowH - 4),
-        '+10',
-        () => step(10),
-        ButtonStyle.Quiet,
-        state.offering[key] < Math.min(9999, stock[key]),
-        undefined,
-        false,
-        { fontSize: 10 },
-      );
-    });
-    const y = form.y + rowH * 5 + 5;
-    const people = this.town.population(),
-      cap = altarCap(this.town),
-      lines: [string, typeof t.text, boolean][] = [
-        [`${reading.name} offering`, t.accent, true],
-        [reading.line, t.text, false],
-        [
-          reading.favoured === null
-            ? 'No calling is favoured yet.'
-            : `Leans toward ${callingName(reading.favoured)}s.`,
-          t.muted,
-          false,
-        ],
-        [refusalWord(reading.grade), t.muted, false],
-        [nextGradeLine(reading), t.muted, false],
-        [
-          `Odin sends up to ${cap} residents; ${people} live here.`,
-          people >= cap ? t.danger : t.muted,
-          false,
-        ],
-      ];
-    const shown =
-      wide && !short ? lines : short ? [lines[0], lines[5]] : [lines[0], lines[1], lines[3], lines[5]];
-    shown.forEach(([value, color, bold], i) =>
-      text(y + i * (i ? 19 : 22) + (i ? 3 : 0), value, color, i ? 11 : wide ? 15 : 13, bold),
-    );
-    if (hint) {
-      const tip = new Rect(stage.x + 6, stage.y + stage.h - 26, stage.w - 12, 22);
-      tag(c, tip, { lip: 1 });
-      c.text(tip.inset(5), c.elideText(hint, tip.w - 10, 10), t.ink, 10);
-    }
-  } else {
-    const title = state.error
-      ? 'The rite could not be completed'
-      : !rite || elapsed < rite.bows[0]
-        ? 'Lay the offering before Odin'
-        : elapsed < rite.answer
-          ? 'A prayer for a new life'
-          : elapsed < rite.release
-            ? 'Odin answers'
-            : state.refused
-              ? 'Odin turns the offering away'
-              : state.born
-                ? `${state.born.name} has joined`
-                : 'A new life awakens';
-    text(form.y + 12, title, state.error ? t.danger : t.accent, wide ? 17 : 14, true);
-    if (state.born && rite) {
-      text(form.y + 46, offeringAcceptedText(rite.grade), t.muted, 12);
-      text(form.y + 74, `${callingName(state.born.calling)} · Level ${state.born.level}`, t.text, 15, true);
-      text(form.y + 100, 'Arrives without equipment', t.muted, 12);
-    } else if (state.refused) {
-      text(form.y + 46, 'The offering was refused. The gifts are gone.', t.muted, 12);
-      text(form.y + 74, 'No one came.', t.text, 15, true);
-    } else {
-      text(form.y + 45, 'The offerings become a resident.', t.muted);
-      if (wide) text(form.y + 70, 'Time stands still for the settlement.', t.muted, 11);
-    }
-    if (wide)
-      offeringKeys
-        .filter((key) => state.offering[key] > 0)
-        .forEach((key, i) =>
-          text(form.y + 150 + i * 24, `${resourceNames[key]}  ${state.offering[key]}`, t.muted, 12),
-        );
-    const progress = rite ? Math.max(0, Math.min(1, elapsed / rite.end)) : 0;
-    meter(c, new Rect(form.x, form.y + form.h - 11, form.w, 6), progress, t.accent);
-  }
-  const bottom = panel.y + h - footer;
-  if (state.started < 0) {
-    const note = reason || 'Food & bones strengthen life. Other offerings shape aptitude and calling.';
-    c.text(
-      new Rect(panel.x + 16, bottom + 3, w - 32, short ? 14 : 18),
-      c.elideText(note, w - 32, 11),
-      reason ? t.danger : t.muted,
-      11,
-    );
-    button(
-      c,
-      'prayer-confirm',
-      new Rect(panel.x + 16, bottom + (short ? 18 : 26), w - 32, short ? 25 : 30),
-      'Offer & pray',
-      () => {
-        const gift = new Resources();
-        for (const key of offeringKeys) gift[key] = Number(state.inputs[key].value || 0);
-        const blocked = this.town.altarOfferingReason(state.altar, gift);
-        if (blocked) {
-          state.error = blocked;
-          return;
-        }
-        state.started = c.time();
-        state.offering = gift;
-        state.error = '';
-        const keys = offeringKeys.filter((key) => gift[key] > 0),
-          rite = riteTimeline(offeringGradeOf(gift).grade, keys.length, state.scene.worshipperCount);
-        state.rite = rite;
-        state.schedule = riteCues(rite, keys, state.scene.worshipperCount);
-        state.heard = 0;
-        state.scene.begin(rite);
-      },
-      ButtonStyle.Primary,
-      !reason,
-    );
-  } else if (state.finished) {
-    button(
-      c,
-      'prayer-return',
-      new Rect(panel.x + 16, bottom + 14, w - 32, 30),
-      'Return to settlement',
-      () => closePrayer.call(this),
-      ButtonStyle.Primary,
-    );
-  } else
-    c.text(
-      new Rect(panel.x + 16, bottom + 12, w - 32, 26),
-      'The rite is in progress',
-      t.muted,
-      12,
-      false,
-      Align.Center,
-    );
-  // Frozen game time must not freeze prayer, weather particles or modal feedback.
-  c.requestAnimationFrame();
 }
 
-function nextGradeLine(reading: ReturnType<typeof offeringGradeOf>): string {
-  if (reading.next)
-    return `Lay more ${reading.next.resource} to reach a ${gradeNameInSentence(reading.next.grade)} offering.`;
-  return reading.grade === OfferingGrade.Kingly
-    ? 'No offering could be greater.'
-    : 'The stores hold too little to raise it further.';
+function materialRows(app: GameAppState, state: PrayerDialog, area: Rect, stock: Resources): void {
+  const c = app.context,
+    t = app.theme,
+    rowH = Math.min(57, area.h / resourceOrder.length);
+  for (const [index, key] of resourceOrder.entries()) {
+    const y = area.y + index * rowH,
+      h = Math.min(38, rowH - 3),
+      mid = y + rowH / 2,
+      iconSize = Math.min(34, rowH - 4),
+      controls = Math.min(158, area.w * 0.5),
+      x = area.x + area.w - controls,
+      nameX = area.x + iconSize + 5,
+      labelW = x - nameX - 2;
+    c.paint(JSON.stringify(['offering-icon', key, area.x, mid, iconSize]), () => {
+      const node = offeringIcon(key),
+        scale = iconSize / 30;
+      node.transform([scale, 0, area.x + iconSize / 2, 0, scale, mid, 0, 0, 1]);
+      return hudPaint(c, node);
+    });
+    c.text(new Rect(nameX, y, labelW, rowH * 0.53), materials[key].name, t.text, 13, true);
+    c.text(new Rect(nameX, y + rowH * 0.5, labelW, rowH * 0.45), `${stock[key]} available`, t.muted, 11);
+    const input = state.inputs[key],
+      total = offeringTotal(state.offering),
+      limit = Math.max(0, Math.min(stock[key], maxOfferingGoods - total + state.offering[key]));
+    const step = (delta: number) => {
+      readOffering(state);
+      const amount = state.offering[key],
+        room = maxOfferingGoods - offeringTotal(state.offering);
+      const next =
+        delta < 0
+          ? Math.max(0, amount + delta)
+          : amount + Math.max(0, Math.min(delta, stock[key] - amount, room));
+      input.value = String(next);
+      input.cursor = input.byteLength();
+      updateOfferingAmount(app, state, key);
+      state.error = '';
+    };
+    const part = (controls - 9) / 4,
+      at = (i: number) => new Rect(x + i * (part + 3), mid - h / 2, part, h);
+    button(c, `offering-less-${key}`, at(0), '−', () => step(-1), ButtonStyle.Quiet, state.offering[key] > 0);
+    textField(c, `offering-${key}`, at(1), input, '0', true, (pressed) => {
+      if (pressed !== Key.Backspace && pressed !== Key.Delete) return false;
+      input.edit(pressed);
+      updateOfferingAmount(app, state, key);
+      return true;
+    }, undefined, { fontSize: 12 });
+    button(
+      c,
+      `offering-more-${key}`,
+      at(2),
+      '+',
+      () => step(1),
+      ButtonStyle.Quiet,
+      state.offering[key] < limit,
+    );
+    button(
+      c,
+      `offering-bundle-${key}`,
+      at(3),
+      `+${offeringStep}`,
+      () => step(offeringStep),
+      ButtonStyle.Quiet,
+      state.offering[key] + offeringStep <= limit,
+    );
+  }
+}
+
+export function renderPrayer(this: AltarApp, width: number, height: number): void {
+  const state = this.prayer;
+  if (!state) return;
+  const altar = this.town.building(state.altar);
+  if (state.town !== this.town || !altar) {
+    closePrayer.call(this);
+    return;
+  }
+  const c = this.context,
+    t = this.theme;
+  readOffering(state);
+  const switchEditor = (editing: boolean) => {
+    if (this.prayer !== state) return;
+    state.editing = editing;
+    state.mixedColor = null;
+    state.stylePicker = null;
+    c.focus(editing ? 'prayer-look-random' : 'prayer-customize');
+  };
+  const depart = () => {
+    if (this.prayer !== state) return;
+    if (state.presets) {
+      if (state.presets.removing) {
+        state.presets.removing = null;
+        c.focus('prayer-presets-saved');
+      } else {
+        state.presets = null;
+        c.focus('prayer-presets');
+      }
+      return;
+    }
+    if (state.editing) {
+      if (state.mixedColor || state.stylePicker) {
+        c.focus(state.mixedColor ? 'prayer-' + state.mixedColor + '-mix' : 'prayer-' + state.stylePicker!.id + '-pick');
+        state.mixedColor = null;
+        state.stylePicker = null;
+        return;
+      }
+      switchEditor(false);
+      return;
+    }
+    closePrayer.call(this);
+  };
+  c.modal('prayer-customize', depart);
+  c.control('prayer-backdrop', new Rect(0, 0, width, height), undefined, true, false);
+  c.rect(new Rect(0, 0, width, height), rgba(14, 12, 28, 200));
+  const margin = width < 440 || height < 440 ? 6 : 14,
+    w = Math.min(870, width - margin * 2),
+    preferredH = w >= 636 ? (state.editing ? 530 : 475) : 680,
+    h = Math.min(preferredH, height - margin * 2),
+    panel = new Rect((width - w) / 2, (height - h) / 2, w, h),
+    pad = w < 400 ? 12 : 18,
+    x = panel.x + pad,
+    innerW = w - pad * 2,
+    short = h < 460,
+    header = short ? 38 : 52,
+    footer = short ? 60 : 74,
+    body = new Rect(x, panel.y + header, innerW, h - header - footer - 4),
+    footY = panel.y + h - footer,
+    buttonY = footY + (short ? 20 : 26),
+    buttonH = short ? 31 : 38;
+  c.control('prayer-panel', panel, undefined, true, false);
+  board(c, panel, { header: header - 5 });
+  const title = state.presets ? 'Appearance presets' : state.editing ? 'Customize resident' : 'An offering to Odin';
+  c.text(new Rect(x, panel.y + 4, innerW - 90, header - 9), title, t.accent, short ? 16 : 20, true);
+  if (state.editing && !state.presets)
+    button(
+      c,
+      'prayer-presets',
+      new Rect(panel.x + w - pad - 84, panel.y + 4, 84, header - 10),
+      'Presets',
+      () => {
+        state.presets = new ResidentPresetPanel(state.draft);
+        c.focus('prayer-presets-saved');
+      },
+      ButtonStyle.Default,
+    );
+  if (!state.editing)
+    button(
+      c,
+      'prayer-cancel',
+      new Rect(panel.x + w - pad - 67, panel.y + 5, 67, header - 14),
+      'Cancel',
+      depart,
+      ButtonStyle.Quiet,
+    );
+  if (state.presets) {
+    renderResidentPresets(this, state.presets, body);
+    const status = state.presets.notice ||
+      (state.presets.tab === 'saved' ? 'Saved looks stay in this browser.' : '');
+    if (status)
+      c.text(
+        new Rect(x, footY, innerW, short ? 18 : 23),
+        c.elideText(status, innerW, 12),
+        state.presets.error ? t.danger : t.muted, 12,
+      );
+    button(
+      c,
+      'prayer-presets-back',
+      new Rect(x, buttonY, innerW, buttonH),
+      'Back to customization',
+      () => {
+        state.presets = null;
+        c.focus('prayer-presets');
+      },
+      ButtonStyle.Quiet,
+    );
+    return;
+  }
+  if (state.editing) renderResidentCreation(this, state, body);
+  else {
+    const wide = body.w >= 590,
+      colW = wide ? body.w * 0.53 : body.w,
+      stageH = wide ? body.h - 50 : Math.min(colW / 2.08, body.h * 0.34),
+      stage = new Rect(body.x, body.y + 2, colW, stageH);
+    showMaterials(this, state, stage);
+    const readY = stage.y + stage.h + 8,
+      available = this.town.stock(this.town.settlementOf(altar));
+    const bonus = offeringBonus(state.offering),
+      summaryH = 44,
+      rows = wide
+        ? new Rect(stage.x + colW + 18, body.y, body.w - colW - 18, body.h)
+        : new Rect(body.x, readY + summaryH, body.w, Math.max(5, body.y + body.h - readY - summaryH));
+    c.text(
+      new Rect(stage.x, readY, colW, 19),
+      `Settler · Level ${residentStartingLevel(this.town)}`,
+      t.text,
+      14,
+      true,
+    );
+    const stats =
+      bonus === 0
+        ? '1 random stat point'
+        : bonus === 1
+          ? '1 base point · 1 extra point'
+          : `1 base point · ${bonus} extra points`;
+    c.text(new Rect(stage.x, readY + 22, colW, 18), stats, t.accent, 12, true);
+    materialRows(this, state, rows, available);
+    if (wide && rows.h > 315)
+      c.text(
+        new Rect(rows.x, rows.y + 292, rows.w, 20),
+        `Residents: ${this.town.population()} / ${altarCap(this.town)}`,
+        t.muted,
+        11,
+      );
+  }
+  const reason = creationProblem(state) || state.error;
+  if (reason)
+    c.text(new Rect(x, footY, innerW, short ? 18 : 23), c.elideText(reason, innerW, 11), t.danger, 11);
+  const half = (innerW - 8) / 2;
+  button(
+    c,
+    state.editing ? 'prayer-back' : 'prayer-customize',
+    new Rect(x, buttonY, half, buttonH),
+    state.editing ? 'Back to offering' : 'Customize resident',
+    () => switchEditor(!state.editing),
+    ButtonStyle.Quiet,
+  );
+  button(
+    c,
+    'prayer-confirm',
+    new Rect(x + half + 8, buttonY, half, buttonH),
+    'Create resident',
+    () => createResident(this, state),
+    ButtonStyle.Primary,
+    !creationProblem(state),
+  );
 }

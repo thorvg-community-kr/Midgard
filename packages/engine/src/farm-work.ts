@@ -19,9 +19,9 @@ export const tillSecondsPerAcre = 2.5;
 export function fieldWork(town: Town, person: Person): readonly WorkKind[] {
   if (farmWorkPhase(person, town.time, town.farmland) === 1) return ['watering'];
   const field = town.farmland.find((item) => item.id === person.workField);
-  if (field && field.tilled < 1) return ['farming', 'digging'];
+  if (field && field.tilled < 1) return ['digging', 'farming'];
   const season = town.calendar().season;
-  return season === Season.Summer || season === Season.Autumn ? ['farming', 'reaping'] : ['farming'];
+  return season === Season.Summer || season === Season.Autumn ? ['reaping', 'farming'] : ['farming'];
 }
 export const fieldEfficiency = (town: Town, person: Person): number =>
   taskEfficiency(person, fieldWork(town, person));

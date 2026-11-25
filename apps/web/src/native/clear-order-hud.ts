@@ -51,20 +51,20 @@ export function clearRows(app: GameHudApp, target: ClearTarget, out: InspectorRo
   const c = app.context,
     t = app.theme,
     town = app.town,
-    { left, inner, top } = out,
+    { left, inner } = out,
     height = app.touchMode ? 44 : 28,
     width = Math.min(inner, app.touchMode ? 180 : 150),
     line = (text: string, color: typeof t.text) => {
       for (const words of wrapText(c, text, inner, 12, 2)) {
         const at = out.y;
-        out.rows.push(() => c.text(new Rect(left, f32(top + at), inner, 20), words, color, 12));
+        out.rows.push(() => c.text(new Rect(left, f32(out.top + at), inner, 20), words, color, 12));
         out.y = f32(out.y + 21);
       }
     },
     place = (id: string, label: string, run: () => void, enabled = true) => {
       const at = out.y;
       out.rows.push(() =>
-        button(c, id, new Rect(left, f32(f32(top + at) + 2), width, height), label, run, ButtonStyle.Quiet, enabled),
+        button(c, id, new Rect(left, f32(f32(out.top + at) + 2), width, height), label, run, ButtonStyle.Quiet, enabled),
       );
       out.y = f32(out.y + height + 8);
     };

@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { Town } from '../../packages/engine/src/town';
 import { WorldMap } from '../../packages/engine/src/world-map';
 import { Layer, Terrain, makeTile } from '../../packages/engine/src/world-types';
-import { Activity, Person, Role, Calling, Race } from '../../packages/engine/src/person';
+import { Activity, AnimalKind, Monster, Person, Role, Calling, Race } from '../../packages/engine/src/person';
 import { Building } from '../../packages/engine/src/town-models';
 import { Resources, Structure, Product } from '../../packages/engine/src/building-catalog';
 import { point, distance } from '../../packages/engine/src/geometry';
 import { sharpAnchor } from '../../packages/engine/src/road-network';
 import { addInventory } from '../../packages/engine/src/equipment';
+import { decodeTown, encodeTown } from '../../packages/engine/src/save-game';
 import {
   heldAmount,
   packAmount,
@@ -120,6 +121,42 @@ describe('resources stay with the people who gathered them', () => {
     expect(town.eat(p)).toBe(true);
     expect(p.food).toBe(1);
     expect(packAmount(p, Product.Food)).toBe(1);
+    expect(p.activity).toBe(Activity.Eating);
+    expect(p.moving()).toBe(false);
+    expect(p.target).toBe(-1);
+    const until = p.until;
+    for (let i = 0; i < 5; i++) {
+      town.advance(0.1);
+      expect(p.activity).toBe(Activity.Eating);
+      expect(p.until).toBe(until);
+    }
+    expect(packAmount(p, Product.Food)).toBe(1);
+    const restored = decodeTown(encodeTown(town), (map) => new Town(map, 64, false, true)),
+      diner = restored.person(p.id)!;
+    expect(diner.activity).toBe(Activity.Eating);
+    expect(diner.until - restored.clock()).toBeCloseTo(until - town.clock(), 4);
+    run(restored, 3);
+    expect(diner.activity).not.toBe(Activity.Eating);
+    expect(packAmount(diner, Product.Food)).toBe(1);
+  });
+  it('takes a meal from a hunt, keeps the surplus and can leave the meal on orders', () => {
+    const { town, people: [hunter] } = fixture();
+    const prey = new Monster(town.nextMonster++, -1, { ...hunter.position });
+    prey.animal = AnimalKind.Pig;
+    prey.health = 0;
+    prey.provokedBy = hunter.id;
+    town.animals.push(prey);
+    hunter.foe = prey.id;
+    hunter.hunting = true;
+    hunter.food = 0.1;
+    const eaten = town.economy(0).today.eaten;
+    town.stirWildlife(0.1);
+    expect(hunter.activity).toBe(Activity.Eating);
+    expect(hunter.food).toBe(1);
+    expect(hunter.carrying).toBeGreaterThan(0);
+    expect(town.economy(0).today.eaten).toBe(eaten + 1);
+    town.orderMove([hunter.id], point(18, 16));
+    expect(hunter.activity).toBe(Activity.Moving);
   });
 });
 
@@ -178,9 +215,13 @@ describe('construction supply', () => {
     carrier.position = point(20, 15);
     town.setAuto(carrier.id, false);
     expect(town.orderBuild([builder.id], target.id)).toBe(true);
-    let met = false;
-    run(town, 120, () => target.built(), () => (met ||= builder.giver === carrier.id));
+    let met = false, passed = false;
+    run(town, 120, () => target.built(), () => {
+      met ||= builder.giver === carrier.id;
+      passed ||= !!builder.transfer?.taking && carrier.transfer?.at === builder.transfer.at && !carrier.transfer.taking;
+    });
     expect(met).toBe(true);
+    expect(passed).toBe(true);
     expect(target.built()).toBe(true);
     expect(packAmount(carrier, Product.Wood)).toBe(4);
     expect(town.stock().wood).toBe(100);
@@ -252,7 +293,7 @@ describe('construction supply', () => {
     expect(gatherers.size).toBe(3);
     expect(idleWaits).toBeLessThan(40);
   });
-  it('clears the whole way first, then lays the road in one unbroken walk', () => {
+  it('lays up to each tree on the way and fells it there, never walking back along the road', () => {
     const { town, people } = fixture(),
       p = people[0];
     for (const x of [20, 24, 28]) town.map().at(x, 12).trees = 1;
@@ -261,38 +302,24 @@ describe('construction supply', () => {
     const road = town.roads().roads()[0],
       trees = () => [20, 24, 28].reduce((sum, x) => sum + town.map().at(x, 12).trees, 0);
     expect(town.orderRoadwork([p.id], road.id)).toBe(true);
-    let furthest = 0,
-      retreatWhileLaying = 0,
-      interruptions = 0,
-      turnsBack = 0,
-      heading = 0,
-      before = p.position.x,
-      laying = false;
+    let furthest = 13.2,
+      retreat = 0,
+      laidAtFirstTree = -1;
     run(town, 900, () => road.built >= 1, () => {
-      const step = p.position.x - before;
-      if (Math.abs(step) > 0.01) {
-        const now = Math.sign(step);
-        if (now < 0 && heading > 0) ++turnsBack;
-        heading = now;
-      }
-      before = p.position.x;
-      if (road.built > 0.02) {
-        if (!laying) furthest = p.position.x;
-        laying = true;
-        // Nothing is left to clear once laying has begun.
-        expect(trees()).toBe(0);
-        if (p.activity !== Activity.Roadwork) ++interruptions;
-        furthest = Math.max(furthest, p.position.x);
-        retreatWhileLaying = Math.max(retreatWhileLaying, furthest - p.position.x);
-      }
+      if (laidAtFirstTree < 0 && trees() < 3) laidAtFirstTree = road.built * road.length();
+      // Measured once the road is begun: the walk to its start from wherever the worker stood is not a step back.
+      if (road.built <= 0) return;
+      furthest = Math.max(furthest, p.position.x);
+      retreat = Math.max(retreat, furthest - p.position.x);
     });
     expect(road.built).toBe(1);
     expect(trees()).toBe(0);
-    // One walk back from the last tree to the start; each felled tree used to cost a
-    // trip to the camp, and later a trip ahead and back.
-    expect(turnsBack).toBe(1);
-    expect(interruptions).toBe(0);
-    expect(retreatWhileLaying).toBeLessThan(0.5);
+    // The road had reached the first tree before it fell: nobody walked ahead to clear the way first.
+    expect(laidAtFirstTree).toBeGreaterThan(4);
+    // No step back at all: the tree is felled from the front's side and the road laid on from there. Each tree
+    // used to cost a trip to the camp, later a trip ahead and back, then one walk back from the last tree to
+    // the start, and last a step of a tile back to the front.
+    expect(retreat).toBeLessThan(0.3);
     expect(heldAmount(p, Product.Wood)).toBe(9);
     expect(town.stock().wood).toBe(0);
   });

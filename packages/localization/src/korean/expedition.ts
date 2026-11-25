@@ -2,11 +2,24 @@ import type { Phrases } from '../phrases';
 
 /** The expedition window: choosing a party at a gate and sending it through. */
 export const expeditionPhrases: Phrases = {
+  'Dormant gate': '닫힌 관문',
+  '{0} has opened': '관문 개방 · {0}',
+  'A pack from {0} will raid Camp #{1} tonight': '오늘 밤 {0}의 몬스터 무리가 캠프 #{1}을 습격합니다',
+  'A horde from {0} will raid Camp #{1} tonight': '오늘 밤 {0}의 대규모 무리가 캠프 #{1}을 습격합니다',
+  'Brutes from {0} will raid Camp #{1} tonight': '오늘 밤 {0}의 거한들이 캠프 #{1}을 습격합니다',
+  'One wing from {0} will raid Camp #{1} tonight': '오늘 밤 협공에 나선 {0}의 습격대가 캠프 #{1}을 노립니다',
+  'Raiders from {0} march on Camp #{1}': '{0}의 습격대가 캠프 #{1}을 향해 출발했습니다',
+  'At an open gate, choose a party and a floor. Destroy its dens and guardian to clear the floor.':
+    '열린 관문에서 파티와 층을 고르세요. 그 층의 소굴을 모두 부수고 수호자를 쓰러뜨리면 돌파합니다.',
+  'Each open gate sends raiders toward the nearest camp. Their numbers and strength grow week by week.':
+    '열린 관문은 가장 가까운 캠프로 습격대를 보냅니다. 매주 적의 수가 늘고 더 강해집니다.',
+  'Gather fighters at the camp named in the warning before nightfall. A manned watchtower can help defend it.':
+    '해가 지기 전에 예고에 나온 캠프로 전투원을 모으세요. 사람이 배치된 망루도 방어를 돕습니다.',
   'Plan an expedition': '원정 준비하기',
   'Click the gate, or the button below, to choose a party and a floor and set out.':
     '관문이나 아래 버튼을 눌러 파티와 층을 고르고 출발하세요.',
-  'Click a discovered gate, choose three residents in the expedition window and set out.':
-    '발견한 관문을 눌러 원정 창에서 주민 세 명을 고르고 출발하세요.',
+  'Find an open gate, choose three residents in the expedition window and set out.':
+    '열린 관문을 찾아 원정 창에서 주민 세 명을 고르고 출발하세요.',
   'Each gate leads down, floor by floor, into a world beyond Midgard. Click a gate to choose a party and a floor, then destroy every den and the guardian of a floor to clear it.':
     '관문마다 한 층 한 층 내려가며 미드가르드 너머의 세계로 이어집니다. 관문을 눌러 파티와 층을 고른 뒤, 그 층의 소굴을 모두 부수고 수호자를 쓰러뜨리면 층을 돌파합니다.',
   'Beyond a gate already': '이미 관문 너머에 있습니다',

@@ -7,6 +7,7 @@ import {
   Order,
   PointerButton,
   PreviewKind,
+  drawsArea,
   toolStructure,
 } from '../../../../packages/engine/src/game-tools';
 import {
@@ -24,7 +25,7 @@ import {
 } from '../../../../packages/engine/src/geometry';
 import { f32 as f, clamp, lround } from '../../../../packages/engine/src/numeric';
 import type { RoadPath } from '../../../../packages/engine/src/road-network';
-import { structureSpec } from '../../../../packages/engine/src/building-catalog';
+import { Structure, structureSpec } from '../../../../packages/engine/src/building-catalog';
 import type { Check } from '../../../../packages/engine/src/town-models';
 import { buildingUnlock, toolAvailable } from '../../../../packages/engine/src/settlement-progression';
 import { Activity } from '../../../../packages/engine/src/person';
@@ -37,7 +38,7 @@ import { controllableIds } from './game-control';
 import { Cue } from '../../../../packages/native-audio/src/sound-types';
 import { Key } from '../../../../packages/native-ui/src';
 import type { AppEvent } from './application-contracts';
-import { targetsInBox, hoveredTarget, cachedWorldHit, refreshHoveredTarget } from './world-targets';
+import { targetsInBox, hoveredTarget, cachedWorldHit, refreshHoveredTarget, type WorldObjectRef } from './world-targets';
 import { placementMapBounds } from './mobile-layout';
 import { draftRoad } from './road-stroke';
 import { toolRequirements } from './build-menu-tools';
@@ -59,6 +60,7 @@ export interface GameInputApp extends GameAppState {
   selectTool(value: Tool, useSelection?: boolean): void;
   selectPeople(ids: number[]): void;
   selectBuilding(id: number): void;
+  selectObject(ref: WorldObjectRef): void;
   toScreen(world: Point): Point;
   nearOnScreen(world: Point, pixels?: number): boolean;
   personAt(screen: Point): number;
@@ -71,6 +73,7 @@ export interface GameInputApp extends GameAppState {
   cancelStroke(): void;
   cancelPointer(): void;
   finish(): void;
+  layFarm(drawn: Outline): void;
   select(): void;
   press(): void;
   pointerMove(x: number, y: number): void;
@@ -153,7 +156,8 @@ export function finishRoad(this: GameInputApp): void {
   this.selectTool(Tool.Select);
 }
 export function plan(this: GameInputApp): Plan {
-  const touchPlacement = this.touchMode && toolStructure(this.tool) !== undefined && this.touchPlacement;
+  const touchPlacement =
+    this.touchMode && toolStructure(this.tool) !== undefined && !drawsArea(this.tool) && this.touchPlacement;
   if (touchPlacement) this.cursor = { ...touchPlacement };
   const result = new Plan(),
     preview = result.preview;
@@ -188,11 +192,24 @@ export function plan(this: GameInputApp): Plan {
       }
       return result;
     }
-    case Tool.Field:
+    case Tool.Farm:
+    case Tool.Field: {
       preview.kind = PreviewKind.Field;
+      if (!buildingUnlock(this.town, Structure.Farm).available) return result;
+      // The area is laid out as it would be on release: the farmhouse in its corner, the rest as the field.
+      const lay = (drawn: Outline) => {
+        const layout = this.town.farmLayout(drawn);
+        take(layout.check);
+        if (layout.house) {
+          const half = f(structureSpec(Structure.Farm).size / 2);
+          preview.house = new Footprint(layout.house.center, half, layout.house.angle).corners();
+        }
+        return layout;
+      };
       if (this.fieldFrom && distance(this.toScreen(this.fieldFrom), this.mouse) > 8) {
-        preview.outline = this.fieldRectangle(this.fieldFrom, this.cursor);
-        take(this.town.canPlantField(preview.outline));
+        const drawn = this.fieldRectangle(this.fieldFrom, this.cursor),
+          layout = lay(drawn);
+        preview.outline = layout.check.ok ? layout.field : drawn;
         if (!result.problem) result.problem = lround(area(preview.outline)) + ' acres';
         return result;
       }
@@ -204,13 +221,13 @@ export function plan(this: GameInputApp): Plan {
       }
       if (this.outline.length >= 3 && this.nearOnScreen(this.outline[0])) {
         preview.active = 0;
-        take(this.town.canPlantField(this.outline));
+        lay(this.outline);
       } else {
-        const open = [...this.outline, this.cursor];
-        take(this.town.canPlantField(open));
+        lay([...this.outline, this.cursor]);
         if (this.outline.length < 2) result.problem = '';
       }
       return result;
+    }
     case Tool.Demolish: {
       preview.kind = PreviewKind.Clear;
       take(this.town.canDemolish(this.cursor));
@@ -227,11 +244,12 @@ export function plan(this: GameInputApp): Plan {
   }
   const kind = toolStructure(this.tool);
   if (kind !== undefined) {
+    if (!touchPlacement && this.context.controlAt(this.mouse.x, this.mouse.y)) return result;
     if (!buildingUnlock(this.town, kind).available) return result;
-    const spot = this.town.fit(kind, this.cursor, this.freeAngle);
+    const { spot, check } = this.town.buildingSite(kind, this.cursor, this.freeAngle);
     preview.kind = PreviewKind.Footprint;
     preview.outline = new Footprint(spot.center, f(structureSpec(kind).size / 2), spot.angle).corners();
-    take(this.town.canPlace(kind, spot.center, spot.angle));
+    take(check);
   }
   return result;
 }
@@ -258,7 +276,7 @@ export function selectTool(this: GameInputApp, value: Tool, useSelection = false
   this.boxFrom = null;
   this.status = '';
   this.touchPlacement = null;
-  if (this.touchMode && toolStructure(value) !== undefined) {
+  if (this.touchMode && toolStructure(value) !== undefined && !drawsArea(value)) {
     const area = placementMapBounds(this.viewWidth, this.viewHeight),
       screen = point(area.x + area.w / 2, area.y + area.h / 2),
       projected = this.camera.toWorld(screen, this.viewWidth, this.viewHeight);
@@ -350,17 +368,33 @@ export function cancel(this: GameInputApp): void {
 }
 export function finish(this: GameInputApp): void {
   this.status = '';
-  if (this.tool === Tool.Field && this.outline.length >= 3) {
-    const check = this.town.canPlantField(this.outline);
-    if (this.town.plantField(this.outline)) {
-      this.outline = [];
-      this.cue(Cue.Place);
-    } else this.status = check.reason;
+  if (drawsArea(this.tool) && this.outline.length >= 3) this.layFarm(this.outline);
+}
+/** Lays out the drawn area: a farmhouse with its field, or one more field for a farm already there. */
+export function layFarm(this: GameInputApp, drawn: Outline): void {
+  const layout = this.town.farmLayout(drawn);
+  if (!this.town.layFarm(drawn)) {
+    this.status = layout.check.reason;
+    return;
   }
+  this.outline = [];
+  if (!layout.house) {
+    this.cue(Cue.Place);
+    return;
+  }
+  // A new farmhouse is handed to its builders like any other site; the tool is put down.
+  const site = this.town.buildings().at(-1)!,
+    crew = controllableIds(this.town, this.crew);
+  this.selectTool(Tool.Select);
+  this.selected = site.id;
+  if (crew.length) this.town.orderBuild(crew, site.id);
+  else this.queueWork(Activity.Building, site.id);
+  this.cueAt(Cue.Place, site.center);
+  this.card = -1;
 }
 export function undoPoint(this: GameInputApp): void {
   if (this.tool === Tool.Road && this.roadPress) this.cancelStroke();
-  else if (this.tool === Tool.Field && this.outline.length) this.outline.pop();
+  else if (drawsArea(this.tool) && this.outline.length) this.outline.pop();
 }
 export function cancelStroke(this: GameInputApp): void {
   if (this.roadPress) this.status = 'Road stroke cancelled';
@@ -382,19 +416,43 @@ export function cancelPointer(this: GameInputApp): void {
   this.context.setPointerPosition(-1, -1);
   this.context.cancelPointer();
 }
-export function select(this: GameInputApp): void {
-  rememberCrew(this, this.chosen);
-  this.chosen = [];
-  this.selectedObjects = [];
-  this.selected = -1;
-  this.residentPage = 0;
-  this.inspectorPerson = -1;
-  this.selectedDungeon =
-    this.selectedTreeInstance =
-    this.selectedTree =
-    this.selectedRock =
-    this.selectedAnimal =
+function dropSelection(app: GameInputApp): void {
+  rememberCrew(app, app.chosen);
+  app.chosen = [];
+  app.selectedObjects = [];
+  app.selected = -1;
+  app.residentPage = 0;
+  app.inspectorPerson = -1;
+  app.selectedDungeon =
+    app.selectedTreeInstance =
+    app.selectedTree =
+    app.selectedRock =
+    app.selectedAnimal =
       -1;
+}
+function takeObject(app: GameInputApp, target: WorldObjectRef): void {
+  if (target.kind === 'building') app.selected = target.id;
+  else if (target.kind === 'animal') app.selectedAnimal = target.id;
+  else if (target.kind === 'tree') {
+    app.selectedTree = target.id;
+    app.selectedTreeInstance = target.instanceIndex ?? -1;
+  } else if (target.kind === 'rock') app.selectedRock = target.id;
+  else if (target.kind === 'dungeon') app.selectedDungeon = target.id;
+  else app.selectedObjects = [target];
+}
+/** Puts the selection on one thing in the world, as a click on it would. */
+export function selectObject(this: GameInputApp, ref: WorldObjectRef): void {
+  if (ref.kind === 'person') {
+    rememberCrew(this, this.chosen);
+    this.selectPeople([ref.id]);
+    return;
+  }
+  this.selectTool(Tool.Select);
+  dropSelection(this);
+  takeObject(this, ref);
+}
+export function select(this: GameInputApp): void {
+  dropSelection(this);
   const target = hoveredTarget(this as unknown as import('./game-commands').GameCommandApp);
   if (!target) return;
   if (target.kind === 'person') {
@@ -409,15 +467,7 @@ export function select(this: GameInputApp): void {
       this.selectPeople([target.id]);
       this.army.lastPick = { id: target.id, at: now };
     }
-  } else if (target.kind === 'building') this.selected = target.id;
-  else if (target.kind === 'animal') this.selectedAnimal = target.id;
-  else if (target.kind === 'tree') {
-    this.selectedTree = target.id;
-    this.selectedTreeInstance = target.instanceIndex ?? -1;
-  }
-  else if (target.kind === 'rock') this.selectedRock = target.id;
-  else if (target.kind === 'dungeon') this.selectedDungeon = target.id;
-  else this.selectedObjects = [target];
+  } else takeObject(this, target);
 }
 export function pointerDown(this: GameInputApp, x: number, y: number, button: PointerButton): void {
   x = f(x);
@@ -469,7 +519,9 @@ export function press(this: GameInputApp): void {
       else this.queueWork(Activity.Roadwork, id);
       return;
     }
+    case Tool.Farm:
     case Tool.Field:
+      if (!buildingUnlock(this.town, Structure.Farm).available) return;
       if (!this.outline.length) this.fieldFrom = { ...this.cursor };
       else if (this.outline.length >= 3 && this.nearOnScreen(this.outline[0])) this.finish();
       else this.outline.push({ ...this.cursor });
@@ -489,18 +541,17 @@ export function press(this: GameInputApp): void {
   }
   const kind = toolStructure(this.tool);
   if (kind !== undefined) {
-    if (!buildingUnlock(this.town, kind).available) return;
-    const spot = this.town.fit(kind, this.cursor, this.freeAngle),
-      check = this.town.canPlace(kind, spot.center, spot.angle);
-    if (this.town.place(kind, spot.center, spot.angle)) {
-      this.selected = this.town.buildings().at(-1)!.id;
-      if (controllableIds(this.town, this.crew).length)
-        this.town.orderBuild(controllableIds(this.town, this.crew), this.selected);
-      else this.queueWork(Activity.Building, this.selected);
-      this.cueAt(Cue.Place, spot.center);
-      this.selectTool(Tool.Select);
-      this.card = -1;
-    } else this.status = check.reason;
+    if (!this.town.map().inside(this.cursor) || !buildingUnlock(this.town, kind).available) return;
+    const { spot, check } = this.town.buildingSite(kind, this.cursor, this.freeAngle);
+    // The preview reports this plot's refusal for as long as the cursor stays there.
+    if (!check.ok || !this.town.place(kind, spot.center, spot.angle)) return;
+    this.selected = this.town.buildings().at(-1)!.id;
+    if (controllableIds(this.town, this.crew).length)
+      this.town.orderBuild(controllableIds(this.town, this.crew), this.selected);
+    else this.queueWork(Activity.Building, this.selected);
+    this.cueAt(Cue.Place, spot.center);
+    this.selectTool(Tool.Select);
+    this.card = -1;
   }
 }
 export function pointerMove(this: GameInputApp, x: number, y: number): void {
@@ -532,7 +583,7 @@ export function pointerUp(this: GameInputApp, x: number, y: number, button: Poin
     if (click && this.tool === Tool.Select && this.chosen.length && !this.context.controlAt(x, y)) {
       this.issueOrder(Order.Work);
       this.pending = Order.None;
-    } else if (click && this.tool === Tool.Field) this.finish();
+    } else if (click && drawsArea(this.tool) && this.outline.length >= 3) this.finish();
     // A right-click puts down whatever tool is in hand.
     else if (click && this.tool !== Tool.Select && !this.context.controlAt(x, y)) this.selectTool(Tool.Select);
     return;
@@ -587,9 +638,7 @@ export function pointerUp(this: GameInputApp, x: number, y: number, button: Poin
     const from = this.fieldFrom;
     this.fieldFrom = null;
     if (distance(this.toScreen(from), this.mouse) > 8) {
-      const rectangle = this.fieldRectangle(from, this.cursor),
-        check = this.town.canPlantField(rectangle);
-      if (!this.town.plantField(rectangle)) this.status = check.reason;
+      this.layFarm(this.fieldRectangle(from, this.cursor));
     } else this.outline.push(from);
     return;
   }
@@ -597,7 +646,7 @@ export function pointerUp(this: GameInputApp, x: number, y: number, button: Poin
 }
 export function wheel(this: GameInputApp, x: number, y: number, amount: number): void {
   // With a building in hand the wheel turns it; the camera zooms otherwise.
-  if (toolStructure(this.tool) !== undefined && amount) {
+  if (toolStructure(this.tool) !== undefined && !drawsArea(this.tool) && amount) {
     this.freeAngle = f(this.freeAngle + f(Math.sign(amount) * (Math.PI / 12)));
     this.pointerMove(x, y);
     return;

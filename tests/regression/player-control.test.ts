@@ -8,10 +8,9 @@ import {
   dispatchWork,
   prepare,
   toggleAuto,
-  stopSelected,
-  leaveSelected,
   type GameCommandApp,
 } from '../../apps/web/src/native/game-commands';
+import { holdPosition } from '../../apps/web/src/native/army-orders';
 import { residentSelection } from '../../apps/web/src/native/game-unit-panel';
 import { selectPeople, selectTool, personAt, pointerUp } from '../../apps/web/src/native/game-input';
 import type { GameHudApp } from '../../apps/web/src/native/game-hud-contract';
@@ -31,8 +30,7 @@ function fixture() {
     person: (id: number) => people.find((p) => p.id === id) ?? null,
     downedResidents: () => [],
     setAuto: vi.fn(),
-    orderStop: vi.fn(),
-    orderLeave: vi.fn(() => true),
+    orderHold: vi.fn(() => 1),
     orderMove: vi.fn(),
     orderAttackMove: vi.fn(),
     orderAttackPerson: vi.fn(),
@@ -55,6 +53,7 @@ function fixture() {
     selectTool: vi.fn(),
     cancelPointer: vi.fn(),
     cue: vi.fn(),
+    cues: [],
     personAt: () => -1,
     animalAtScreen: () => -1,
     treeAtScreen: () => -1,
@@ -75,10 +74,9 @@ describe('player command ownership boundary', () => {
     expect(town.orderAttackMove).toHaveBeenCalledWith([0], app.cursor);
     toggleAuto.call(app);
     expect(town.setAuto.mock.calls.map((call) => call[0])).toEqual([0]);
-    stopSelected.call(app);
-    leaveSelected.call(app);
-    expect(town.orderStop).toHaveBeenCalledWith([0]);
-    expect(town.orderLeave).toHaveBeenCalledWith([0]);
+    // Hold is the stop: it reaches only the residents the player commands.
+    holdPosition(app);
+    expect(town.orderHold).toHaveBeenCalledWith([0]);
     expect([...app.stoppedWork.keys()]).toEqual([0]);
     expect(app.chosen).toEqual([0, 1, 2, 3]);
   });
@@ -90,7 +88,7 @@ describe('player command ownership boundary', () => {
     issueOrder.call(app, Order.Move);
     expect(app.pending).toBe(Order.None);
     expect(town.orderMove).not.toHaveBeenCalled();
-    expect(app.status).toContain('Overwhelmed');
+    expect(app.status).toContain('Exhausted');
     people[0].stressRecovery = false;
     people[0].faction = 2;
     issueOrder.call(app, Order.Move);

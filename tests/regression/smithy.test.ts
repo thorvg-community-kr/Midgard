@@ -17,6 +17,7 @@ import {
   itemCatalog,
   itemSpec,
   raisedShield,
+  madeFrom,
   upgradeCost,
   upperTier,
   workEfficiency,
@@ -31,7 +32,7 @@ import { digest } from '../../packages/engine/src/save-archive';
 import { GameAppState } from '../../apps/web/src/native/game-app-state';
 import type { GameHudApp } from '../../apps/web/src/native/game-hud-contract';
 import { inspector } from '../../apps/web/src/native/game-hud';
-import { noteSelection, recipeOffer, stationCrafter } from '../../apps/web/src/native/craft-station-hud';
+import { craftBars, freshMake, recipeOffer } from '../../apps/web/src/native/craft-station-hud';
 
 // The workbench makes tools and the smithy weapons, shields and armor; both rise in levels, and gear rises in makes.
 function fixture() {
@@ -85,13 +86,103 @@ const holdIn = (town: Town, p: Person, id: string, slot: 'weapon' | 'offhand' | 
   return town.equipItem(p.id, p.inventory.findIndex((s) => s?.item === id) + 1, slot);
 };
 
+it('takes an upgrade with empty stores, gathers the raw materials and resumes it after saving', () => {
+  const { town, a, bench } = fixture(), stock = town.stock();
+  stock.wood = stock.stone = 0;
+  for (let y = 16; y < 20; y++) for (let x = 10; x < 16; x++) {
+    const t = town.map().at(x, y);
+    if (x < 13) t.trees = 1;
+    else { t.terrain = Terrain.Rock; t.quarried = false; }
+  }
+  town.changes++; town.tick(0);
+  expect(town.orderStationUpgrade(a.id, bench.id)).toBe(true);
+  expect([Activity.Felling, Activity.Mining]).toContain(a.activity);
+  const loaded = decodeTown(encodeTown(town), map => new Town(map, 32, false)), crafter = loaded.person(a.id)!;
+  const seen = new Set<Activity>();
+  for (let i = 0; i < 5000 && crafter.craftItem; i++) { seen.add(crafter.activity); step(loaded, .1); }
+  for (const act of [Activity.Felling, Activity.Mining, Activity.Crafting]) expect(seen.has(act), Activity[act]).toBe(true);
+  expect(stationLevel(loaded.building(bench.id)!)).toBe(2);
+  expect(crafter.craftItem).toBeNull();
+});
+
+it('works the sawmill and stoneworks to supply a station upgrade', () => {
+  const { town, a, smith, bench } = fixture();
+  bench.variant = smith.variant = levelVariant(2);
+  for (const [kind, x] of [[Structure.Sawmill, 19], [Structure.Stoneworks, 23]] as const) {
+    const b = new Building(town.nextId++, kind, point(x, 18), 0, 0);
+    b.village = 0;
+    town.placed.push(b);
+  }
+  while (town.folk.length < 8) {
+    const p = town.makePerson(Role.Resident, Calling.Settler, point(12, 14));
+    p.home = p.village = 0;
+    town.folk.push(p); town.orderStop([p.id]);
+  }
+  Object.assign(town.stock(), { gold: 200, wood: 12, stone: 8, planks: 0, cutStone: 0, food: 30, water: 30 });
+  town.changes++; town.tick(0);
+  expect(town.orderStationUpgrade(a.id, bench.id), town.stationUpgradeReason(a.id, bench.id)).toBe(true);
+  const worked = new Set<Structure>();
+  for (let i = 0; i < 12500 && a.craftItem; i++) {
+    if (a.activity === Activity.Working && !a.moving()) worked.add(town.building(a.target)!.kind);
+    step(town, .1);
+  }
+  expect([...worked], `order ${a.craftItem}, planks ${town.stock().planks}, cut stone ${town.stock().cutStone}`).toEqual([Structure.Sawmill, Structure.Stoneworks]);
+  expect(stationLevel(bench)).toBe(3);
+  expect(town.stock()).toMatchObject({ wood: 0, stone: 0, planks: 0, cutStone: 0 });
+});
+
 describe('what each station level makes', () => {
+  it.each([
+    [Structure.TrainingYard, 'wooden-spear'],
+    [Structure.Watchtower, 'short-bow'],
+    [Structure.MageTower, 'wooden-staff'],
+  ] as const)('a finished school opens its weapon family without a worker (%s)', (kind, id) => {
+    const { town, smith, a } = fixture();
+    town.stock().wood = 20;
+    const school = new Building(town.nextId++, kind, point(24, 18), 0, 0);
+    school.village = 0;
+    school.faction = 1;
+    town.placed.push(school);
+    expect(town.craftReason(a.id, smith.id, id)).toBe('Complete ' + structureSpec(kind).name);
+    school.faction = 0;
+    school.progress = 0.9;
+    expect(town.craftOffers(smith.id).some(o => o.item.id === id)).toBe(false);
+    expect(town.orderCraft(a.id, smith.id, id)).toBe(false);
+    school.progress = 1;
+    expect(town.craftOffers(smith.id).find(o => o.item.id === id)).toMatchObject({ open: true, reason: '' });
+    expect(town.orderSettlementCraft(smith.id, id)).toBe(true);
+    const smithWorker = town.folk.find(p => p.craftItem === id)!;
+    run(town, smithWorker);
+    expect(smithWorker.inventory.some(stack => stack?.item === id)).toBe(true);
+  });
+  it('keeps the materials when the last school is lost during a weapon order', () => {
+    const { town, smith, a } = fixture(),
+      tower = new Building(town.nextId++, Structure.Watchtower, point(24, 18), 0, 0);
+    town.placed.push(tower);
+    town.stock().wood = 20;
+    expect(town.orderCraft(a.id, smith.id, 'short-bow')).toBe(true);
+    for (let i = 0; i < 500 && !a.craftProgress; ++i) step(town);
+    expect(a.craftProgress).toBeGreaterThan(0);
+    tower.faction = 1;
+    step(town);
+    expect(a.craftItem).toBeNull();
+    expect(a.inventory.some(stack => stack?.item === 'short-bow')).toBe(false);
+    expect(town.stock().wood).toBe(20);
+  });
   it('opens wood at level 1, stone at 2 and iron at 3, and says which level a locked recipe needs', () => {
     const { town, smith, bench, a } = fixture();
+    for (const [i, school] of [Structure.TrainingYard, Structure.Watchtower, Structure.MageTower].entries())
+      town.placed.push(new Building(town.nextId++, school, point(24, 18 + 3 * i), 0, 0));
     Object.assign(town.stock(), new Resources(100, 100, 100, 0, 0, 0, 50, 50));
-    for (const item of itemCatalog.filter((i) => i.workshop !== null)) {
+    Object.assign(town.stock(), { hides: 5, ironIngot: 5, embersteel: 5, boundFrostwood: 5 });
+    a.level = 7;
+    for (const item of itemCatalog.filter((i) => i.workshop === Structure.Workbench || i.workshop === Structure.Weaponsmith)) {
       const station = item.workshop === Structure.Workbench ? bench : smith,
-        name = structureSpec(station.kind).name.toLowerCase();
+        name = structureSpec(station.kind).name.toLowerCase(),
+        below = madeFrom(item);
+      // A better make is made from the one below it.
+      a.inventory.fill(null);
+      if (below) addInventory(a, below.id);
       for (const level of [1, 2, 3]) {
         station.variant = levelVariant(level);
         expect(stationLevel(station)).toBe(level);
@@ -126,6 +217,7 @@ describe('what each station level makes', () => {
     expect(town.stock().wood).toBe(before.wood - next.cost.wood);
     expect(town.stock().stone).toBe(before.stone - next.cost.stone);
     expect(town.notices.at(-1)).toBe('Asa raised the workbench to level 2');
+    addInventory(a, 'wooden-axe');
     expect(town.craftReason(a.id, bench.id, 'stone-axe')).toBe('');
   });
   it('asks the settlement for more before the higher levels, and says what first', () => {
@@ -175,18 +267,20 @@ describe('upgrading an item', () => {
     smith.variant = levelVariant(2);
     a.level = 3;
     Object.assign(town.stock(), new Resources(0, 20, 20));
-    expect(town.upgradeReason(a.id, smith.id, 'flint-sword')).toBe('Has nothing to upgrade');
+    // The stone make is never made new: it is the wooden one, upgraded.
+    expect(town.craftReason(a.id, smith.id, 'flint-sword')).toBe('Made by upgrading a wooden sword');
+    expect(town.orderCraft(a.id, smith.id, 'flint-sword')).toBe(false);
     expect(holdIn(town, a, 'wooden-sword', 'weapon')).toBe(true);
     const cost = upgradeCost(itemSpec('flint-sword')!);
     expect(cost.wood + cost.stone).toBeLessThan(itemSpec('flint-sword')!.cost.wood + itemSpec('flint-sword')!.cost.stone);
     const before = town.stock().clone();
-    expect(town.orderUpgrade(a.id, smith.id, 'flint-sword')).toBe(true);
+    expect(town.orderCraft(a.id, smith.id, 'flint-sword')).toBe(true);
     expect(a.craftItem).toBe(upgradeOrder('flint-sword'));
     for (let i = 0; i < 4000 && a.craftProgress < 1; ++i) step(town);
     expect(town.cancelCraft(a.id)).toBe(true);
     expect(town.stock()).toEqual(before);
     expect(a.inventory[0]?.item).toBe('wooden-sword');
-    expect(town.orderUpgrade(a.id, smith.id, 'flint-sword')).toBe(true);
+    expect(town.orderCraft(a.id, smith.id, 'flint-sword')).toBe(true);
     run(town, a);
     expect(a.inventory.filter(Boolean)).toEqual([{ item: 'flint-sword', quantity: 1 }]);
     expect(combatItem(a)?.id).toBe('flint-sword');
@@ -194,25 +288,32 @@ describe('upgrading an item', () => {
     expect(town.stock().stone).toBe(before.stone - cost.stone);
     expect(town.notices.at(-1)).toBe('Asa upgraded the Wooden sword to the Flint sword');
   });
-  it('upgrades one step at a time, needs the station’s level, and puts away a make its owner cannot use yet', () => {
+  it('upgrades one step at a time, needs the station’s level, and waits until its owner can use the better make', () => {
     const { town, smith, bench, a } = fixture();
-    Object.assign(town.stock(), new Resources(50, 50, 50));
+    town.placed.push(new Building(town.nextId++, Structure.TrainingYard, point(24, 18), 0, 0));
+    Object.assign(town.stock(), new Resources(50, 50, 50), { ironIngot: 2 });
     expect(upperTier(itemSpec('wooden-shovel')!)?.id).toBe('shovel');
-    expect(upperTier(itemSpec('sword')!)).toBeNull();
+    expect(upperTier(itemSpec('sword')!)?.id).toBe('embersteel-sword');
     addInventory(a, 'wooden-axe');
-    expect(town.upgradeReason(a.id, bench.id, 'axe')).toBe('Has nothing to upgrade');
-    expect(town.upgradeReason(a.id, bench.id, 'stone-axe')).toBe('Needs a level 2 workbench');
+    expect(town.craftReason(a.id, bench.id, 'stone-axe')).toBe('Needs a level 2 workbench');
+    bench.variant = levelVariant(3);
+    // Iron comes from stone, not from wood.
+    expect(town.craftReason(a.id, bench.id, 'axe')).toBe('Made by upgrading a stone axe');
+    expect(town.craftReason(a.id, bench.id, 'stone-axe')).toBe('');
     a.level = 1;
     expect(holdIn(town, a, 'flint-spear', 'weapon')).toBe(false);
     smith.variant = levelVariant(3);
     a.inventory = a.inventory.map(() => null);
     a.level = 3;
     expect(holdIn(town, a, 'flint-spear', 'weapon')).toBe(true);
-    expect(town.orderUpgrade(a.id, smith.id, 'spear')).toBe(true);
+    // The iron spear is for level 5: upgrading now would leave its owner empty-handed.
+    expect(town.craftReason(a.id, smith.id, 'spear')).toBe('Needs level 5');
+    expect(town.orderCraft(a.id, smith.id, 'spear')).toBe(false);
+    a.level = 5;
+    expect(town.orderCraft(a.id, smith.id, 'spear')).toBe(true);
     run(town, a);
-    // The iron spear is for level 5: it waits in the pack.
     expect(a.inventory[0]?.item).toBe('spear');
-    expect(a.equipment.weapon).toBe(-1);
+    expect(combatItem(a)?.id).toBe('spear');
     expect(town.chronicle.weaponsForged).toBe(1);
   });
 });
@@ -285,7 +386,7 @@ describe('tools from the pack', () => {
     addInventory(a, 'axe');
     addInventory(a, 'stone-axe');
     expect(workItem(a, 'woodcutting')?.id).toBe('axe');
-    expect(workEfficiency(a, 'woodcutting')).toBe(1);
+    expect(workEfficiency(a, 'woodcutting')).toBeCloseTo(0.4 * 1.75);
     addInventory(a, 'stone-pick');
     expect(workItem(a, 'mining')?.id).toBe('stone-pick');
     // A sword in the pack is not in hand: the hardest-hitting tool is what the resident fights with.
@@ -303,7 +404,7 @@ describe('saving station levels', () => {
     Object.assign(town.stock(), new Resources(0, 20, 20));
     a.level = 3;
     holdIn(town, a, 'wooden-club', 'weapon');
-    expect(town.orderUpgrade(a.id, smith.id, 'mace')).toBe(true);
+    expect(town.orderCraft(a.id, smith.id, 'mace')).toBe(true);
     for (let i = 0; i < 2000 && a.craftProgress < 1; ++i) step(town);
     const encoded = encodeTown(town),
       loaded = decodeTown(encoded, (map) => new Town(map, 32, false, true));
@@ -407,12 +508,12 @@ function panel(town: Town, width = 1024, height = 900) {
     words: () => labels.mock.calls.map(([, text]) => text),
     texts: () => labels.mock.calls,
     control: (id: string) => controls.mock.calls.find(([key]) => key === id),
-    draw(station: Building) {
+    draw(station: Building, bounds = new Rect(100, 20, 620, 860)) {
       controls.mockClear();
       labels.mockClear();
       app.selected = station.id;
       context.begin(app.theme, new Rect(0, 0, width, height), 1);
-      inspector.call(app, new Rect(100, 20, 620, 860), true);
+      inspector.call(app, bounds, true);
       context.end();
       canvas.update().render();
     },
@@ -432,23 +533,28 @@ function panel(town: Town, width = 1024, height = 900) {
   };
 }
 describe('the station panel', () => {
-  it('shows the level, what the next one makes and costs, the upgrade button, and locked recipes with their reason', () => {
-    const { town, bench, a } = fixture(),
+  it('shows the level, what the next one makes and costs and the upgrade button, and lists nothing a higher level makes', () => {
+    const { town, bench, a, c } = fixture(),
       ui = panel(town);
     try {
       Object.assign(town.stock(), new Resources(0, 30, 30));
-      ui.app.chosen = [a.id];
-      noteSelection(ui.app);
+      // The nearest free resident does the upgrade, not the selected one.
+      ui.app.chosen = [c.id];
       ui.draw(bench);
       expect(ui.words()).toEqual(
         expect.arrayContaining([
-          'Workbench · Level 1',
+          'Workbench',
+          'Level 1',
           'Next level makes stone tools, a flint sickle and a hunting knife',
           'Upgrade: 10 wood, 6 stone',
           'Ready to upgrade',
-          'Needs a level 2 workbench',
+          'Wooden axe',
+          'Wooden pick',
         ]),
       );
+      // What the bench cannot make yet is not listed at all.
+      for (const hidden of ['Needs a level 2 workbench', 'Stone axe', 'Iron axe', 'Flint sickle', 'Iron saw'])
+        expect(ui.words(), hidden).not.toContain(hidden);
       expect(ui.control(`station-upgrade-${bench.id}`)?.[3]).toBe(true);
       ui.click(`station-upgrade-${bench.id}`);
       expect(craftOrder(a.craftItem)).toEqual({ kind: 'station', level: 2 });
@@ -456,76 +562,183 @@ describe('the station panel', () => {
       ui.dispose();
     }
   });
-  it('makes the resident selected last the crafter, after the station itself is selected, and falls back when they are gone', () => {
-    const { town, smith, a, b, c } = fixture(),
-      ui = panel(town);
+  it.each([[620, false], [366, true], [296, true]] as const)('gives the recipes the full board below the profiles at width %i', (width, touch) => {
+    const { town, bench } = fixture(), ui = panel(town), bounds = new Rect(30, 20, width, 650);
     try {
-      ui.app.chosen = [c.id];
-      noteSelection(ui.app);
-      // Selecting the station clears the unit selection; the record stays.
-      ui.app.chosen = [];
-      noteSelection(ui.app);
-      expect(stationCrafter(ui.app, smith)?.id).toBe(c.id);
-      ui.draw(smith);
-      expect(ui.words()).toContain(`${c.name} · Settler · Lv ${c.level}`);
-      c.health = 0;
-      expect(stationCrafter(ui.app, smith)?.id).not.toBe(c.id);
-      expect([a.id, b.id]).toContain(stationCrafter(ui.app, smith)?.id);
+      ui.app.touchMode = touch;
+      ui.draw(bench, bounds);
+      const tabs = ui.control(`station-group-tools-${bench.id}`)![1],
+        lastTab = ui.control(`station-group-gear-${bench.id}`)![1],
+        work = ui.texts().find(([, words]) => words.startsWith('Nobody'))![0],
+        title = ui.texts().find(([, words]) => words === 'Workbench')![0];
+      expect(tabs.x - bounds.x).toBeLessThanOrEqual(16);
+      expect(bounds.x + bounds.w - lastTab.x - lastTab.w).toBe(tabs.x - bounds.x);
+      // The header holds the name and the work under way, and no crafter to pick.
+      expect(Math.abs(work.y + work.h / 2 - (title.y + title.h / 2))).toBeLessThan(18);
+      expect(work.x).toBeGreaterThanOrEqual(title.x + title.w);
+      expect(work.x + work.w).toBeLessThanOrEqual(bounds.x + bounds.w);
+      expect(work.y + work.h).toBeLessThan(tabs.y);
+      expect(ui.control(`station-crafter-next-${bench.id}`)).toBeUndefined();
     } finally {
       ui.dispose();
     }
   });
-  it('fades what the crafter already has, with a mark, apart from what cannot be made', () => {
+  it.each([[320, 667, 487], [844, 390, 330]])('keeps every tool and the footer reachable on a %i × %i phone', (width, height, maxHeight) => {
+    const { town, bench } = fixture(), ui = panel(town),
+      boardWidth = Math.min(620, width - 24), bounds = new Rect((width - boardWidth) / 2, height - 12 - maxHeight, boardWidth, maxHeight);
+    try {
+      ui.app.touchMode = true;
+      ui.app.viewHeight = height;
+      const seen = new Set<string>();
+      for (let page = 0; page < 5; page++) {
+        ui.draw(bench, bounds);
+        for (const [, words] of ui.texts()) if (words.startsWith('Wooden ')) seen.add(words);
+        const clear = ui.control('clear-target')![1], next = ui.control(`station-page-next-${bench.id}`);
+        expect(clear.y + clear.h).toBeLessThanOrEqual(bounds.y + bounds.h);
+        expect(next).toBeDefined();
+        expect(next![1].y).toBe(clear.y);
+        expect(clear.x + clear.w).toBeLessThan(next![1].x);
+        if (!next![3]) break;
+        ui.click(`station-page-next-${bench.id}`);
+      }
+      expect([...seen].sort()).toEqual(['Wooden axe', 'Wooden hoe', 'Wooden mallet', 'Wooden pick', 'Wooden shovel']);
+    } finally {
+      ui.dispose();
+    }
+  });
+  it('names who gets each item whatever is selected, fades a kind everyone carries, and never lists a make that waits', () => {
+    const { town, smith, a, b, c } = fixture(),
+      ui = panel(town);
+    try {
+      town.placed.push(new Building(town.nextId++, Structure.Watchtower, point(24, 18), 0, 0));
+      Object.assign(town.stock(), new Resources(0, 30, 30));
+      for (const p of [a, b, c]) addInventory(p, 'wooden-sword');
+      addInventory(c, 'wooden-club');
+      // The smithy stands nearest Dag, then Bryn, then Asa: selecting Asa changes nothing.
+      ui.app.chosen = [a.id];
+      ui.draw(smith);
+      expect(recipeOffer(town, smith, itemSpec('wooden-sword')!)).toMatchObject({ action: 'none', mark: 'Everyone has one' });
+      expect(recipeOffer(town, smith, itemSpec('wooden-club')!)).toMatchObject({ action: 'craft', who: b, reason: '' });
+      expect(ui.words()).toEqual(expect.arrayContaining(['Everyone has one', `Goes to ${b.name}`, `Goes to ${c.name}`]));
+      for (const hidden of ['Needs a level 2 smithy', 'Flint sword', 'Reinforced shield', 'Crafter'])
+        expect(ui.words(), hidden).not.toContain(hidden);
+      expect(ui.control(`station-crafter-next-${smith.id}`)).toBeUndefined();
+      ui.click('station-craft-wooden-club');
+      expect(b.craftItem).toBe('wooden-club');
+      // The same row pressed again equips the next resident without one.
+      ui.draw(smith);
+      ui.click('station-craft-wooden-club');
+      expect(a.craftItem).toBe('wooden-club');
+      // Nobody is left to take one: the row shows the order under way and can stop it.
+      ui.draw(smith);
+      expect(ui.control('station-craft-wooden-club')).toBeUndefined();
+      expect(ui.control('station-cancel-wooden-club')?.[3]).toBe(true);
+      // The level-2 smithy lists nothing of iron, for anyone.
+      smith.variant = levelVariant(2);
+      ui.app.chosen = [];
+      ui.draw(smith);
+      for (const hidden of ['Needs a level 3 smithy', 'Iron sword', 'Mail armor', 'Iron helmet'])
+        expect(ui.words(), hidden).not.toContain(hidden);
+    } finally {
+      ui.dispose();
+    }
+  });
+  it('marks a make New once a higher station level opens it, until the player has looked and turned away', () => {
     const { town, smith, a, b, c } = fixture(),
       ui = panel(town);
     try {
       Object.assign(town.stock(), new Resources(0, 30, 30));
-      a.level = 5;
+      a.level = 3;
       holdIn(town, a, 'wooden-sword', 'weapon');
-      addInventory(a, 'shield');
-      holdIn(town, a, 'wooden-armor', 'body');
-      addInventory(b, 'wooden-club');
-      addInventory(c, 'wooden-sword');
-      ui.app.chosen = [a.id];
-      noteSelection(ui.app);
+      for (const p of [b, c]) addInventory(p, 'wooden-sword');
+      craftBars(ui.app, 1280, 900);
       ui.draw(smith);
-      expect(recipeOffer(town, smith, a, itemSpec('wooden-sword')!).mark).toBe('In hand');
-      expect(recipeOffer(town, smith, a, itemSpec('shield')!).mark).toBe('Has one');
-      expect(recipeOffer(town, smith, a, itemSpec('wooden-armor')!).mark).toBe('Worn');
-      // Someone else lacks it: one press switches the crafter to them.
-      const sword = recipeOffer(town, smith, a, itemSpec('wooden-sword')!);
-      expect(sword).toMatchObject({ action: 'switch', hint: `${b.name} has none` });
-      expect(ui.words()).toEqual(expect.arrayContaining(['In hand', `${b.name} has none`, 'Switch', 'Needs a level 2 smithy']));
-      ui.click('station-switch-wooden-sword');
-      expect(stationCrafter(ui.app, smith)?.id).toBe(b.id);
-      // A better make held fades the weaker one too; an upgrade replaces Craft where it applies.
+      expect(ui.words()).not.toContain('Flint sword');
+      expect(ui.words()).not.toContain('New');
       smith.variant = levelVariant(2);
-      expect(recipeOffer(town, smith, b, itemSpec('wooden-club')!).mark).toBe('Has one');
-      expect(recipeOffer(town, smith, b, itemSpec('mace')!).action).toBe('upgrade');
-      a.inventory[0] = { item: 'flint-sword', quantity: 1 };
-      expect(recipeOffer(town, smith, a, itemSpec('wooden-sword')!).mark).toBe('Has a better one');
-      // A faded row is drawn on the quiet surface; a locked one keeps its danger-coloured reason.
-      ui.app.chosen = [];
+      craftBars(ui.app, 1280, 900);
       ui.draw(smith);
-      const colours = ui.texts().filter(([, text]) => text === 'Needs a level 3 smithy').map(([, , color]) => color);
-      expect(colours.length).toBeGreaterThan(0);
-      for (const colour of colours) expect(colour).toEqual(ui.app.theme.danger);
+      // The sword row now offers the stone make as an upgrade of the one in hand.
+      expect(ui.words()).toEqual(expect.arrayContaining(['Flint sword', 'New', 'Upgrade']));
+      expect(ui.words()).not.toContain('Wooden sword');
+      expect(freshMake(town, itemSpec('flint-sword')!)).toBe(true);
+      ui.app.selected = -1;
+      craftBars(ui.app, 1280, 900);
+      expect(freshMake(town, itemSpec('flint-sword')!)).toBe(false);
     } finally {
       ui.dispose();
     }
   });
-  it('sends a tool the crafter already has to someone without one, or offers a spare', () => {
-    const { town, bench, a, b, c } = fixture();
+  it('offers a tool to whoever lacks it, then says what a better make waits for', () => {
+    const { town, smith, bench, a, b, c } = fixture();
     Object.assign(town.stock(), new Resources(0, 30, 30));
     addInventory(a, 'wooden-axe');
     addInventory(c, 'stone-axe');
-    const offer = recipeOffer(town, bench, a, itemSpec('wooden-axe')!);
-    expect(offer).toMatchObject({ action: 'craft', mark: 'Has one', hint: `${b.name} has none: ${b.name} will make it` });
-    expect(offer.who?.id).toBe(b.id);
+    expect(recipeOffer(town, bench, itemSpec('wooden-axe')!)).toMatchObject({ action: 'craft', who: b, mark: '', hint: `Goes to ${b.name}` });
     addInventory(b, 'wooden-axe');
-    expect(recipeOffer(town, bench, a, itemSpec('wooden-axe')!)).toMatchObject({ action: 'spare', hint: 'Everyone has one' });
-    // The crafter who lacks it makes it as before.
-    expect(recipeOffer(town, bench, c, itemSpec('wooden-pick')!)).toMatchObject({ action: 'craft', who: c, mark: '' });
+    expect(recipeOffer(town, bench, itemSpec('wooden-axe')!)).toMatchObject({
+      action: 'none',
+      mark: 'Everyone has one',
+      hint: 'Upgrade at a level 2 workbench',
+    });
+    // With the bench raised the wait is over; a stone weapon waits for its wielder's level instead.
+    bench.variant = levelVariant(2);
+    expect(recipeOffer(town, bench, itemSpec('stone-axe')!)).toMatchObject({ action: 'upgrade', who: a, reason: '' });
+    smith.variant = levelVariant(2);
+    for (const p of [a, b, c]) addInventory(p, 'wooden-club');
+    expect(recipeOffer(town, smith, itemSpec('wooden-club')!)).toMatchObject({ action: 'none', hint: 'Upgrade at level 3' });
+    expect(recipeOffer(town, bench, itemSpec('wooden-pick')!)).toMatchObject({ action: 'craft', who: a, mark: '' });
+  });
+});
+describe('crafting for the settlement', () => {
+  const offer = (town: Town, station: Building, id: string) => town.craftOffers(station.id).find((o) => o.item.id === id);
+  it('gives the item to the nearest resident who has none, and a second order to the next one', () => {
+    const { town, bench, a, b, c } = fixture();
+    Object.assign(town.stock(), new Resources(0, 30, 30));
+    // The bench stands nearest Asa, then Bryn, then Dag.
+    addInventory(a, 'wooden-axe');
+    expect(offer(town, bench, 'wooden-axe')).toMatchObject({ who: b, open: true, reason: '' });
+    expect(town.orderSettlementCraft(bench.id, 'wooden-axe')).toBe(true);
+    expect([a.craftItem, b.craftItem, c.craftItem]).toEqual([null, 'wooden-axe', null]);
+    expect(town.orderSettlementCraft(bench.id, 'wooden-axe')).toBe(true);
+    expect([a.craftItem, b.craftItem, c.craftItem]).toEqual([null, 'wooden-axe', 'wooden-axe']);
+    // Nobody is left without one: a third order is refused and nothing changes.
+    expect(town.orderSettlementCraft(bench.id, 'wooden-axe')).toBe(false);
+    expect(offer(town, bench, 'wooden-axe')).toMatchObject({ open: false });
+    run(town, b);
+    run(town, c);
+    expect([b, c].map((p) => p.inventory.some((s) => s?.item === 'wooden-axe'))).toEqual([true, true]);
+    expect(a.inventory.filter((s) => s?.item === 'wooden-axe').length).toBe(1);
+  });
+  it('upgrades the nearest lesser make once everyone has the kind, and never picks one who cannot use the item', () => {
+    const { town, smith, a, b, c } = fixture();
+    Object.assign(town.stock(), new Resources(0, 30, 30));
+    smith.variant = levelVariant(2);
+    for (const p of [a, b, c]) addInventory(p, 'wooden-club');
+    // The mace asks level 3. The smithy stands nearest Dag, who is too young for it, then Bryn, then Asa.
+    a.level = b.level = 3;
+    c.level = 1;
+    expect(offer(town, smith, 'mace')).toMatchObject({ who: b, open: true, reason: '' });
+    expect(town.orderSettlementCraft(smith.id, 'mace')).toBe(true);
+    expect(b.craftItem).toBe('upgrade:mace');
+    expect(town.orderSettlementCraft(smith.id, 'mace')).toBe(true);
+    expect(a.craftItem).toBe('upgrade:mace');
+    expect(town.orderSettlementCraft(smith.id, 'mace')).toBe(false);
+    expect(c.craftItem).toBeNull();
+    run(town, b);
+    expect(b.inventory.map((s) => s?.item).filter(Boolean)).toEqual(['mace']);
+    // A first make is not handed to one too young for it either.
+    const sword = itemSpec('wooden-sword')!.minimumLevel;
+    a.level = b.level = c.level = sword - 1;
+    expect(offer(town, smith, 'wooden-sword')?.who ?? null).toBeNull();
+  });
+  it('says nobody is free while those without the item are busy at another order', () => {
+    const { town, bench, a, b, c } = fixture();
+    Object.assign(town.stock(), new Resources(0, 30, 30));
+    for (const id of ['wooden-axe', 'wooden-pick', 'wooden-hoe']) expect(town.orderSettlementCraft(bench.id, id)).toBe(true);
+    expect([a, b, c].map((p) => p.craftItem)).toEqual(['wooden-axe', 'wooden-pick', 'wooden-hoe']);
+    expect(offer(town, bench, 'wooden-mallet')).toMatchObject({ who: null, reason: 'Nobody is free to make it' });
+    expect(town.orderSettlementCraft(bench.id, 'wooden-mallet')).toBe(false);
   });
 });
 describe('Korean for the smithy', () => {
@@ -539,23 +752,25 @@ describe('Korean for the smithy', () => {
       'Needs a level 3 workbench',
       'Asa raised the workbench to level 2',
       'Asa upgraded the Wooden sword to the Flint sword',
-      'Bryn has none: Bryn will make it',
-      'Bryn has none',
-      'In hand: Wooden sword, Wooden shield · Worn: Wooden armor · Tools: 2',
-      'Wooden axe in the pack · Fells trees faster',
-      'Turns more blows aside than a wooden shield',
-      'Takes less damage than wooden armor',
-      'Hits harder than a flint sword',
+      'Goes to Bryn',
+      'Bryn is making it',
+      'Everyone has one',
+      'Nobody is free to make it',
+      'Wooden axe in the pack · Felling efficiency +1 · Attack as a weapon +1',
+      'Block +24 · Off hand',
+      'Defence +12',
+      'Melee attack +3 · STR scaling +5 · DEX scaling +2 · Cleaves',
+      'Ranged attack +1 · DEX scaling +3 · Reach +1.7 · Pierces · Two-handed',
       'Workbench level 2',
       'Asa stopped making the Smithy level 3',
       'The wooden spear takes both hands',
       'Tools from the pack: Wooden axe, Stone pick',
       'Main hand: Wooden spear · Wooden shield (needs a free hand)',
-      'Has one',
-      'In hand',
-      'Worn',
-      'Has a better one',
-      'Everyone has one',
+      'Made by upgrading a wooden axe',
+      'Needs level 3',
+      'Upgrade at a level 2 smithy',
+      'Upgrade at level 3',
+      'Weapons · New',
       'Upgrading · 40%',
       'Level 1 / 2',
       'Blocks a door',

@@ -30,7 +30,19 @@ export class Footprint {
   constructor(public center: Point = point(), public half = .5, public angle = 0) {}
   corners(): Outline { return [point(-this.half, -this.half), point(this.half, -this.half), point(this.half, this.half), point(-this.half, this.half)].map(p => add(this.center, rotated(p, this.angle))); }
   contains(p: Point, margin = 0): boolean { const delta = sub(p, this.center), extent = f32(this.half + margin), bound = f32(2 * extent); if (Math.abs(delta.x) > bound || Math.abs(delta.y) > bound) return false; const local = rotated(delta, -this.angle); return Math.abs(local.x) <= extent && Math.abs(local.y) <= extent; }
-  overlaps(other: Footprint): boolean { return overlaps(this.corners(), other.corners()); }
+  overlaps(other: Footprint): boolean {
+    if (this.half <= 0 || other.half <= 0) return false;
+    const delta = sub(other.center, this.center), angle = other.angle - this.angle;
+    // On either axis of a square, the other square projects to the same half-width.
+    const projectedScale = Math.abs(Math.cos(angle)) + Math.abs(Math.sin(angle));
+    const overlapsOnAxes = (plot: Footprint, neighbor: Footprint): boolean => {
+      const local = rotated(delta, -plot.angle);
+      // Aligned sides may differ by a few float32 units after rotation into world space.
+      const extent = plot.half + neighbor.half * projectedScale - 0.00002;
+      return Math.max(Math.abs(local.x), Math.abs(local.y)) < extent;
+    };
+    return overlapsOnAxes(this, other) && overlapsOnAxes(other, this);
+  }
 }
 export function contains(outline: Outline, p: Point): boolean {
   let inside = false;

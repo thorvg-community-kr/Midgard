@@ -29,7 +29,7 @@ try {
     ],
   });
   await server.listen();
-  browser = await chromium.launch({ headless: true, args: ['--mute-audio'] });
+  browser = await chromium.launch({ headless: true, args: ['--mute-audio', '--use-angle=gl', '--enable-gpu', '--ignore-gpu-blocklist'] });
   deadline = setTimeout(() => void browser.close().catch(() => {}), 280000);
   const open = async (width, height, touch) => {
     const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1 });
@@ -40,7 +40,7 @@ try {
       async ({ width, height, touch }) => {
         const [
           { initializeWebCanvas },
-          { loadNativeFonts },
+          { loadNativeFonts, loadKoreanFont },
           { BrowserFiles },
           { createNativeServices },
           { Camera, project },
@@ -196,6 +196,55 @@ try {
             guild.progress = 1;
             town.completeConstruction();
           },
+          openGuild() {
+            this.clear();
+            const p = town.folk[0];
+            town.orderStop([p.id]);
+            p.level = 3;
+            p.trained = true;
+            p.calling = Calling.Warrior;
+            p.position = guild.door();
+            p.rest = p.food = p.hydration = p.health = 1;
+            game.selectBuilding(guild.id);
+            game.inspectorPerson = p.id;
+            return Calling.Ranger;
+          },
+          buildWatchtower() {
+            const tower = spiral(Structure.Watchtower);
+            if (!tower) throw new Error('No plot for the watchtower');
+            town.completeConstruction();
+          },
+          async showKorean() {
+            await loadKoreanFont(tvg, fonts);
+            (await import('/packages/localization/src/index.ts')).setLocale('KR');
+            (await import('/apps/web/src/native/guide-preferences.ts')).setGuidePreference('cards', false);
+            game.guide.card = null;
+            game.noticeUntil = 0;
+          },
+          async rockPlot() {
+            this.clear();
+            const { deposit, position } = await import('/packages/engine/src/mining.ts');
+            const { Terrain } = await import('/packages/engine/src/world-types.ts');
+            const map = town.map();
+            town.scout(origin.x, origin.y, 32);
+            for (let y = 0; y < map.height(); ++y) {
+              for (let x = 0; x < map.width(); ++x) {
+                if (map.at(x, y).terrain !== Terrain.Rock || !deposit(map, x, y)) continue;
+                const at = position(x, y);
+                if (!map.revealed(at) || map.terrainAt(at) !== Terrain.Rock) continue;
+                const { spot, check } = town.buildingSite(Structure.Tent, at, 0);
+                if (!check.ok || spot.snapped) continue;
+                const scout = town.folk.find(p => p.visibility() > 0 && p.faction === 0);
+                town.orderStop([scout.id]);
+                scout.position = town.grid.nearestWalkable({ x: at.x + 2, y: at.y + 1 });
+                const center = project(at.x, at.y);
+                game.camera = new Camera(center.x, center.y, 2.2);
+                game.selectTool(Tool.Tent);
+                return { at, x, y, count: town.placed.length };
+              }
+            }
+            throw new Error('No reachable stone pile for the tent');
+          },
           quests(branch) {
             game.questBranch = GoalBranch[branch];
           },
@@ -269,6 +318,13 @@ try {
   assert(announced.fresh, 'the training yard is marked new');
   assert.doesNotMatch(announced.notice, /^Unlocked/);
   await shot('build-menu-new');
+  // The guide selects the finished guild. Reopen the build menu before choosing the yard.
+  await page.evaluate(() => {
+    probe.clear();
+    probe.game.globalCard = 0;
+    probe.game.drawerPinned = true;
+  });
+  await frames(2);
   await click('global/card-group-Arms & defence');
   await page.mouse.move(5, 300);
   await frames(4);
@@ -338,6 +394,47 @@ try {
   await page.mouse.move(roof.x, roof.y);
   await frames(4);
   await shot('winter-stores');
+
+  // A veteran can choose a second calling through the ordinary guild controls as soon as the school stands.
+  const ranger = await page.evaluate(() => probe.openGuild());
+  const guildControl = async (id) => {
+    const control = (await controls()).find(c => c.id.split('/').at(-1) === id);
+    assert(control, 'Missing guild control ' + id);
+    return control;
+  };
+  await frames(6);
+  await click((await guildControl('guild-class-' + ranger)).id);
+  assert(!(await guildControl('guild-train')).enabled);
+  await page.evaluate(() => probe.buildWatchtower());
+  await frames(6);
+  assert((await guildControl('guild-train')).enabled);
+  await page.evaluate(() => probe.showKorean());
+  await frames(2);
+  await shot('guild-career-change');
+  await click((await guildControl('guild-train')).id);
+  const trained = await page.evaluate(ranger => {
+    const t = probe.town, p = t.person(probe.game.inspectorPerson);
+    for (let i = 0; i < 400 && p.calling !== ranger; ++i) t.advance(0.1);
+    return p.calling;
+  }, ranger);
+  assert.equal(trained, ranger, 'the guild completed a second calling');
+
+  // Stake a tent directly over a natural deposit using the same pointer and preview as ordinary play.
+  const rock = await page.evaluate(() => probe.rockPlot());
+  await frames(2);
+  const screen = await page.evaluate(at => probe.game.toScreen(at), rock.at);
+  await page.mouse.move(screen.x, screen.y);
+  await frames(12);
+  assert(await page.evaluate(() => probe.game.current.preview.valid), 'a tent can be placed on the stone pile');
+  await page.evaluate(() => { probe.game.noticeUntil = 0; });
+  await frames(1);
+  await shot('build-on-stone');
+  await page.mouse.click(screen.x, screen.y);
+  await frames(2);
+  assert(await page.evaluate(({ at, x, y, count }) => {
+    const { town } = probe;
+    return town.placed.length === count + 1 && town.placed.at(-1).footprint().contains(at) && town.map().at(x, y).quarried;
+  }, rock), 'the pointer placed the foundation over the selected pile');
 
   // A phone in touch mode: the market's narrow layout, and the build menu without what is locked.
   await page.context().close();

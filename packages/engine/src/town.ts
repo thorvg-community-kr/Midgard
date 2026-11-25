@@ -10,6 +10,7 @@ import { copyNative } from './native-copy';
 import { founderAppearance } from './person-look';
 import { birthNotice, foundingPeople } from './ymir-born';
 import * as construction from './town-construction';
+import * as farms from './farm-layout';
 import * as supplies from './construction-work';
 import * as roadConstruction from './road-construction';
 import * as orders from './unit-orders';
@@ -37,7 +38,6 @@ import * as title from './title-autoplay';
 import * as realm from './town-realm';
 import * as defences from './town-defences';
 import * as memorial from './town-memorial';
-import * as drills from './town-drills';
 import * as downed from './town-downed';
 import * as abilities from './calling-abilities';
 import * as market from './town-trade';
@@ -46,10 +46,11 @@ import { advanceThor } from './thor-visit';
 const { population: scopedPopulation, guests: scopedGuests, housing: scopedHousing, guestBeds: scopedGuestBeds, fieldAcres: scopedFields, tendedFieldAcres: scopedTended, roadSettlement: scopedRoadSettlement, ...settlementMethods } = settlements;
 const { fieldAcres: totalFields, tendedFieldAcres: totalTended, ...economyMethods } = economy;
 const { finishCeremony: unusedCeremonyHelper, ceremonySeconds: unusedCeremonySeconds, ...devotionMethods } = devotion;
+const { humanNames: unusedHumanNames, ...residentMethods } = residents;
 const { stressPolicy: unusedStressPolicy, ...stressMethods } = stress;
 const { realmRules: unusedRealmRules, ...realmMethods } = realm;
 const { defectionPolicy: unusedDefectionPolicy, ...neutralMethods } = neutral;
-const methods = { ...supplies, ...construction, ...roadConstruction, ...orders, ...scheduler, ...needs, ...housing, ...residents, ...hiring, ...devotionMethods, ...equipment, ...stressMethods, ...neutralMethods, ...harvesting, ...people, ...ticking, ...combat, ...encounters, ...giants, ...wildlife, ...realmMethods, ...defences, ...memorial, ...drills, ...downed, ...abilities, ...market, ...rituals, ...status, ...economyMethods, ...production, ...settlementMethods, ...title, advanceThor };
+const methods = { ...supplies, ...construction, ...farms, ...roadConstruction, ...orders, ...scheduler, ...needs, ...housing, ...residentMethods, ...hiring, ...devotionMethods, ...equipment, ...stressMethods, ...neutralMethods, ...harvesting, ...people, ...ticking, ...combat, ...encounters, ...giants, ...wildlife, ...realmMethods, ...defences, ...memorial, ...downed, ...abilities, ...market, ...rituals, ...status, ...economyMethods, ...production, ...settlementMethods, ...title, advanceThor };
 type Bound<T> = { [K in keyof T]: T[K] extends (...args: infer A) => infer R ? (...args: A) => R : never };
 export interface Town extends Bound<typeof methods> {}
 export class Town extends TownState {

@@ -9,6 +9,7 @@ import {
   baldHairAsset,
   faceBaseCount,
   hairAssetCount,
+  referenceHairIndex as hairIndex,
   referenceHeadCount,
   safeCharacterHairAsset,
   safeCharacterOutfitAsset,
@@ -88,7 +89,6 @@ const ink: Rgba = [25, 28, 27, 255],
 const rgb = (c: { r: number; g: number; b: number }): Rgb => [c.r, c.g, c.b];
 const headIndex = (i: number) => clamp(i, 0, f32(referenceHeadCount - 1)),
   baseIndex = (i: number) => clamp(i, 0, f32(faceBaseCount - 1)),
-  hairIndex = (i: number) => clamp(i, 0, f32(hairAssetCount - 1)),
   outfitIndex = safeCharacterOutfitAsset;
 const faceSource = (i: number) => source.faces[baseIndex(i)];
 function smooth(t: number): number {
@@ -854,7 +854,7 @@ export function characterHair(a: Appearance, front: boolean): SceneNode {
       .add(characterHairPart(a, HairPart.Fringe));
   else {
     if (
-      a.hairAsset !== baldHairAsset &&
+      hairIndex(a.hairAsset) !== baldHairAsset &&
       source.hair[hairIndex(safeCharacterHairAsset(a.hairAsset))].rearMode !== 4
     ) {
       const base = { ...a };

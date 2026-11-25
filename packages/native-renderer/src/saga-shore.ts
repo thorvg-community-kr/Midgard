@@ -4,11 +4,11 @@ import type { Likeness } from '../../engine/src/likeness';
 import { Calling } from '../../engine/src/person';
 import { Mood } from '../../engine/src/person-look';
 import { SceneNode, ShapeNode, type Rgb } from './paint';
-import { capsule, oval, pen, type Form } from './outline-form';
-import { dusk, paintForm } from './form-paint';
+import { capsule, pen } from './outline-form';
+import { dusk } from './form-paint';
 import { drawBust } from './calling-bust';
 import { drawHead, expressionOf, portraitFinish, poseFace, type Expression, type FaceRig } from './likeness-head';
-import { alphaOf, backdrop, flat, lock, sagaWidth, scatter, stroke } from './saga-panel';
+import { alphaOf, backdrop, flat, hazeStreak, lock, sagaWidth, scatter, stroke } from './saga-panel';
 
 export const sand: Rgb = [226, 190, 140];
 /** Where sky meets sea on the dawn shore. */
@@ -30,15 +30,16 @@ export function dawnShore(sunX = 430): DawnShore {
     glitter = new SceneNode(),
     water = new SceneNode(),
     ground = new SceneNode();
-  for (const [r, alpha] of [
-    [620, 30],
-    [440, 38],
-    [290, 46],
-    [170, 54],
-  ])
-    sun.add(new ShapeNode().appendCircle(sunX, 0, r, r * 0.66).fill(255, 196, 150, alpha));
   sun.add(new ShapeNode().appendCircle(sunX, 0, 84).fill(253, 222, 150));
-  scene.add(backdrop([70, 80, 156], [252, 186, 136], 0, horizon)).add(sun);
+  scene.add(backdrop([70, 80, 156], [252, 186, 136], 0, horizon));
+  // The light of it lies along the horizon in long streaks of haze, one of them across its face: no rings round it.
+  for (const [x, y, w, t, alpha] of [
+    [sunX + 180, horizon - 196, 1040, 46, 34],
+    [sunX - 60, horizon - 118, 1360, 58, 44],
+    [sunX + 260, horizon - 44, 1700, 54, 56],
+  ])
+    scene.add(flat([hazeStreak(x, y, w, t)], [255, 198, 152], alpha));
+  scene.add(sun).add(flat([hazeStreak(sunX + 60, horizon - 22, 560, 15)], [255, 206, 164], 150));
   // Far heights across the bay, the sea, a few bars of light on it.
   scene.add(
     flat(
@@ -105,13 +106,20 @@ export function dawnShore(sunX = 430): DawnShore {
       170,
     ),
   );
-  for (let i = 0; i < 9; i++)
+  for (let i = 0; i < 9; i++) {
+    const x = 60 + 1500 * scatter(i, 301),
+      y = 720 + 150 * scatter(i, 302);
+    // Nothing lies at the foot of what stands on the bank, where it would peep out from behind.
+    if (x > 980 && x < 1300 && y > 770) continue;
+    const w = 5 + 5 * scatter(i, 303);
+    // A pebble or a shell: flat underneath, uneven on top.
     scene.add(
       flat(
-        [oval(60 + 1500 * scatter(i, 301), 720 + 150 * scatter(i, 302), 5 + 5 * scatter(i, 303), 3.5)],
+        [pen(x - w, y).curve([x - w * 0.4, y - 3.6], [x + w * 0.5, y - 2.8], [x + w, y]).curve([x + w * 0.2, y + 2.2], [x - w, y]).close()],
         i % 3 ? dusk(sand, 0.3) : [248, 236, 210],
       ),
     );
+  }
   scene.add(ground);
   return {
     scene,
@@ -124,81 +132,13 @@ export function dawnShore(sunX = 430): DawnShore {
   };
 }
 
-/**
- * One of the two founders from behind, in the game's own small round build: feet at the origin,
- * about 112 tall. Askr wears his hair as a mane, Embla hers in a side braid.
- */
-export function founderBack(index: 0 | 1): SceneNode {
-  const look = founderCast[index],
-    hair = tone(look.hair),
-    skin = tone(look.skin),
-    wool = look.wool ? tone(look.wool) : ([96, 116, 110] as Rgb),
-    braid = index === 1,
-    scene = new SceneNode(),
-    finish = { ink: 0, rim: 4 },
-    linen: Rgb = [228, 216, 192];
-  paintForm(scene, [capsule(-10, -24, -11, -5, 8, 7), capsule(10, -24, 11, -5, 8, 7)], [96, 84, 86], finish);
-  paintForm(scene, [oval(-12, -2, 10, 6), oval(12, -2, 10, 6)], [78, 62, 58], { ink: 0, rim: 2 });
-  paintForm(
-    scene,
-    [capsule(-23, -52, -27, -30, 7, 6), capsule(23, -52, 27, -30, 7, 6)],
-    dusk(wool, 0.1),
-    finish,
-  );
-  scene.add(flat([oval(-28, -26, 6, 6), oval(28, -26, 6, 6)], skin));
-  paintForm(
-    scene,
-    [
-      pen(-20, -60)
-        .curve([-26, -42], [-28, -20])
-        .curve([-14, -15], [0, -17], [14, -15], [28, -20])
-        .curve([26, -42], [20, -60])
-        .curve([0, -66], [-20, -60])
-        .close(),
-    ],
-    wool,
-    finish,
-  );
-  scene.add(
-    flat(
-      [
-        pen(-28, -24)
-          .curve([-14, -19], [0, -21], [14, -19], [28, -24])
-          .curve([28, -19], [0, -15], [-28, -19])
-          .close(),
-      ],
-      linen,
-    ),
-  );
-  scene.add(flat([oval(-33, -82, 6, 8), oval(33, -82, 6, 8)], skin));
-  const head: Form = braid
-    ? [
-        pen(-33, -84)
-          .curve([-34, -112], [0, -120], [34, -112], [33, -84])
-          .curve([32, -62], [14, -54], [0, -53], [-14, -54], [-32, -62])
-          .close(),
-        oval(22, -56, 8, 9),
-        oval(25, -43, 7, 8),
-        oval(27, -31, 6, 7),
-        lock(28, -24, 30, -8, 9, 0.1),
-      ]
-    : [
-        pen(-34, -84)
-          .curve([-35, -113], [0, -121], [35, -113], [34, -84])
-          .curve([36, -66], [30, -54])
-          .curve([20, -58], [10, -50], [0, -56], [-10, -50], [-20, -58], [-30, -54])
-          .curve([-36, -66], [-34, -84])
-          .close(),
-        ...[0, 1, 2, 3, 4].map((i) => lock(-24 + i * 12, -58, -27 + i * 13.5, -42 - (i % 2) * 5, 12, 0)),
-      ];
-  paintForm(scene, head, hair, finish);
-  return scene;
-}
-
 export interface FounderPortrait {
   scene: SceneNode;
-  /** `woken` 0 is carved wood with shut eyes, 1 is alive; `lids` opens the eyes; `glance` slides them aside. */
-  pose(woken: number, lids: number, glance: number): void;
+  /**
+   * `woken` 0 is carved wood with shut eyes, 1 is alive; `lids` opens the eyes; `glance` slides
+   * them aside; `shed` lets the last leaves fall from the hair.
+   */
+  pose(woken: number, lids: number, glance: number, shed: number): void;
 }
 /**
  * Askr or Embla as the game's own portrait, head at the origin in head units, drawn twice: once
@@ -217,7 +157,8 @@ export function founderPortrait(index: 0 | 1): FounderPortrait {
     },
     build = (who: Likeness): { figure: SceneNode; rig: FaceRig; expression: Expression } => {
       const expression = expressionOf(who, Mood.Content),
-        head = drawHead(who, portraitFinish, expression),
+        // No flush on the cheeks here: the two have only just drawn breath.
+        head = drawHead(who, { ...portraitFinish, pale: true }, expression),
         outfit = callingOutfit(Calling.Settler, 0, who.wool ?? null),
         bust = drawBust(
           who,
@@ -232,13 +173,42 @@ export function founderPortrait(index: 0 | 1): FounderPortrait {
     },
     wood = build(carved),
     alive = build(look),
+    leaves: SceneNode[] = [],
     scene = new SceneNode().add(alive.figure).add(wood.figure);
+  // A few leaves still caught in the hair: narrow for the ash, broad for the elm.
+  for (const [x, y, lean] of [
+    [-0.62, -0.78, -0.5],
+    [0.1, -0.98, 0.2],
+    [0.66, -0.7, 0.7],
+  ]) {
+    const leaf = new SceneNode().add(
+      flat([lock(-0.17, 0, 0.17, 0, index === 0 ? 0.13 : 0.2, 0.18)], index === 0 ? [160, 188, 104] : [106, 160, 104]),
+    );
+    leaf.transform([Math.cos(lean), -Math.sin(lean), x, Math.sin(lean), Math.cos(lean), y, 0, 0, 1]);
+    leaves.push(leaf);
+    scene.add(leaf);
+  }
+  const rest: [number, number, number][] = [
+    [-0.62, -0.78, -0.5],
+    [0.1, -0.98, 0.2],
+    [0.66, -0.7, 0.7],
+  ];
   return {
     scene,
-    pose(woken, lids, glance) {
+    pose(woken, lids, glance, shed) {
       wood.figure.opacity(alphaOf(1 - woken));
       poseFace(wood.rig, wood.expression, 0, 0);
       poseFace(alive.rig, alive.expression, lids, glance);
+      // Each leaf lets go in turn and rocks down past the shoulders.
+      leaves.forEach((leaf, i) => {
+        const fall = Math.max(0, Math.min(1, shed * 1.5 - i * 0.22)),
+          [x, y, lean] = rest[i],
+          rock = lean + fall * (i % 2 ? 2.4 : -2.2) + 0.5 * Math.sin(fall * 9 + i),
+          at: [number, number] = [x + 0.5 * Math.sin(fall * 7 + i * 2) * fall, y + 3.6 * fall * fall];
+        leaf
+          .transform([Math.cos(rock), -Math.sin(rock), at[0], Math.sin(rock), Math.cos(rock), at[1], 0, 0, 1])
+          .opacity(alphaOf((1 - fall) * 4));
+      });
     },
   };
 }

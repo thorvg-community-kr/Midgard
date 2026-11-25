@@ -27,6 +27,7 @@ export interface Sight {
 export interface TerrainMap {
   width(): number;
   height(): number;
+  layer?(layer: number): Float32Array;
   sample(layer: number, i: number, j: number): number;
   value(layer: number, p: Point): number;
   terrainAt(p: Point): number;

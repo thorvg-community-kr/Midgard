@@ -1,6 +1,6 @@
 import { add, point, segmentDistance } from './geometry';
 import { f32, hash01, u32 } from './numeric';
-import { DungeonKind, Giant, Region, Terrain, World, impassable, isStone, isWater, type Dungeon, type TileCoord } from './world-types';
+import { DungeonKind, Giant, Region, Terrain, World, unsafeGround, isStone, isWater, type Dungeon, type TileCoord } from './world-types';
 import type { WorldMap } from './world-map';
 const titles = [
     ['Tower of Ravens', 'The Broken Hall', "Bifrost's Foot", 'Valgrind'],
@@ -22,10 +22,10 @@ function fits(map: WorldMap, x: number, y: number, kind: DungeonKind, home: bool
             if (!map.inside(f32(x + dx), f32(y + dy)))
                 return false;
             const tile = map.at(f32(x + dx), f32(y + dy)), footprint = dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1;
-            if (footprint && (isWater(tile.terrain) || impassable(tile.terrain) || tile.dungeon >= 0))
+            if (footprint && (isWater(tile.terrain) || unsafeGround(tile.terrain) || tile.dungeon >= 0))
                 return false;
             const doorstep = dx === 1 && dy === 2;
-            if (doorstep && (isWater(tile.terrain) || impassable(tile.terrain)))
+            if (doorstep && (isWater(tile.terrain) || unsafeGround(tile.terrain)))
                 return false;
             rockNear ||= isStone(tile.terrain);
         }
@@ -53,7 +53,7 @@ export function reachable(map: WorldMap, start: TileCoord): Uint8Array {
                 if (map.inside(x, y) && segmentDistance(point(f32(x + f32(.5)), f32(y + f32(.5))), a, b) <= reach)
                     river[f32(f32(y * width) + x)] = 1;
     }
-    const open = (x: number, y: number): boolean => { const terrain = map.at(x, y).terrain; return !impassable(terrain) && (!isWater(terrain) || terrain === Terrain.Water && !!river[f32(f32(y * width) + x)]); };
+    const open = (x: number, y: number): boolean => { const terrain = map.at(x, y).terrain; return !unsafeGround(terrain) && (!isWater(terrain) || terrain === Terrain.Water && !!river[f32(f32(y * width) + x)]); };
     const stack = [start];
     seen[f32(f32(start.y * width) + start.x)] = 1;
     while (stack.length) {

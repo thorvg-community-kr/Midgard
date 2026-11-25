@@ -57,6 +57,13 @@ const tall = f(2.42);
 const stature = (size: number): number => f(f(2.55) * f(Math.pow(size, f(0.75))));
 /** Width grows less than height, so trees read tall rather than fat. */
 const broad = f(1.5);
+export function treeCrown(tree: Tree): { halfWidth: number; height: number } {
+  const spruce = tree.kind === TreeKind.SnowySpruce;
+  return {
+    halfWidth: f(f((spruce ? f(7.2) : 9) * tree.size) * broad),
+    height: f(f((spruce ? 36 : 30) * stature(tree.size)) * tree.slender),
+  };
+}
 const Dead = 0,
   Stems = 1,
   Lit = 2,
@@ -95,8 +102,7 @@ export class TreeBatch {
   }
   private fir(b: Point, tree: Tree): void {
     const s = tree.size,
-      w = f(f(9 * s) * broad),
-      top = f(f(30 * stature(s)) * tree.slender),
+      { halfWidth: w, height: top } = treeCrown(tree),
       foot = f(b.y - f(5 * s));
     this.parts[Stems].appendRect(f(b.x - f(f(1.6) * s)), f(b.y - f(6 * s)), f(f(3.2) * s), f(6 * s));
     appendPolygon(this.parts[Lit], [
@@ -128,8 +134,7 @@ export class TreeBatch {
   }
   private spruce(b: Point, tree: Tree): void {
     const s = tree.size,
-      height = f(f(36 * stature(s)) * tree.slender),
-      width = f(f(f(7.2) * s) * broad);
+      { height, halfWidth: width } = treeCrown(tree);
     this.parts[Stems].appendRect(f(b.x - f(f(1.3) * s)), f(b.y - f(4 * s)), f(f(2.6) * s), f(4 * s));
     const tiers = s < f(0.8) ? 4 : 5,
       bottom = f(b.y - f(3 * s)),

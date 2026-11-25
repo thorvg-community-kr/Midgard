@@ -18,7 +18,7 @@ export function holdPosition(app: GameAppState): boolean {
     return false;
   }
   const held = app.town.orderHold(ids);
-  // Like Stop: queued work must not pull them off the spot.
+  // Holding is also how a resident is stopped: queued work must not pull them off the spot.
   for (const id of ids) app.stoppedWork.set(id, app.workSerial);
   app.pending = Order.None;
   app.army.aim = null;

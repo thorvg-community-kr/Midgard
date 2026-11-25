@@ -42,6 +42,7 @@ function fixture() {
     town: {
       person: (id: number) => people[id] ?? null,
       downedResidents: () => [],
+      buildings: () => [],
       map: () => ({ cell: () => ({ dungeon: -1 }), dungeons: () => [] }),
       deepestOpenFloor: () => 1,
       expeditionProblem: () => 'Another party is on its way to a gate',
@@ -75,7 +76,7 @@ describe('target input and group commands', () => {
       prepare,
     };
   };
-  it.each(['a', 'm', 'A', 'M'])('group hotkey %s works even after a HUD button has focus', (text) => {
+  it.each(['a', 'A'])('group hotkey %s works even after a HUD button has focus', (text) => {
     const prepare = vi.fn(),
       app = {
         game: commanding(prepare),
@@ -89,9 +90,9 @@ describe('target input and group commands', () => {
       app as unknown as GameApplication,
       { type: 'KeyDown', text, control: false, meta: false, alt: false } as AppEvent,
     );
-    expect(prepare).toHaveBeenCalledWith(text.toLowerCase() === 'a' ? Order.Attack : Order.Move);
+    expect(prepare).toHaveBeenCalledWith(Order.Attack);
   });
-  it('keeps A and M inside a focused text field', () => {
+  it('keeps A inside a focused text field', () => {
     const prepare = vi.fn(),
       key = vi.fn(),
       app = {

@@ -1,6 +1,6 @@
 import type { TownState } from './town-state';
 import { StrikeKind } from './skill-catalog';
-import { Activity, type Monster } from './person';
+import type { Monster } from './person';
 import type { Building } from './town-models';
 import { Structure } from './building-catalog';
 import { distance } from './geometry';
@@ -38,13 +38,7 @@ function shoot(town: TownState, from: Building, mark: Monster, damage: number, p
     primary: true,
   });
 }
-/** True while a resident assigned to this watchtower is on their feet and in Midgard. */
-export function watchtowerManned(this: TownState, id: number): boolean {
-  return this.folk.some(
-    (p) => p.job === id && p.health > 0 && p.downedAt < 0 && !p.stressRecovery && p.activity !== Activity.Expedition,
-  );
-}
-/** Fortified seats and staffed watchtowers answer a raid with arrows. */
+/** Fortified seats and finished watchtowers answer a raid with arrows. */
 export function defendSettlement(this: TownState, _dt: number): void {
   const might = boon(this, Boon.Bulwark) ? boonRules.bulwarkVolley : 1;
   for (const post of this.placed) {
@@ -54,7 +48,7 @@ export function defendSettlement(this: TownState, _dt: number): void {
     if (tier) {
       const mark = nearestFoe(this, post, seatVolley.reach);
       if (mark) shoot(this, post, mark, f(seatVolley.damagePerTier * tier * might), seatVolley.pause);
-    } else if (post.kind === Structure.Watchtower && watchtowerManned.call(this, post.id)) {
+    } else if (post.kind === Structure.Watchtower) {
       const mark = nearestFoe(this, post, towerVolley.reach);
       if (mark) shoot(this, post, mark, f(towerVolley.damage * might), towerVolley.pause);
     }

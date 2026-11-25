@@ -7,7 +7,7 @@ import { Town } from '../../../../packages/engine/src/town';
 import { Traffic } from '../../../../packages/engine/src/traffic';
 import { Camera, project, point } from '../../../../packages/engine/src/geometry';
 import { copyNative } from '../../../../packages/engine/src/native-copy';
-import { Order, PointerButton, toolStructure } from '../../../../packages/engine/src/game-tools';
+import { Order, PointerButton, drawsArea, toolStructure } from '../../../../packages/engine/src/game-tools';
 import { Thunderstorm } from '../../../../packages/engine/src/thunderstorm';
 import { MusicDirector, type MusicLibrary } from '../../../../packages/native-audio/src/music-director';
 import { Context } from '../../../../packages/native-ui/src';
@@ -168,8 +168,9 @@ export class GameApp extends GameAppState implements GameRuntime {
   selectedAnimalId(): number {
     return this.selectedAnimal;
   }
+  /** The building a tool sets down under the cursor; a farm is drawn as an area instead. */
   toolStructure() {
-    return toolStructure(this.tool);
+    return drawsArea(this.tool) ? undefined : toolStructure(this.tool);
   }
   contextPanelBounds() {
     return this.dockBounds;

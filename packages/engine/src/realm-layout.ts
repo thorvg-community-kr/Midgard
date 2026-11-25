@@ -3,6 +3,7 @@ import { distance, point, segmentDistance, type Point } from './geometry';
 import { clamp, hash01 } from './numeric';
 import { Layer, Terrain, World, type TileCoord } from './world-types';
 import type { WorldMap } from './world-map';
+import { inDrift, markPassage, passageGap, planPassage, type RealmPassage } from './realm-passage';
 
 /** Square of open sea that the world beyond a gate is raised from and sunk back into. */
 export interface RealmArea {
@@ -23,6 +24,7 @@ export interface Chamber {
 }
 export interface RealmPlan {
   area: RealmArea;
+  passage?: RealmPassage;
   chambers: Chamber[];
   /** Tile origin of the two-by-two way home. */
   gate: TileCoord;
@@ -161,11 +163,11 @@ const smooth = (seed: number, x: number, y: number, scale: number, salt: number)
 };
 /** Signed distance to walkable floor: negative inside chambers and corridors. */
 export function realmFloorDistance(plan: RealmPlan, p: Point): number {
-  let gap = Infinity;
+  let gap = plan.passage ? passageGap(plan.passage, p) : Infinity;
   plan.chambers.forEach((chamber, index) => {
     gap = Math.min(gap, distance(p, chamber.center) - chamber.radius);
     for (const next of chamber.links)
-      if (next > index)
+      if (next > index && !(index === 0 && plan.passage?.shelf && next === plan.passage.room))
         gap = Math.min(gap, segmentDistance(p, chamber.center, plan.chambers[next].center) - 1.5);
   });
   return gap;
@@ -189,8 +191,12 @@ function retile(map: WorldMap, area: RealmArea): void {
   // the sea also covers land outside it, and dropping it would hide what it revealed there.
   map.seen = map.seen.filter((sight) => !inArea(area, sight.center));
 }
+export function preparePassage(plan: RealmPlan, world: World): void {
+  plan.passage = planPassage(plan, world, plan.chambers.flatMap((room, i) => room.kind === ChamberKind.Den ? [i] : []));
+}
 /** Raises an island of the given world out of the sea square. */
 export function stampRealm(map: WorldMap, plan: RealmPlan, world: World): void {
+  preparePassage(plan, world);
   const { area } = plan,
     theme = realmTheme(world),
     stride = map.width() * 2 + 1,
@@ -211,7 +217,10 @@ export function stampRealm(map: WorldMap, plan: RealmPlan, world: World): void {
       let elevation = theme.elevation,
         heat = theme.heat,
         ridge = -0.5;
-      if (!floor) {
+      if (floor && plan.passage && inDrift(plan.passage, p)) {
+        heat = 0.14;
+        elevation = 0.65;
+      } else if (!floor) {
         if (theme.wall === 'mountain') ridge = Math.min(0.06, 0.02 + gap * 0.02);
         else if (theme.wall === 'lava') ridge = gap < 2 ? 0 : deep + 0.08;
         else if (theme.wall === 'ice') {
@@ -232,9 +241,11 @@ export function stampRealm(map: WorldMap, plan: RealmPlan, world: World): void {
       map.layer(Layer.Shade)[at] = 0.3;
     }
   retile(map, area);
+  markPassage(map, plan);
 }
 /** Sinks the island again; deep sea is uniform, so the square leaves no seam. */
 export function sinkRealm(map: WorldMap, area: RealmArea): void {
+  map.passageCells = undefined;
   const stride = map.width() * 2 + 1;
   for (let j = area.y * 2; j <= (area.y + area.size) * 2; ++j)
     for (let i = area.x * 2; i <= (area.x + area.size) * 2; ++i) {

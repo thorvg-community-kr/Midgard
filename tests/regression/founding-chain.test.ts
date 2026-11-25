@@ -75,7 +75,11 @@ function play(): Run {
   const run: Run = { done: new Map(), shown: [], firstNewcomer: -1, scouted: 0, town };
   const day = () => town.clock() / 300;
   const residents = () => town.people().filter((p) => p.role === Role.Resident && p.health > 0);
+  // Like a player, the script leaves the worn out to their beds at night: ordered about for days without sleep a
+  // founder breaks down, and twice in a week walks away.
+  const spent = (p: Person) => town.climate().night > 0.5 && p.rest < 0.5;
   const busy = (p: Person) =>
+    spent(p) ||
     [Activity.Crafting, Activity.Building, Activity.Roadwork, Activity.Praying, Activity.Fighting].includes(
       p.task,
     ) ||
@@ -253,8 +257,16 @@ function play(): Run {
         break;
       }
       case GoalKind.Field: {
+        // As the Farm tool does: one drawn area stakes out the farmhouse and its field together.
+        const staked = () => town.buildings().some((b) => b.kind === Structure.Farm && isPlayerBuilding(b));
+        for (let r = 4; r < 12 && !staked(); ++r)
+          for (let a = 0; a < 8 && !staked(); ++a) {
+            const c = point(seat.center.x + r * Math.cos(a * 0.785), seat.center.y + r * Math.sin(a * 0.785));
+            town.layFarm([point(c.x, c.y), point(c.x + 3, c.y), point(c.x + 3, c.y + 2.5), point(c.x, c.y + 2.5)]);
+          }
+        if (!farm) build(Structure.Farm, seat.center);
         const at = farm?.center ?? seat.center;
-        for (let r = 3; r < 10 && !town.fieldAcres(); ++r)
+        for (let r = 3; r < 10 && farm && !town.fieldAcres(); ++r)
           for (let a = 0; a < 8 && !town.fieldAcres(); ++a) {
             const c = point(at.x + r * Math.cos(a * 0.785), at.y + r * Math.sin(a * 0.785));
             town.plantField([
@@ -304,7 +316,7 @@ describe('the founding chain in a real new game', () => {
     expect(at('Build a smithy')).toBeLessThan(at('Make a weapon or a shield'));
     expect(at('Make a weapon or a shield')).toBeLessThan(at('Build a tent'));
     expect(at('Upgrade the workbench')).toBeLessThan(at('Upgrade the smithy'));
-    expect(at('Build a farmhouse')).toBeLessThan(at('Build an altar'));
+    expect(at('Lay out a farm')).toBeLessThan(at('Build an altar'));
     // Raids start on the night of day 2; the smithy and the first arms come before it.
     expect(at('Make a weapon or a shield')).toBeLessThan(2);
     expect(run.firstNewcomer).toBeGreaterThan(0);

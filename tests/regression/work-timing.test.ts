@@ -58,12 +58,14 @@ function harvest(step: number, equipped = true) {
 
 describe('work contacts use one simulation timeline', () => {
   for (const step of [0.1, 0.037])
-    it(`ends the six-second harvest on the final axe contact, step ${step}`, () => {
+    it(`fells the tree on the final iron axe contact at tier-three efficiency, step ${step}`, () => {
       const { events, p } = harvest(step),
         chops = events.filter((e) => e.kind === TreeWorkKind.Chop),
         fall = events.find((e) => e.kind === TreeWorkKind.Fall)!;
-      expect(chops.map((e) => Number(e.at.toFixed(6)))).toEqual([0.6, 1.5, 2.4, 3.3, 4.2, 5.1, 6]);
-      expect(fall.at).toBeCloseTo(6, 8);
+      const duration = 15 / 1.75;
+      expect(chops).toHaveLength(10);
+      chops.forEach((chop, index) => expect(chop.at).toBeCloseTo(0.6 + index * (duration - 0.6) / 9, 8));
+      expect(fall.at).toBeCloseTo(duration, 8);
       expect(chops.at(-1)!.at).toBeCloseTo(fall.at, 8);
       expect(p.carrying).toBe(3);
     });

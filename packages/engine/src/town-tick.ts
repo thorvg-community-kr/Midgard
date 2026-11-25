@@ -13,22 +13,28 @@ import {
 } from './building-catalog';
 import { Point, point, distance, lerp } from './geometry';
 import { Weather } from './climate';
-import { DungeonKind } from './world-types';
+import { DungeonKind, Terrain } from './world-types';
+import { lavaHealthPerSecond } from './walk-paths';
 import { f32 as f, clamp } from './numeric';
 import * as mining from './mining';
-import { hammerTiming, harvestTiming, harvestDuration, workElapsed, workImpactBetween } from './work-timing';
+import { canHarvest, harvestAmount, harvestProduct } from './harvest-material';
+import { collectSeconds, hammerTiming, harvestTiming, harvestDuration, harvestSwingPeriod, roadCrewStep, roadWorkRate, workElapsed, workImpactBetween } from './work-timing';
+import { takeHeld } from './carried-resources';
+import { advanceRanches } from './ranch-cycle';
+import { advanceHerding, advanceRanchHarvest, isRanchHarvest, leadLivestock, livestockKind, localRanches } from './livestock';
 import { animalSpec } from './wildlife';
 import { prepareFarmWork, fieldEfficiency, tillField } from './farm-work';
-import { separatePeople, roadWorkSpot, buildingWorkSpot } from './person-navigation';
+import { separatePeople, roadWorkSpot, buildingWorkSpot, waitsForFront } from './person-navigation';
 import type { Town } from './town';
 import type { Building } from './town-models';
-import { resourceAmount } from './construction-materials';
+import { resourceAmount, resourceBundle } from './construction-materials';
 import { processingRecipe } from './town-production';
-import { workEfficiency } from './equipment';
+import { equippedItem, workEfficiency } from './equipment';
 import { prepareBuildingRepair, restoreBuildingHealth } from './building-repair';
 import { healthCap } from './resident-wounds';
 import { Boon, boon } from './gate-boons';
 import { playerFaction } from './faction';
+import { spotVolcano } from './town-vision';
 import { advanceClearing } from './town-clearing';
 import { advanceBards } from './bard-phrases';
 export interface TickTown extends PeopleTown {
@@ -55,8 +61,8 @@ export interface TickTown extends PeopleTown {
   reveal(x: number, y: number, radius: number): void;
   walk(p: Person, dt: number): void;
   arrive(p: Person): void;
-  constructionTree(p: Person, activity: Activity, target: number): number;
-  fellTree(p: Person, cell: number): boolean;
+  constructionTree(p: Person, activity: Activity, target: number, laying?: boolean): number;
+  fellTree(p: Person, cell: number, from?: Point): boolean;
   assignHomes(): void;
   staff(): void;
   roadWorkTarget(id: number): number;
@@ -70,6 +76,7 @@ export interface TickTown extends PeopleTown {
   think(p: Person): void;
   recount(): void;
   killResident(p: Person, cause: string, notice?: string): void;
+  strikeDown(p: Person, cause: string): void;
   advanceWounds(): void;
   advanceDowned(): void;
   advanceAbilities(dt: number): void;
@@ -111,6 +118,7 @@ export function tick(this: TickTown, dt: number): void {
       .map((item) => item.footprint());
     this.grid.rebuild(this.world, this.network, walls);
   }
+  advanceRanches(this, dt);
   this.admitGuests(dt);
   this.processDevotion();
   if (!this.titleAutoplay) this.stir(dt);
@@ -150,10 +158,8 @@ export function tick(this: TickTown, dt: number): void {
     // Normal fatigue is one quarter per day, with sheltered sleep recovery.
     p.hydration = Math.max(0, f(p.hydration - f(f(0.2) * days)));
     p.food = Math.max(0, f(p.food - f(f(0.1) * days)));
-    p.rest = clamp(f(p.rest + f((asleep ? (sheltered ? f(2.4) : f(1.4)) : f(-0.25)) * days)), 0, 1);
-    let strain = f(-0.1);
+    let strain = asleep ? (sheltered ? -2.4 : -1.4) : 0.25;
     if (p.food < f(0.2)) strain = f(strain + f(0.5));
-    if (p.rest < f(0.15)) strain = f(strain + f(0.3));
     if (raining && !sheltered)
       strain = f(strain + f((sky.weather === Weather.Storm ? f(0.35) : f(0.15)) * sky.intensity));
     const chill = !sheltered ? f(Math.max(0, f(2 - sky.temperature)) * f(0.03)) : 0;
@@ -167,6 +173,8 @@ export function tick(this: TickTown, dt: number): void {
         Activity.Felling,
         Activity.Mining,
         Activity.Collecting,
+        Activity.GatheringEggs,
+        Activity.PreparingMeat,
       ].includes(p.activity);
     if (working) strain = f(strain + f(0.12));
     // Repeated long shifts accumulate pressure even when food is available.
@@ -182,17 +190,24 @@ export function tick(this: TickTown, dt: number): void {
     )
       p.worked = f(p.worked + f(dt));
     if (p.unpaid) strain = f(strain + f(0.1));
-    if (asleep && sheltered) strain = f(strain - f(0.25));
     if (p.role === Role.Resident && p.home < 0) strain = f(strain + f(0.1));
-    p.stress = clamp(f(p.stress + f(strain * days)), 0, 1);
+    p.rest = clamp(f(p.rest - f(strain * days)), 0, 1);
     p.breaking = p.stress >= f(0.95) ? f(p.breaking + days) : 0;
+    const onLava = !sheltered && this.world.cell(p.position)?.terrain === Terrain.Lava && !equippedItem(p, 'feet')?.lavaProof;
+    if (onLava && p.health > 0) {
+      p.health = f(p.health - dt * lavaHealthPerSecond);
+      if (p.health <= 0) {
+        this.strikeDown(p, 'Burned by lava');
+        continue;
+      }
+    }
     if (p.hydration < f(.1)) {
       p.stress = Math.min(1, f(p.stress + f(f(0.3) * days)));
       p.health = f(p.health - f(f(0.1) * days));
     }
     if (p.food < f(0.05)) p.health = f(p.health - f(f(0.5) * days));
     else if (!sheltered && sky.temperature < -3 && !hearth) p.health = f(p.health - f(f(0.15) * days));
-    else if (p.food > f(0.4) && p.rest > f(0.3))
+    else if (!onLava && p.food > f(0.4) && p.rest > f(0.3))
       p.health = Math.min(1, f(p.health + f((healers ? f(0.3) : f(0.15)) * days)));
     if (p.health > healthCap(p)) p.health = healthCap(p);
     if (p.health <= 0 && p.activity !== Activity.Leaving) {
@@ -213,8 +228,18 @@ export function tick(this: TickTown, dt: number): void {
       if (p.moving()) { this.walk(p, dt); if (!p.moving()) this.arrive(p); }
       continue;
     }
+    if (p.hunting || (p.task === Activity.Fighting && p.attackPerson < 0)) {
+      const animal = this.animals.find(a => a.id === (p.hunting ? p.foe : p.taskSite));
+      if (animal && livestockKind(animal.animal) && (animal.pen >= 0 || localRanches(this as Town, p).length)) {
+        if (!leadLivestock(this as Town, p, animal)) {
+          p.task = p.activity = Activity.Idle; p.foe = p.taskSite = -1; p.hunting = p.ordered = false; p.path = [];
+        }
+      }
+    }
     this.fight(p, dt);
     if (p.activity === Activity.Fighting || p.crossingDoorway()) continue;
+    if (isRanchHarvest(p.task)) { advanceRanchHarvest(this as Town, p, dt); continue; }
+    if (p.task === Activity.Herding) { advanceHerding(this as Town, p, dt); continue; }
     if (
       p.role === Role.Resident &&
       (!p.autoMode || this.awaiting) &&
@@ -250,7 +275,7 @@ export function tick(this: TickTown, dt: number): void {
         p.role === Role.Resident &&
         p.autoMode &&
         p.job < 0 &&
-        p.rest >= f(2 / 3) &&
+        p.rest >= f(.2) &&
         !p.ordered &&
         p.task === Activity.Idle &&
         p.activity === Activity.Idle &&
@@ -341,29 +366,40 @@ export function tick(this: TickTown, dt: number): void {
           p.until = this.time;
           break;
         }
-        if (distance(p.position, roadWorkSpot(this,p,road)) > f(0.0001)) {
-          if (this.walkTo(p, roadWorkSpot(this,p,road))) this.walk(p, dt);
-          else {
+        const spot = roadWorkSpot(this,p,road),
+          off = distance(p.position, spot);
+        // A step ahead of the front they lay from where they stand: the front comes to them.
+        if (off > f(0.0001) && !waitsForFront(road, spot, p.position)) {
+          if (!this.walkTo(p, spot)) {
             p.activity = Activity.Idle;
             p.until = this.time + 3;
+            break;
           }
-          break;
+          this.walk(p, dt);
+          // A crew mate's stroke moved the front a hair in this very tick: keeping step with it costs no turn.
+          if (off > roadCrewStep || distance(p.position, spot) > f(0.0001)) break;
         }
-        const tree = this.constructionTree(p, p.activity, p.target);
+        const tree = this.constructionTree(p, p.activity, p.target, true);
         if (tree >= 0) {
           if (p.task === Activity.Idle) {
             p.task = Activity.Roadwork;
             p.taskSite = road.id;
           }
-          if (!this.fellTree(p, tree)) {
-            p.activity = Activity.Holding;
-            p.until = this.time + 1;
+          if (!this.fellTree(p, tree, spot)) {
+            // In a mate's hand: a tree near by instead, else they stay at the front until it falls.
+            const taken = this.folk.some((other) => other.id !== p.id && other.activity === Activity.Felling && other.tree === tree),
+              near = taken ? this.constructionTree(p, p.activity, p.target) : -1;
+            if (near >= 0 && near !== tree && this.fellTree(p, near, spot)) break;
+            if (!taken) {
+              p.activity = Activity.Holding;
+              p.until = this.time + 1;
+            }
           }
           break;
         }
         if (paving && road.paving < 0 && road.wear > 0) {
           const ruined = road.wear >= 1;
-          road.wear = Math.max(0, f(road.wear - f(f(f(dt * workEfficiency(p,'construction')) * f(0.5)) / Math.max(1, road.length()))));
+          road.wear = Math.max(0, f(road.wear - f(f(f(dt * workEfficiency(p,'construction')) * f(roadWorkRate.mending)) / Math.max(1, road.length()))));
           if (ruined && road.wear < 1) this.roadChanged();
           if (road.wear <= 0) this.notify('A road is mended');
           hammerContact(this,p,dt);
@@ -374,7 +410,7 @@ export function tick(this: TickTown, dt: number): void {
           before = road[shareKey];
         road[shareKey] = Math.min(
           road.materials.limit(),
-          f(road[shareKey] + f(f(f(dt * workEfficiency(p,'construction')) * (paving ? f(0.2) : f(0.32))) / Math.max(1, road.length()))),
+          f(road[shareKey] + f(f(f(dt * workEfficiency(p,'construction')) * (paving ? f(roadWorkRate.paving) : f(roadWorkRate.laying))) / Math.max(1, road.length()))),
         );
         if (road[shareKey] > before) hammerContact(this,p,dt);
         const turn = f(1 - road.constructionStart);
@@ -396,7 +432,7 @@ export function tick(this: TickTown, dt: number): void {
           // selected front until its entire road is laid, then resume the building.
           this.roadChanged();
         }
-        if (road[shareKey] < 1) {
+        if (road[shareKey] < 1 && !waitsForFront(road, roadWorkSpot(this,p,road), p.position)) {
           if (this.walkTo(p, roadWorkSpot(this,p,road))) this.walk(p, dt);
           // A bridge can enter a new water cell between the ordinary 5% updates.
           // Publish that newly laid segment before the next walking step; stale
@@ -417,14 +453,12 @@ export function tick(this: TickTown, dt: number): void {
             (stone ? mining.deposit(this.world, x, y) : this.world.at(x, y).trees > 0),
           clearing = !stone && (p.task === Activity.Building || p.task === Activity.Roadwork),
           construction = p.task === Activity.Building || p.task === Activity.Roadwork,
-          full =
-            storageCamp >= 0 &&
-            !construction &&
-            (stone
-              ? treasury.stone >= this.capacity(storageCamp).stone
-              : treasury.wood >= this.capacity(storageCamp).wood);
+          product = exists && !clearing ? harvestProduct(this.world, x, y, stone) : Product.Wood,
+          beyondGate = this.inRealm(p.position),
+          full = storageCamp >= 0 && !construction && !beyondGate &&
+            resourceAmount(treasury, product) >= resourceAmount(this.capacity(storageCamp), product);
         if (
-          !exists ||
+          !exists || !canHarvest(p, product, stone && p.tree === this.world.basaltCell) ||
           (!clearing &&
             p.task === Activity.Working &&
             !p.ordered &&
@@ -440,16 +474,22 @@ export function tick(this: TickTown, dt: number): void {
         }
         if (place) place.workedSeconds = f(place.workedSeconds + f(dt));
         const duration = harvestDuration(p, stone), started = p.until - duration,
-          contact = workImpactBetween(this.time - dt - started, Math.min(duration, this.time - started), harvestTiming);
+          timing = { period: harvestSwingPeriod(duration), impact: harvestTiming.impact },
+          contact = workImpactBetween(this.time - dt - started, Math.min(duration, this.time - started), timing);
         if (contact !== null)
           this.timberEvents.push({
             serial: this.nextTreeEvent++, kind: stone ? TreeWorkKind.Mine : TreeWorkKind.Chop,
             person: p.id, cell: p.tree, index: stone ? 0 : this.world.at(x,y).trees - 1,
-            worker: { ...p.position }, at: started + contact,
+            worker: { ...p.position }, at: Math.abs(contact - duration) < 1e-8 ? p.until : started + contact,
           });
         if (this.time < p.until) break;
-        if (stone) this.world.at(x, y).quarried = true;
-        else --this.world.at(x, y).trees;
+        if (stone) {
+          this.world.at(x, y).quarried = true;
+          if (p.tree === this.world.basaltCell) {
+            this.combatState.flows.clear();
+            this.notify('The basalt passage is open');
+          }
+        } else --this.world.at(x, y).trees;
         this.timberEvents.push({
           serial: this.nextTreeEvent++,
           kind: stone ? TreeWorkKind.Shatter : TreeWorkKind.Fall,
@@ -459,11 +499,14 @@ export function tick(this: TickTown, dt: number): void {
           worker: { ...p.position },
           at: p.until,
         });
-        p.carriedProduct = stone ? Product.Stone : Product.Wood;
-        p.carrying += 3;
+        if (beyondGate) this.realmLoot.add(resourceBundle(product, harvestAmount(product)));
+        else {
+          p.carriedProduct = product;
+          p.carrying += harvestAmount(product);
+        }
         p.tree = -1;
         p.activity = Activity.Collecting;
-        p.until = this.time + (stone ? 0.65 : 0.8);
+        p.until = this.time + collectSeconds(stone);
         ++this.changes;
         break;
       }
@@ -471,7 +514,7 @@ export function tick(this: TickTown, dt: number): void {
         if (this.time >= p.until) {
           p.activity = Activity.Idle;
           p.until = this.time;
-          if (p.task === Activity.Building || p.task === Activity.Roadwork) this.resumeOrder(p);
+          if ([Activity.Building, Activity.Roadwork, Activity.Crafting].includes(p.task)) this.resumeOrder(p);
           else if (!this.keepCargo(p) && !this.haulCargo(p)) p.until = this.time + 2;
         }
         break;
@@ -504,20 +547,29 @@ export function tick(this: TickTown, dt: number): void {
         if (place) {
           place.workedSeconds = f(place.workedSeconds + f(dt));
           const recipe = processingRecipe(place.kind);
-          if (recipe && p.rest >= f(2 / 3) && resourceAmount(this.stock(this.settlementOf(place)),recipe.input) < 2 &&
-              this.startHarvest(p,place.center,12,recipe.input)) break;
-          this.processProduction(place,dt * workEfficiency(p, place.kind === Structure.Sawmill ? 'sawing' : 'crafting'));
-          const product = structureSpec(place.kind).product;
-          if ((p.task === Activity.Building || p.task === Activity.Roadwork) &&
-              (product === Product.Planks || product === Product.CutStone)) {
-            if (resourceAmount(this.stock(this.settlementOf(place)), product) > 0) {
-              p.activity = Activity.Idle; p.until = this.time; this.resumeOrder(p);
+          if (recipe) {
+            const village = this.settlementOf(place), stock = this.stock(village);
+            const before = resourceAmount(stock, recipe.output);
+            if (p.task === Activity.Crafting && resourceAmount(stock, recipe.input) < 2) {
+              const delivered = takeHeld(p, recipe.input, 2 - resourceAmount(stock, recipe.input));
+              if (delivered) this.store(resourceBundle(recipe.input, delivered), village);
             }
-            break;
+            if (p.task !== Activity.Crafting && p.rest >= f(.2) && resourceAmount(stock, recipe.input) < 2 &&
+                this.startHarvest(p, place.center, 12, recipe.input)) break;
+            this.processProduction(place, dt * workEfficiency(p, place.kind === Structure.Sawmill ? 'sawing' : 'crafting'));
+            if ([Activity.Building, Activity.Roadwork, Activity.Crafting].includes(p.task)) {
+              const produced = resourceAmount(stock, recipe.output);
+              if (p.task === Activity.Crafting ? produced > before || resourceAmount(stock, recipe.input) < 2 ||
+                  produced >= resourceAmount(this.capacity(village), recipe.output) : produced > 0) {
+                p.activity = Activity.Idle;
+                this.resumeOrder(p);
+              }
+              break;
+            }
           }
         }
-        if (place && p.rest >= f(2 / 3) && place.kind === Structure.Lumberyard && this.startFelling(p, place.center, f(4.6))) break;
-        if (place && p.rest >= f(2 / 3) && place.kind === Structure.Quarry && this.startMining(p, place.center, f(4.6))) break;
+        if (place && p.rest >= f(.2) && place.kind === Structure.Lumberyard && this.startFelling(p, place.center, f(4.6))) break;
+        if (place && p.rest >= f(.2) && place.kind === Structure.Quarry && this.startMining(p, place.center, f(4.6))) break;
         if (place && (place.kind === Structure.Farm || place.kind === Structure.MageTower)) {
           p.load = f(p.load + f(dt));
           const store = this.nearest(
@@ -582,7 +634,6 @@ export function tick(this: TickTown, dt: number): void {
             p.ordered = p.aggressive = p.approachingOrder = false;
             p.autoMode = true;
           }
-          if (p.autoMode && this.climate().night > f(.5)) break;
           p.activity = Activity.Idle;
           p.inside = false;
           p.until = this.time;
@@ -655,6 +706,7 @@ export function tick(this: TickTown, dt: number): void {
   }
   if (this.controlFaction === 0) this.advanceNeutralSettlements(dt);
   separatePeople(this, dt);
+  if (this.controlFaction === playerFaction) spotVolcano(this);
   if (this.timberEvents.length > 512) this.timberEvents.splice(0, this.timberEvents.length - 512);
   const before = this.folk.length;
   this.folk = this.folk.filter((p) => p.health >= f(-0.5));

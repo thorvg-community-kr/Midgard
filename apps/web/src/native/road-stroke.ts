@@ -107,11 +107,11 @@ export function draftRoad(input: RoadStroke): RoadPath {
   if (points.every((p, i) => tracing(p) && (!i || between(points[i - 1], p, tracing)))) return [];
 
   /** Index of the clear corner that ends a stretch drawn beside a road from the front of a stroke, or 0. */
-  const turnsOff = (list: readonly Point[], road: number): number => {
+  const turnsOff = (list: readonly Point[], road: number, reach: number): number => {
     const px = list.map(toScreen),
       beside = (p: Point) => {
         const nearest = roads.distance(p);
-        return nearest.distance <= Town.joinReach && nearest.id === road;
+        return nearest.distance <= reach && nearest.id === road;
       },
       // Measured over a few pixels either side, so a trembling hand is not a corner.
       turn = (i: number) => {
@@ -148,10 +148,10 @@ export function draftRoad(input: RoadStroke): RoadPath {
     return 0;
   };
   /** Where the front of a stroke begun beside a road joins it, after dropping what only follows existing roads. */
-  const meetRoad = (list: Point[]): Point | null => {
+  const meetRoad = (list: Point[], trimReach: number): Point | null => {
     const beside = roads.distance(list[0]);
     if (beside.distance > Town.joinReach || beside.id === undefined) return null;
-    const corner = turnsOff(list, beside.id);
+    const corner = turnsOff(list, beside.id, trimReach);
     if (corner > 0) {
       list.splice(0, corner);
       return roads.distance(list[0]).onRoad ?? null;
@@ -168,11 +168,12 @@ export function draftRoad(input: RoadStroke): RoadPath {
   };
   // Each end keeps its samples as drawn and is eased onto where the road must begin
   // or end; replacing the end sample instead leaves a dog-leg beside every junction.
+  // At the press, only a stretch already on the road may be skipped.
   const startAtBuilding = leaveBuilding(town, points),
-    startTarget = points.length < 2 ? null : startAtBuilding ? { ...points[0] } : meetRoad(points);
+    startTarget = points.length < 2 ? null : startAtBuilding ? { ...points[0] } : meetRoad(points, strokeRules.onRoad);
   points.reverse();
   const endAtBuilding = leaveBuilding(town, points),
-    endTarget = points.length < 2 ? null : endAtBuilding ? { ...points[0] } : meetRoad(points);
+    endTarget = points.length < 2 ? null : endAtBuilding ? { ...points[0] } : meetRoad(points, Town.joinReach);
   points.reverse();
   if (points.length < 2) return [];
 

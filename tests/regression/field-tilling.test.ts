@@ -5,9 +5,12 @@ import { Layer, Terrain, makeTile } from '../../packages/engine/src/world-types'
 import { Activity, Person, Role, Calling, Race } from '../../packages/engine/src/person';
 import { Building, Field } from '../../packages/engine/src/town-models';
 import { Resources, Structure } from '../../packages/engine/src/building-catalog';
-import { point, distance } from '../../packages/engine/src/geometry';
+import { contains, point, distance, unproject } from '../../packages/engine/src/geometry';
 import { farmWorkPhase, fieldRows } from '../../packages/engine/src/farm-work';
 import { decodeTown, encodeTown } from '../../packages/engine/src/save-game';
+import { ShapeNode } from '../../packages/native-renderer/src/paint';
+import { paintOrnaments } from '../../packages/native-renderer/src/world-ground';
+import { WorldRendererState } from '../../packages/native-renderer/src/world-renderer-state';
 
 function fixture() {
   const size = 64,
@@ -46,6 +49,21 @@ function fixture() {
 const plot = [point(17.5, 13), point(21.5, 13), point(21.5, 16), point(17.5, 16)];
 
 describe('breaking in a field', () => {
+  it('paints wildflowers in the plot beneath the advancing soil', () => {
+    const { town } = fixture();
+    town.map().layer(Layer.Moisture).fill(0.48);
+    town.map().layer(Layer.Shade).fill(0.8);
+    expect(town.plantField(plot)).toBe(true);
+    const state = new WorldRendererState({} as never);
+    paintOrnaments(state, town.map(), town.climate());
+    const hasFlowerInPlot = state.groundCover.children.some((shape) =>
+      shape instanceof ShapeNode && shape.commands.some(([op, x, y]) => op === 'E' && contains(plot, unproject(x, y))),
+    );
+    expect(hasFlowerInPlot).toBe(true);
+    const layers = state.world.children, cover = layers.indexOf(state.groundCover);
+    expect(cover).toBeGreaterThanOrEqual(0);
+    expect(cover).toBeLessThan(layers.indexOf(state.farmland));
+  });
   it('stakes a new plot untilled; it yields nothing until a farm worker has hoed it', () => {
     const { town, p } = fixture();
     expect(town.plantField(plot), town.canPlantField(plot).reason).toBe(true);

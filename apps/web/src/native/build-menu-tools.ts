@@ -25,14 +25,15 @@ export const toolInfo: readonly ToolInfo[] = [
     key: 'P',
     hint: 'Click a laid road to pave it with stone: people walk faster on cobbles.',
   },
-  {
-    label: 'Fields',
-    key: 'E',
-    hint: 'Drag a rectangle beside a road near a farmhouse, or click corners to outline any shape.',
-  },
+  // No longer offered: the Farm tool lays a farmhouse and its fields.
+  { label: 'Field', key: '', hint: '' },
   { label: 'Camp', key: 'C', hint: '' },
   { label: 'Tent', key: 'T', hint: '' },
-  { label: 'Farm', key: 'F', hint: '' },
+  {
+    label: 'Farm',
+    key: 'F',
+    hint: 'Drag an area: the farmhouse is raised in a corner and the rest is its field. Beside a farm of yours, an area is one more field.',
+  },
   { label: 'Wood', key: 'L', hint: '' },
   { label: 'Quarry', key: 'Z', hint: '' },
   { label: 'Well', key: 'W', hint: '' },
@@ -59,6 +60,8 @@ export const toolInfo: readonly ToolInfo[] = [
   { label: 'Yard', key: '', hint: '' },
   { label: 'Runestone', key: '', hint: '' },
   { label: 'Workbench', key: '', hint: 'Residents make tools here, one at a time.' },
+  { label: 'Foundry', key: '', hint: '' },
+  { label: 'Ranch', key: '', hint: '' },
 ];
 export interface BuildGroup {
   name: string;
@@ -71,7 +74,7 @@ export const buildMenuGroups: readonly BuildGroup[] = [
   {
     name: 'Food & materials',
     glyph: 'materials',
-    tools: [Tool.Farm, Tool.Field, Tool.Lumberyard, Tool.Quarry, Tool.Sawmill, Tool.Stoneworks],
+    tools: [Tool.Farm, Tool.Ranch, Tool.Lumberyard, Tool.Quarry, Tool.Sawmill, Tool.Stoneworks, Tool.Foundry],
   },
   {
     name: 'Water & storage',

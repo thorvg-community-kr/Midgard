@@ -6,6 +6,7 @@ import { isPlayerBuilding } from '../../../../packages/engine/src/faction';
 import { altarCap } from '../../../../packages/engine/src/altar-cap';
 import { stationLevel, stationStep } from '../../../../packages/engine/src/craft-stations';
 import { heldAmount } from '../../../../packages/engine/src/carried-resources';
+import { equippedItem, stationKinds } from '../../../../packages/engine/src/equipment';
 import {
   GoalBranch,
   GoalKind,
@@ -16,9 +17,12 @@ import {
   type SettlementGoal,
 } from '../../../../packages/engine/src/settlement-progression';
 import { bestGear, isFighter, makeable, stationBusy } from './title-gear';
-import { besideRoad, branchRoad, fieldBeside, firstRoad, plotFor, roadToDoor, routedRoad } from './title-placement';
+import { besideRoad, branchRoad, roadToPlot, farmArea, fieldBeside, firstRoad, plotFor, roadBesideCamp, roadToDoor, routedRoad } from './title-placement';
 import { living, order, putOff, waiting, type TitleContext } from './title-roster';
 import type { Town } from '../../../../packages/engine/src/town';
+import type { Placement } from '../../../../packages/engine/src/town-models';
+
+const firstWeapons = stationKinds(Structure.Weaponsmith).filter((item) => item.category === 'weapon').map((item) => item.id);
 
 /** Branches after the founding chain, in the order the title player follows them. */
 const branchOrder = [GoalBranch.Core, GoalBranch.Arms, GoalBranch.Trade, GoalBranch.Faith, GoalBranch.Saga];
@@ -55,6 +59,8 @@ function shortfallOf(town: Town, cost: Resources): Shortfall {
     stone: Math.max(0, cost.stone - stock.stone - held(Product.Stone)),
   };
 }
+/** Decisions a building waits for a street to reach its plot before it is built off the roads. */
+const offRoadPatience = 90;
 /** Places a site for `kind` unless one is already waiting; false when there is no room or it is locked. */
 function startBuilding(ctx: TitleContext, kind: Structure): boolean {
   const { town } = ctx;
@@ -63,15 +69,51 @@ function startBuilding(ctx: TitleContext, kind: Structure): boolean {
   // A few sites at once; more would spread the builders thin.
   if (sites(town).length >= 1 + Math.floor(town.population() / 4)) return false;
   if (waiting(ctx, `plot:${kind}`)) return false;
-  const spot = plotFor(town, kind, ctx.seed, ctx.step);
+  const serves = ctx.traffic.serves(ctx, kind),
+    // A building stands at a road: this is a rule of the village, not a road that has to pay.
+    offRoad = (at: Placement) => kind !== Structure.Camp && !town.roads().empty() && !besideRoad(town, kind, at),
+    // A spur to the plot first, once in a while; true when one was ordered and the building waits for it.
+    spurFirst = (at: Placement): boolean => {
+      if (waiting(ctx, 'plot-road')) return false;
+      const spur = roadToPlot(town, kind, at);
+      if (!spur || !order(ctx, `plot-road:${ctx.step}`, [], () => town.buildRoad(spur))) return false;
+      putOff(ctx, 'plot-road', 120);
+      return true;
+    };
+  let spot = plotFor(town, kind, ctx.seed, ctx.step, serves);
   if (!spot) {
     // No ground for it in sight: someone walks out to see more, and the search waits a while.
     putOff(ctx, `plot:${kind}`, 30);
     explore(ctx);
     return false;
   }
-  // The streets are full: a branch road first, so the village keeps growing along roads.
-  if (!besideRoad(town, kind, spot) && !town.roads().empty() && kind !== Structure.Camp && extendStreets(ctx)) return false;
+  // A plot at a road whenever one is free: a few more searches before settling for one off the roads.
+  for (let turn = 1; turn <= 3 && offRoad(spot); ++turn) {
+    const other = plotFor(town, kind, ctx.seed, ctx.step + turn * 7919, serves);
+    if (other && !offRoad(other)) spot = other;
+  }
+  // The streets are full: a branch road first, else a spur to the plot, so the village keeps growing along roads.
+  if (offRoad(spot)) {
+    if (extendStreets(ctx) || spurFirst(spot)) return false;
+    // Neither reaches it: the village waits a while for one more street, whatever the count of streets says,
+    // before it settles for a plot off the roads.
+    const key = `off-road:${kind}`;
+    if (!ctx.later.has(key)) putOff(ctx, key, offRoadPatience);
+    if (waiting(ctx, key)) {
+      extendStreets(ctx, true);
+      return false;
+    }
+    ctx.later.delete(key);
+  }
+  // A farm is drawn as an area, as the player draws it: the farmhouse and its field are staked out together.
+  if (kind === Structure.Farm) {
+    const drawn = farmArea(town, spot),
+      house = drawn && town.farmLayout(drawn).house;
+    if (!drawn) putOff(ctx, `plot:${kind}`, 30);
+    // The farmhouse takes a corner of the area, which may not be the plot: its road is seen to as well.
+    if (house && offRoad(house) && spurFirst(house)) return false;
+    return !!drawn && order(ctx, `farm:${Math.round(spot.center.x * 4)}:${Math.round(spot.center.y * 4)}`, [], () => town.layFarm(drawn));
+  }
   return order(ctx, `place:${kind}:${Math.round(spot.center.x * 4)}:${Math.round(spot.center.y * 4)}`, [], () =>
     town.place(kind, spot.center, spot.angle),
   );
@@ -86,7 +128,7 @@ function craftGoal(ctx: TitleContext, goal: SettlementGoal): Shortfall {
   const choice = bestGear(town, ctx.free.slice(0, 4), goal.kind === GoalKind.Equip ? undefined : items);
   if (choice)
     order(ctx, `craft:${choice.person.id}:${choice.station.id}:${choice.item.id}`, [choice.person], () =>
-      town.orderCraft(choice.person.id, choice.station.id, choice.item.id),
+      town.orderSettlementCraft(choice.station.id, choice.item.id),
     );
   const someone = ctx.free[0] ?? living(town)[0];
   if (!someone) return { wood: 0, stone: 0 };
@@ -125,16 +167,17 @@ function layRoad(ctx: TitleContext): void {
   let path = firstRoad(town, ctx.seed);
   for (const b of town.buildings().filter((b) => isPlayerBuilding(b) && b !== seat && b.built()).slice(0, 4))
     path ??= routedRoad(town, seat.door(), b.door());
+  path ??= roadBesideCamp(town);
   if (path) order(ctx, `street:${ctx.step}`, [], () => town.buildRoad(path));
   else putOff(ctx, 'street', 40);
 }
 /** Lays a branch street unless one is still being built; true when one is under way. */
-function extendStreets(ctx: TitleContext): boolean {
+function extendStreets(ctx: TitleContext, needed = false): boolean {
   const { town } = ctx;
   if (roadUnderWay(town)) return true;
   // A village has a street for every few houses, not one per house.
   const streets = town.roads().roads().filter((r) => r.faction === 0).length;
-  if (streets > 2 + town.buildings().filter(isPlayerBuilding).length / 3 || waiting(ctx, 'branch')) return false;
+  if ((!needed && streets > 2 + town.buildings().filter(isPlayerBuilding).length / 3) || waiting(ctx, 'branch')) return false;
   putOff(ctx, 'branch', 20);
   const path = branchRoad(town, ctx.seed, ctx.step);
   return !!path && order(ctx, `branch:${ctx.step}`, [], () => town.buildRoad(path));
@@ -155,9 +198,11 @@ function connectDoors(ctx: TitleContext): void {
   // Routing walks the grid, so doors are looked at only now and then.
   if (ctx.step % 10 || town.roads().empty() || roadUnderWay(town)) return;
   for (const b of town.buildings()) {
-    if (!isPlayerBuilding(b) || b.kind === Structure.Torch || !b.built()) continue;
+    if (!isPlayerBuilding(b) || b.kind === Structure.Torch || !b.built() || waiting(ctx, `door-road:${b.id}`)) continue;
     const path = roadToDoor(town, b);
-    if (path && order(ctx, `door-road:${b.id}`, [], () => town.buildRoad(path))) return;
+    // A building with a road, or with no way for one yet, is looked at again only after a while.
+    if (!path) putOff(ctx, `door-road:${b.id}`, 60);
+    else if (order(ctx, `door-road:${b.id}:${ctx.step}`, [], () => town.buildRoad(path))) return;
   }
 }
 /** The settlement's own needs beside the quest: food, beds for the altar, fields and roads. */
@@ -176,7 +221,10 @@ function keepUp(ctx: TitleContext): Shortfall {
     want = Structure.Tent;
   const farms = town.buildings().filter((b) => isPlayerBuilding(b) && b.kind === Structure.Farm).length;
   if (want === null && population >= 8 && farms < 2 && town.stock().food < population * 3) want = Structure.Farm;
-  // A tavern before the settlement works itself into breakdowns.
+  // The guild trains defenders while the settlement builds its workshops.
+  if (want === null && own(town, Structure.Quarry) && population >= 6 &&
+      !own(town, Structure.Guild) && !own(town, Structure.GuildHall))
+    want = Structure.Guild;
   if (want === null && population >= 5 && !own(town, Structure.Tavern) && !own(town, Structure.Tavern, false))
     want = Structure.Tavern;
   if (own(town, Structure.Farm) && town.fieldAcres() < Math.min(40, 8 + population * 3)) plantField(ctx);
@@ -200,7 +248,9 @@ export function planSettlement(ctx: TitleContext): PlanReport {
   const needs = keepUp(ctx),
     goal = chosenGoal(
       town,
-      (g) => (g.kind === GoalKind.Building && waiting(ctx, `plot:${g.building}`)) || (g.kind === GoalKind.Road && waiting(ctx, 'street')),
+      (g) =>
+        ((g.kind === GoalKind.Building || g.kind === GoalKind.Field) && waiting(ctx, `plot:${g.building}`)) ||
+        (g.kind === GoalKind.Road && waiting(ctx, 'street')),
     );
   let shortfall: Shortfall = { wood: 0, stone: 0 };
   if (goal)
@@ -216,9 +266,12 @@ export function planSettlement(ctx: TitleContext): PlanReport {
         shortfall = upgradeStation(ctx, goal.building);
         break;
       case GoalKind.Field:
-        plantField(ctx);
+        if (own(town, Structure.Farm)) plantField(ctx);
+        else if (startBuilding(ctx, Structure.Farm)) shortfall = shortfallOf(town, structureSpec(Structure.Farm).cost);
         break;
+      // The road quest comes second: the two founders lay the first street themselves.
       case GoalKind.Road:
+        layRoad(ctx);
         break;
       default:
         break;
@@ -240,11 +293,15 @@ export function equipFree(ctx: TitleContext, last: Shortfall): Shortfall {
   // Reading every recipe for everyone is the dearest look the player takes; it takes it now and then.
   if (ctx.step % 4) return last;
   const { town } = ctx,
-    folk = ctx.free.filter((p: Person) => p.task === Activity.Idle || p.job >= 0);
-  const choice = bestGear(town, folk);
+    founding = currentGoal(town, GoalBranch.Core) >= 0,
+    folk = ctx.free.filter((p: Person) => (p.task === Activity.Idle || p.job >= 0) &&
+      (!founding || (isFighter(p) && !equippedItem(p, 'weapon'))));
+  // Until the workshops stand, reserve their materials after making a first weapon for the guards.
+  // The first weapons go to free fighters without one; nobody is called off a site or a road for a second weapon.
+  const choice = bestGear(town, folk, founding ? firstWeapons : undefined, false, true);
   if (choice)
     order(ctx, `craft:${choice.person.id}:${choice.station.id}:${choice.item.id}`, [choice.person], () =>
-      town.orderCraft(choice.person.id, choice.station.id, choice.item.id),
+      town.orderSettlementCraft(choice.station.id, choice.item.id),
     );
   if (ctx.step % 8) return last;
   const wish = bestGear(town, living(town).filter(isFighter), undefined, true);

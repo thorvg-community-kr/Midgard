@@ -1,7 +1,17 @@
+import { Terrain } from './world-types';
+import type { Town } from './town';
 import type { TownState } from './town-state';
 import { Activity, type Person } from './person';
 import { footBounds, footBoxesOverlap, footSeparation, footSegmentBlockedBy } from './person-collision';
-import { add, sub, scale, point, normalized, distance, Footprint, closestOnSegment } from './geometry';
+import { add, sub, scale, point, normalized, distance, Footprint, closestOnSegment, type Point } from './geometry';
+
+/** A miner can reach a blocked basalt face from either mouth of the pass. */
+export function approachBasalt(town: Pick<Town, 'world' | 'grid' | 'walkTo'>, p: Person, foot: Point): boolean {
+  const sides = [point(-0.7, 0), point(0.7, 0), point(0, -0.7), point(0, 0.7)].map((offset) => add(foot, offset));
+  const cost = (at: Point) => distance(p.position, at) + (town.world.cell(at)?.terrain === Terrain.Lava ? 100 : 0);
+  sides.sort((a, b) => cost(a) - cost(b));
+  return sides.some((at) => town.grid.walkable(at) && town.walkTo(p, at));
+}
 
 // Apply simultaneous lateral nudges after walking. They do not re-plan paths,
 // reverse forward progress, push through walls, or move a worker off a work target.
@@ -84,14 +94,20 @@ export function separatePeople(town: TownState, dt: number): void {
 
 /** Cooperative road workers keep distinct positions beside the same work front. */
 export function roadWorkSpot(town: TownState, person: Person, road: import('./road-network').Road) {
-  const front = road.workPoint();
+  const front = road.workPoint(),
+    jobs = town as TownState & { roadWorkTarget(id: number): number };
+  // A mate who is off felling a tree of the way or carrying wood home keeps their place at the front:
+  // the others must not shuffle sideways each time one of them leaves and comes back.
   const crew = town.folk.filter(
     (p) =>
       p.health > 0 &&
       (p === person ||
         ((p.task === Activity.Roadwork || p.task === Activity.Building) &&
           ((p.activity === Activity.Roadwork && p.target === road.id) ||
-            (p.supplyRoad && p.supplyTarget === road.id)))),
+            (p.supplyRoad && p.supplyTarget === road.id))) ||
+        (p.task === Activity.Roadwork &&
+          p.activity !== Activity.Roadwork &&
+          (p.taskSite === road.id || jobs.roadWorkTarget(p.taskSite) === road.id))),
   );
   crew.sort((a, b) => a.id - b.id);
   if (crew.length < 2) return front;
@@ -122,6 +138,30 @@ export function roadWorkSpot(town: TownState, person: Person, road: import('./ro
     if (town.grid.walkable(spot) && town.grid.clear(front, spot, Infinity)) return spot;
   }
   return front;
+}
+
+/** The way the front of a road moves as it is laid or paved, or null where it stands still (mending). */
+export function roadWorkHeading(road: import('./road-network').Road): Point | null {
+  const paving = road.built >= 1;
+  if (paving && road.paving < 0) return null;
+  const at = paving ? road.paving : road.built,
+    hair = 0.25 / Math.max(1, road.length()),
+    spot = (share: number) => (paving ? road.along(share) : road.constructionPoint(share)),
+    // At the very end of the way the last stretch still tells the direction.
+    heading = at + hair <= 1 ? sub(spot(at + hair), spot(at)) : sub(spot(at), spot(Math.max(0, at - hair)));
+  return distance(point(), heading) > 1e-6 ? normalized(heading) : null;
+}
+
+/** How far ahead of their place at the front a road worker may stand and still lay. */
+export const roadLayReach = 0.9;
+/**
+ * True for a worker who stands a step ahead of their place at the front, as after felling the tree that stopped
+ * it: they lay from where they stand and the front comes to them, so nobody walks back along the road.
+ */
+export function waitsForFront(road: import('./road-network').Road, spot: Point, at: Point): boolean {
+  const heading = roadWorkHeading(road),
+    off = distance(at, spot);
+  return !!heading && off > 0.0001 && off <= roadLayReach && (at.x - spot.x) * heading.x + (at.y - spot.y) * heading.y > 0;
 }
 
 /** Keep shared building work outside, on distinct reachable apron positions. */

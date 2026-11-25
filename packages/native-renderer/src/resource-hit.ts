@@ -1,9 +1,11 @@
-import { point, project, type Point } from '../../engine/src/geometry';
+import { project, type Point } from '../../engine/src/geometry';
 import { TreeWorkKind, type TreeWorkEvent } from '../../engine/src/person';
 import type { Town } from '../../engine/src/town';
 import * as mining from '../../engine/src/mining';
-import { SceneNode, ShapeNode, identity, type Matrix } from './paint';
-import { treeAt } from './tree-painter';
+import { treePosition } from '../../engine/src/world-map';
+import { SceneNode, identity, type Matrix } from './paint';
+import { inFront } from './combat-depth';
+import { harvestDebris, type HarvestDebris } from './harvest-debris';
 import { registerDepth } from './world-depth';
 import type { WorldRendererState } from './world-renderer-state';
 
@@ -15,19 +17,15 @@ interface Resource {
   foot: Point;
   wind: Matrix;
 }
-interface Hit {
-  event: TreeWorkEvent;
-  kind: ResourceKind;
-  paint: SceneNode;
-  chips: ShapeNode[];
+interface Hit extends HarvestDebris {
+  at: number;
   foot: Point;
-  side: number;
   row: number;
-  height: number;
-  edge: number;
 }
 interface Reactions {
   town: Town;
+  lastSerial: bigint;
+  time: number;
   hits: Map<bigint, Hit>;
   touched: Map<SceneNode, Resource>;
 }
@@ -53,7 +51,8 @@ export function setResourceWind(paint: SceneNode, matrix: Matrix): void {
 }
 
 export function hasResourceHits(state: WorldRendererState): boolean {
-  return (reactions.get(state)?.hits.size ?? 0) > 0;
+  const current = reactions.get(state);
+  return !!current && (current.hits.size > 0 || current.touched.size > 0);
 }
 
 export function resetResourceHits(state: WorldRendererState): void {
@@ -64,31 +63,10 @@ export function resetResourceHits(state: WorldRendererState): void {
   reactions.delete(state);
 }
 
-function chips(
-  event: TreeWorkEvent,
-  kind: ResourceKind,
-  foot: Point,
-  side: number,
-  height: number,
-  edge: number,
-  row: number,
-): Hit {
-  const paint = new SceneNode(),
-    parts: ShapeNode[] = [];
-  for (let i = 0; i < 3; i++) {
-    const shape = new ShapeNode();
-    if (kind === 'tree') shape.moveTo(-0.5, -0.4).lineTo(1.3, -0.8).lineTo(0.7, 0.5).close();
-    else shape.moveTo(-0.7, 0.3).lineTo(-0.2, -0.9).lineTo(0.8, -0.2).lineTo(0.4, 0.6).close();
-    const color =
-      kind === 'tree' ? (i % 2 ? [147, 110, 68] : [194, 153, 95]) : i % 2 ? [111, 108, 119] : [177, 172, 180];
-    shape.fill(color[0], color[1], color[2]);
-    paint.add(shape);
-    parts.push(shape);
-  }
-  const pivot = project(foot.x, foot.y);
-  paint.translate(pivot.x, pivot.y);
-  registerDepth(paint, foot, `resource-hit:${event.serial}`);
-  return { event, kind, paint, chips: parts, foot, side, row, height, edge };
+function inView(state: WorldRendererState, foot: Point): boolean {
+  if (state.currentVisibility.sample(foot) < 119) return false;
+  const screen = state.view.toScreen(project(foot.x, foot.y), state.viewWidth, state.viewHeight);
+  return screen.x >= -64 && screen.x <= state.viewWidth + 64 && screen.y >= -64 && screen.y <= state.viewHeight + 128;
 }
 
 function bend(kind: ResourceKind, age: number): number {
@@ -101,24 +79,28 @@ function bend(kind: ResourceKind, age: number): number {
 
 /** Only real contact events drive the response; the model and harvest cadence are untouched. */
 export function updateResourceHits(state: WorldRendererState, town: Town): void {
+  const now = town.clock();
   let current = reactions.get(state);
-  if (!current || current.town !== town) {
+  if (!current || current.town !== town || now < current.time) {
     resetResourceHits(state);
-    current = { town, hits: new Map(), touched: new Map() };
+    current = { town, time: now, lastSerial: -1n, hits: new Map(), touched: new Map() };
     reactions.set(state, current);
   }
+  current.time = now;
   for (const [paint, resource] of current.touched) paint.transform(resource.wind);
   current.touched.clear();
-  const now = town.clock(),
-    map = town.map(),
+  const map = town.map(),
     events = town.treeEvents(),
-    live = new Set<bigint>(),
     poses = new Map<SceneNode, { resource: Resource; event: TreeWorkEvent; side: number }>();
   for (const event of events) {
     if (event.kind !== TreeWorkKind.Chop && event.kind !== TreeWorkKind.Mine) continue;
     const kind = event.kind === TreeWorkKind.Chop ? 'tree' : 'rock',
       age = now - event.at;
-    if (age < 0 || age >= duration(kind)) continue;
+    if (age < 0) continue;
+    const fresh = event.serial > current.lastSerial;
+    if (fresh) current.lastSerial = event.serial;
+    const recoiling = age < duration(kind);
+    if (!recoiling && (!fresh || age >= 2 || state.reducedMotion)) continue;
     const x = event.cell % map.width(),
       y = Math.floor(event.cell / map.width()),
       row = x + y;
@@ -132,49 +114,29 @@ export function updateResourceHits(state: WorldRendererState, town: Town): void 
         break;
       }
     }
-    const terminal = events.some(
+    const terminal = (fresh || !target) && events.some(
       (end) =>
-        end.cell === event.cell &&
-        end.at === event.at &&
+        end.cell === event.cell && end.person === event.person && end.at === event.at &&
+        (kind === 'rock' || end.index === event.index) &&
         end.kind === (kind === 'tree' ? TreeWorkKind.Fall : TreeWorkKind.Shatter),
     );
     if (!target && !terminal) continue;
-    const tree = kind === 'tree' ? treeAt(map, x, y, event.index) : null,
-      foot = target?.resource.foot ?? tree?.foot ?? mining.position(x, y),
-      pivot = project(foot.x, foot.y),
-      screen = state.view.toScreen(pivot, state.viewWidth, state.viewHeight);
-    if (
-      state.currentVisibility.sample(foot) < 119 ||
-      screen.x < -64 ||
-      screen.x > state.viewWidth + 64 ||
-      screen.y < -64 ||
-      screen.y > state.viewHeight + 128
-    )
-      continue;
-    live.add(event.serial);
-    const side = pivot.x >= project(event.worker.x, event.worker.y).x ? 1 : -1;
-    if (target) {
+    const foot = target?.resource.foot ?? (kind === 'tree' ? treePosition(map, x, y, event.index) : mining.position(x, y));
+    if (!inView(state, foot)) continue;
+    const side = project(foot.x, foot.y).x >= project(event.worker.x, event.worker.y).x ? 1 : -1;
+    if (target && recoiling) {
       const previous = poses.get(target.paint);
       if (!previous || previous.event.at <= event.at)
         poses.set(target.paint, { resource: target.resource, event, side });
     }
-    let hit = current.hits.get(event.serial);
-    if (!hit) {
-      if (current.hits.size >= 64) continue;
-      const size = tree?.size ?? mining.size(map, x, y);
-      hit = chips(event, kind, foot, side, size * (tree ? 1.2 : 0.25), size * (tree ? 2.2 : 0.75), row);
-      current.hits.set(event.serial, hit);
-      state.rows[row].add(hit.paint);
+    if (fresh && !state.reducedMotion && current.hits.size < 64) {
+      const debris = harvestDebris(state, map, town.climate(), event, side, terminal, target?.resource.wind ?? identity);
+      if (age < debris.life) {
+        registerDepth(debris.paint, inFront(foot), `resource-hit:${event.serial}`);
+        current.hits.set(event.serial, { ...debris, row, foot, at: event.at });
+        state.rows[row].add(debris.paint);
+      }
     }
-    const t = age / duration(kind),
-      travel = 1 - (1 - t) * (1 - t);
-    hit.paint.opacity(Math.round(200 * Math.pow(1 - t, 1.5)));
-    hit.chips.forEach((chip, i) =>
-      chip.translate(
-        -side * (hit.edge + travel * (3 + i * 1.7)),
-        -hit.height - Math.sin(Math.PI * t) * (1.2 + i * 0.4) + travel * hit.height * 0.7,
-      ),
-    );
   }
   for (const [paint, pose] of poses) {
     const k = pose.side * bend(pose.resource.kind, now - pose.event.at),
@@ -193,9 +155,15 @@ export function updateResourceHits(state: WorldRendererState, town: Town): void 
     ]);
     current.touched.set(paint, pose.resource);
   }
-  for (const [serial, hit] of current.hits)
-    if (!live.has(serial)) {
+  for (const [serial, hit] of current.hits) {
+    const age = now - hit.at;
+    if (age >= hit.life || state.reducedMotion) {
       state.rows[hit.row]?.remove(hit.paint);
       current.hits.delete(serial);
+    } else {
+      const alpha = inView(state, hit.foot) ? 255 : 0;
+      if (hit.paint.alpha !== alpha) hit.paint.opacity(alpha);
+      if (alpha) hit.draw(age);
     }
+  }
 }

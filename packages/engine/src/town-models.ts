@@ -7,6 +7,9 @@ export class Building {
   faction = 0;
   devotionDueDay = -1;
   trainingCount = 0;
+  eggs = 0;
+  pigBreeding = 0;
+  cowBreeding = 0;
   materials = new ConstructionMaterials();
   repairPending = false; repairCredit = 0; productionProgress = 0; workers = 0; wanted = -1; growth = 0; version = 0; replaced: Stage[] = []; progress = 1; workedSeconds = 0; attendance = 1; earned = 0; registered = 0; faith = Faith.Dawn; owner = -1; health = 1; village = -1;
   constructor(public id: number, public kind: Structure, public center: Point, public angle: number, public variant: number) {}

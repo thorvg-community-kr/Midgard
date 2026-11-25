@@ -1,7 +1,6 @@
 import { Rect, Align, button, ButtonStyle, frame, meter, tag } from '../../../../packages/native-ui/src';
 import {
   Role,
-  Activity,
   callingName,
   raceName,
   activityName,
@@ -16,43 +15,68 @@ import { injuryOf } from '../../../../packages/engine/src/person-look';
 import { hudPaint } from './hud-paint';
 import { actionButton } from './hud-actions';
 import type { GameHudApp } from './game-hud-contract';
-import { touchCommandColumns } from './mobile-layout';
+import { Order } from '../../../../packages/engine/src/game-tools';
 import { skillCard, skillCardHeight } from './skill-card';
-import { unitOrders } from './unit-orders-card';
+import { orderLegend, railBeside, railGutter, titleTile, titleTileControl, titleTileWidth } from './unit-orders-card';
 import { groupsOf } from './control-groups';
-import { workPace, workbenchButton } from './game-equipment-panel';
+import { openWorkbench, workPace, workbenchTip } from './game-equipment-panel';
+import { tooltip } from './game-combat-hud';
 
-const footerHeight = 42;
-function commandFooter(app: GameHudApp, width: number): number {
-  if (!app.touchMode) return footerHeight;
-  const count = unitOrders(app).length,
-    columns = touchCommandColumns(width - 24, count),
-    rows = Math.ceil(count / columns);
-  return rows * 44 + (rows - 1) * 6 + 10;
-}
+/** With a mouse an aimed order folds the panel to its title row: the view is free and the lit order still shows. */
+export const aimFolded = (app: GameHudApp): boolean =>
+  !app.touchMode && app.pending !== Order.None && app.residentSelection();
 export function residentSelection(this: GameHudApp): boolean {
   return this.chosen.some((id) => canControl(this.town.person(id)));
 }
-export function shelteredSelection(this: GameHudApp): boolean {
-  return this.chosen.some((id) => {
-    const p = this.town.person(id);
-    return canControl(p) && (p.inside || p.crossingDoorway() || p.task === Activity.Sleeping);
-  });
-}
 export function personPanelBounds(this: GameHudApp, width: number, height: number, commands: boolean): Rect {
-  const w = Math.min(720, width - 24),
+  // In a low touch view the order rail stands beside the panel, which leaves it room on either side.
+  const w = Math.min(720, width - 24 - (commands && railBeside(this.touchMode, height) ? railGutter * 2 : 0)),
     columns = Math.max(1, Math.floor((w - 24) / 56));
   const content =
     this.chosen.length === 1
       ? w < 520
         ? 116
         : 132
-      : 34 + Math.min(3, Math.ceil(Math.min(20, this.chosen.length) / columns)) * 56;
-  const h = Math.min(
-    Math.max(90, height - 96),
-    content + skillCardHeight(this) + (commands ? commandFooter(this, w) : 12),
-  );
+      : groupTop(this) + 1 + Math.min(3, Math.ceil(Math.min(20, this.chosen.length) / columns)) * 56;
+  const h = aimFolded(this)
+    ? titleTile + 12
+    : Math.min(Math.max(90, height - 96), content + skillCardHeight(this) + 12);
   return new Rect((width - w) / 2, height - 12 - h, w, h);
+}
+/** Where the portraits of a group begin: under the title row, which is as tall as its controls. */
+const groupTop = (app: GameHudApp) => (app.touchMode ? 55 : 33);
+/**
+ * The right side of the title row, one line right-aligned to the panel's margin: the orders (with a mouse), a
+ * divider, then the openers of the unit window and, for one resident, the workbench. Returns its left edge.
+ */
+function titleCluster(app: GameHudApp, panel: Rect, first: Person | null, commands: boolean, manage: () => void): number {
+  const c = app.context,
+    right = panel.x + panel.w - 12,
+    craft = app.chosen.length === 1 && !!first && canControl(first),
+    // An opener puts an aimed order down first.
+    opening = (run: () => void) => () => {
+      app.pending = Order.None;
+      run();
+    };
+  if (app.touchMode) {
+    actionButton(c, 'unit-management', new Rect(right - 44, panel.y + 6, 44, 44), 'unit', 'Unit equipment and inventory', manage);
+    if (craft)
+      actionButton(c, 'unit-workbench', new Rect(right - 94, panel.y + 6, 44, 44), 'craft', workbenchTip(), () => openWorkbench(app, first));
+    return right - (craft ? 94 : 44);
+  }
+  const y = panel.y + 6,
+    worded = panel.w >= 640,
+    opener = (id: string, x: number, glyph: 'unit' | 'craft', word: string, tip: string, run: () => void) => {
+      const w = titleTileWidth(c, worded ? word : ''),
+        s = titleTileControl(c, id, new Rect(x - w, y, w, titleTile), { glyph }, worded ? word : '', opening(run));
+      tooltip(c, id, s.hovered, [tip]);
+      return x - w;
+    };
+  let x = opener('unit-management', right, 'unit', 'Gear', 'Unit equipment and inventory', manage);
+  if (craft) x = opener('unit-workbench', x - 4, 'craft', 'Craft', workbenchTip(), () => openWorkbench(app, first));
+  if (!commands) return x;
+  c.rect(new Rect(x - 7, y + 5, 1, titleTile - 12), app.theme.border);
+  return orderLegend(app, x - 13, y, panel.w >= 520);
 }
 export function personPanel(this: GameHudApp, panel: Rect): void {
   const c = this.context,
@@ -104,25 +128,14 @@ export function personPanel(this: GameHudApp, panel: Rect): void {
     this.equipmentTab = 'equipment';
     this.inventorySelected = -1;
   };
-  actionButton(
-    c,
-    'unit-management',
-    this.touchMode
-      ? new Rect(panel.x + panel.w - 56, panel.y + 5, 44, 44)
-      : new Rect(panel.x + panel.w - 67, panel.y + 5, 30, 28),
-    'unit',
-    'Unit equipment and inventory',
-    manage,
-  );
-  if (this.chosen.length === 1 && first && canControl(first))
-    workbenchButton(
-      this,
-      first,
-      this.touchMode
-        ? new Rect(panel.x + panel.w - 106, panel.y + 5, 44, 44)
-        : new Rect(panel.x + panel.w - 101, panel.y + 5, 30, 28),
-      'unit-workbench',
-    );
+  const cluster = titleCluster(this, panel, first, commands, manage),
+    folded = aimFolded(this);
+  if (folded) {
+    const room = cluster - panel.x - 24,
+      title = this.chosen.length === 1 && first ? first.name + ' · Lv ' + first.level : this.chosen.length + ' units selected';
+    c.text(new Rect(panel.x + 12, panel.y + 6, room, titleTile), c.elideText(title, room, 15, true), t.text, 15, true);
+    return;
+  }
   if (this.chosen.length === 1 && first) {
     const p = first,
       narrow = panel.w < 520,
@@ -130,19 +143,20 @@ export function personPanel(this: GameHudApp, panel: Rect): void {
       left = panel.x + size + 24;
     portrait(p, new Rect(panel.x + 12, panel.y + 10, size, size));
     portraitMarks(this, p, new Rect(panel.x + 12, panel.y + 10, size, size));
+    const room = cluster - left - 10,
+      // On touch the openers are tall enough to stand beside the second line too.
+      second = this.touchMode ? room : panel.w - size - 40;
+    c.text(new Rect(left, panel.y + 7, room, 24), c.elideText(p.name + ' · Lv ' + p.level, room, 15, true), t.text, 15, true);
     c.text(
-      new Rect(left, panel.y + 7, panel.w - size - 140, 24),
-      c.elideText(p.name + ' · Lv ' + p.level, panel.w - size - 140, 15, true),
-      t.text,
-      15,
-      true,
-    );
-    c.text(
-      new Rect(left, panel.y + 32, panel.w - size - 40, 18),
-      raceName(p.race) +
-        ' · ' +
-        callingName(p.calling) +
-        (p.role === Role.Guest ? ' · guest' : p.faction > 0 ? ' · neutral' : ''),
+      new Rect(left, panel.y + 32, second, 18),
+      c.elideText(
+        raceName(p.race) +
+          ' · ' +
+          callingName(p.calling) +
+          (p.role === Role.Guest ? ' · guest' : p.faction > 0 ? ' · neutral' : ''),
+        second,
+        11,
+      ),
       t.accent,
       11,
     );
@@ -171,14 +185,13 @@ export function personPanel(this: GameHudApp, panel: Rect): void {
             : 'No home assigned';
     const y = panel.y + (narrow ? 72 : 91),
       gap = 8,
-      w = (panel.w - 24 - gap * 4) / 5;
+      w = (panel.w - 24 - gap * 3) / 4;
     for (const [index, [label, value, positive]] of (
       [
         ['Health', p.health, true],
         ['Food', p.food, true],
         ['Water', p.hydration, true],
-        ['Rest', p.rest, true],
-        ['Stress', p.stress, false],
+        ['Fatigue', p.stress, false],
       ] as const
     ).entries()) {
       const x = panel.x + 12 + index * (w + gap),
@@ -194,9 +207,11 @@ export function personPanel(this: GameHudApp, panel: Rect): void {
         11,
       );
   } else {
+    const room = cluster - panel.x - 22,
+      top = groupTop(this);
     c.text(
-      new Rect(panel.x + 12, panel.y + 5, panel.w - 96, 24),
-      this.chosen.length + ' units selected',
+      new Rect(panel.x + 12, panel.y + 6, room, top - 5),
+      c.elideText(this.chosen.length + ' units selected', room, 14, true),
       t.text,
       14,
       true,
@@ -208,7 +223,7 @@ export function personPanel(this: GameHudApp, panel: Rect): void {
       if (!p) continue;
       const r = new Rect(
         panel.x + 12 + (i % columns) * 56,
-        panel.y + 33 + Math.floor(i / columns) * 56,
+        panel.y + top + Math.floor(i / columns) * 56,
         48,
         48,
       );
@@ -236,20 +251,10 @@ export function personPanel(this: GameHudApp, panel: Rect): void {
       this,
       new Rect(
         panel.x + 12,
-        panel.y + panel.h - (commands ? commandFooter(this, panel.w) : 12) - abilities,
+        panel.y + panel.h - 12 - abilities,
         panel.w - 24,
         abilities - 6,
       ),
-    );
-  if (commands)
-    this.commandCard(
-      new Rect(
-        panel.x + 12,
-        panel.y + panel.h - commandFooter(this, panel.w),
-        panel.w - 24,
-        this.touchMode ? 44 : 32,
-      ),
-      1,
     );
   for (const [id, entry] of this.dockPortraits)
     if (!this.chosen.includes(id)) {

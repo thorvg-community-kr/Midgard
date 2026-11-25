@@ -1,7 +1,15 @@
 import type { Rgb } from './building-catalog';
 import { Calling, type Person } from './person';
-import { BodyType, Whiskers, type Appearance } from './person-appearance';
-import { safeCharacterHairAsset } from './character-reference';
+import {
+  BodyType,
+  EyeStyle,
+  FaceShape,
+  Headwear,
+  MouthStyle,
+  Whiskers,
+  type Appearance,
+} from './person-appearance';
+import { hairAssetCount, residentHairCut, safeCharacterHairAsset } from './character-reference';
 import { foundingPeople } from './ymir-born';
 import { BrowCut, EyeCut, HairCut, JawCut, MouthCut, plainLikeness, type Likeness } from './likeness';
 import { hash01 } from './numeric';
@@ -27,6 +35,7 @@ export const castHair: readonly Rgb[] = [
 ];
 const madder = tone(158, 88, 72),
   linen = tone(226, 214, 190);
+export const castKerchiefs: readonly Rgb[] = [madder, linen];
 type Traits = Partial<Omit<Likeness, 'body' | 'skin' | 'hair' | 'cut'>>;
 const M = BodyType.Male,
   F = BodyType.Female,
@@ -244,32 +253,92 @@ export const founderCast: readonly Likeness[] = [
     cut: HairCut.SideBraid,
     eyes: EyeCut.Round,
     brows: BrowCut.Arched,
-    freckles: true,
     leaf: true,
     wool: tone(106, 124, 90),
   },
 ];
 
-/** The legacy reference head closest to a cut, for the old studio and its saved presets. */
-export const legacyHairAsset = (cut: HairCut): number =>
-  cut < HairCut.Topknot && cut !== HairCut.Shag
-    ? cut
-    : ({
-        [HairCut.Shag]: 14,
-        [HairCut.Topknot]: 19,
-        [HairCut.WarBraid]: 19,
-        [HairCut.CrownBraid]: 16,
-        [HairCut.SideBraid]: 6,
-        [HairCut.Mane]: 5,
-      }[cut as number] ?? 0);
-/** A look saved by the old studio, read as closely as the new drawing allows. */
-function likenessOfAppearance(a: Appearance): Likeness {
-  const asset = safeCharacterHairAsset(a.hairAsset);
-  return {
+export { legacyHairAsset } from './character-reference';
+const residentEyes = [
+  EyeStyle.Soft,
+  EyeStyle.Round,
+  EyeStyle.Hooded,
+  EyeStyle.Reflective,
+  EyeStyle.Almond,
+  EyeStyle.Relaxed,
+  EyeStyle.Feline,
+];
+const residentJaws = [FaceShape.Natural, FaceShape.Round, FaceShape.Angular, FaceShape.Oval];
+const residentMouths = [
+  MouthStyle.Smile,
+  MouthStyle.Neutral,
+  MouthStyle.Small,
+  MouthStyle.Pout,
+  MouthStyle.Neutral,
+];
+
+/** Set the resident's appearance in the same record used by hiring, presets and town saves. */
+export function setResidentLikeness(a: Appearance, look: Likeness): void {
+  a.hairAsset = hairAssetCount + look.cut;
+  a.bodyType = look.body;
+  a.skin = { ...look.skin };
+  a.hair = { ...look.hair };
+  if (look.wool) a.cloth = { ...look.wool };
+  a.faceShape = residentJaws[look.jaw];
+  a.eyeStyle = residentEyes[look.eyes];
+  a.browReference = look.brows;
+  a.browVisible = look.brows !== BrowCut.None;
+  a.mouthStyle = residentMouths[look.mouth];
+  a.mouthCurve = look.mouth === MouthCut.Firm ? -0.25 : 0;
+  a.whiskers = look.whiskers;
+  a.headwear = look.kerchief
+    ? look.band
+      ? Headwear.BandedKerchief
+      : Headwear.Kerchief
+    : look.band
+      ? Headwear.Circlet
+      : Headwear.None;
+  if (look.kerchief) a.trim = { ...look.kerchief };
+  a.old = look.elder;
+  a.freckles = look.freckles;
+  a.scar = look.scar;
+  a.warpaint = look.paint;
+}
+
+export function likenessOfAppearance(a: Appearance): Likeness {
+  const common = {
     ...plainLikeness(),
     body: a.bodyType,
     skin: { ...a.skin },
+    wool: { ...a.cloth },
     hair: { ...a.hair },
+    whiskers: a.whiskers,
+    freckles: a.freckles,
+    scar: a.scar,
+    paint: a.warpaint,
+  };
+  const cut = residentHairCut(a.hairAsset);
+  if (cut !== null) {
+    return {
+      ...common,
+      cut,
+      jaw: residentJaws.indexOf(a.faceShape),
+      eyes: Math.max(EyeCut.Oval, residentEyes.indexOf(a.eyeStyle)),
+      brows: a.browReference <= BrowCut.Heavy ? a.browReference : BrowCut.Level,
+      mouth:
+        a.mouthStyle === MouthStyle.Neutral && a.mouthCurve < 0
+          ? MouthCut.Firm
+          : residentMouths.indexOf(a.mouthStyle),
+      band: a.headwear === Headwear.Circlet || a.headwear === Headwear.BandedKerchief,
+      kerchief:
+        a.headwear === Headwear.Kerchief || a.headwear === Headwear.BandedKerchief ? { ...a.trim } : null,
+      elder: a.old,
+    };
+  }
+  // Preserve how existing studio presets and earlier altar residents were drawn.
+  const asset = safeCharacterHairAsset(a.hairAsset);
+  return {
+    ...common,
     cut: asset < HairCut.Topknot ? asset : HairCut.SidePart,
     eyes:
       a.eyeHeight < 0.7
@@ -287,16 +356,12 @@ function likenessOfAppearance(a: Appearance): Likeness {
           ? BrowCut.Stern
           : BrowCut.Level,
     mouth: a.mouthCurve > 0.25 ? MouthCut.Smile : a.mouthCurve < -0.05 ? MouthCut.Firm : MouthCut.Calm,
-    whiskers: a.whiskers,
-    freckles: a.freckles,
-    scar: a.scar,
-    paint: a.warpaint,
   };
 }
-/** How a person is drawn: a founder, a look saved by the old studio, or a member of the cast. */
+/** The town and the portrait share the same founder, custom likeness or cast member. */
 export function likenessOf(person: Person): Likeness {
   const founder = foundingPeople.findIndex(
-    (f) => f.name === person.name && (f.past === person.past || f.formerPast === person.past),
+    (f) => f.name === person.name && (f.past === person.past || f.formerPasts.includes(person.past)),
   );
   if (founder >= 0 && founder < founderCast.length) return founderCast[founder];
   return person.customLook ? likenessOfAppearance(person.customLook) : castMember(person.look);
@@ -307,7 +372,7 @@ export interface CallingOutfit {
   trim: Rgb;
 }
 // Settlers wear one of a few home-dyed wools; every other calling has its own colours.
-const settlerWool: readonly Rgb[] = [
+export const settlerWool: readonly Rgb[] = [
   tone(88, 114, 128),
   tone(106, 124, 90),
   tone(156, 94, 78),

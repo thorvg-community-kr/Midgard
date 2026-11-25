@@ -6,10 +6,11 @@ import { distance, project, sub, type Point } from '../../../../packages/engine/
 import { f32, clamp } from '../../../../packages/engine/src/numeric';
 import { realmRules } from '../../../../packages/engine/src/town-realm';
 import { lairOf } from '../../../../packages/engine/src/town-monsters';
-import type { Town } from '../../../../packages/engine/src/town';
+import { raidSeat } from '../../../../packages/engine/src/gate-progression';
 import { controllableIds } from './game-control';
 import { canControl } from '../../../../packages/engine/src/faction';
 import { skillOfCalling } from '../../../../packages/engine/src/skill-catalog';
+import { attackDamage } from '../../../../packages/engine/src/equipment';
 import type { Person } from '../../../../packages/engine/src/person';
 import type { GameAppState } from './game-app-state';
 import type { GameHudApp } from './game-hud-contract';
@@ -33,7 +34,7 @@ export function swarmCount(app: GameAppState): SwarmCount | null {
     army.realmRevision = town.realmRevision;
     army.densSeen = 0;
   }
-  army.densSeen = Math.max(army.densSeen, dens);
+  army.densSeen = Math.max(army.densSeen, dens, town.realmDenTotal());
   const monsters = town.realmFoes().filter((m) => m.rank !== MonsterRank.Den).length;
   return { dens, total: army.densSeen, monsters };
 }
@@ -61,8 +62,10 @@ export function swarmFrame(app: GameAppState, heard: readonly CombatEvent[]): vo
       army.banners.push({
         title: left ? 'A den is destroyed' : 'The last den is destroyed',
         detail:
-          (killer ? `${killer.name} struck the last blow. ` : '') +
-          (left ? `${left} of ${count?.total ?? left + 1} still ${left === 1 ? 'breeds' : 'breed'}.` : 'No more will climb out.'),
+          town.chronicle.partiesLed === 1 && count && left === count.total - 1
+            ? 'Bring the party home to complete the optional goal.'
+            : (killer ? `${killer.name} struck the last blow. ` : '') +
+              (left ? `${left} of ${count?.total ?? left + 1} still ${left === 1 ? 'breeds' : 'breed'}.` : 'No more will climb out.'),
         until: seconds + bannerSeconds,
       });
     } else if (e.cue === CombatCue.BroodBreak)
@@ -71,7 +74,11 @@ export function swarmFrame(app: GameAppState, heard: readonly CombatEvent[]): vo
         detail: `${e.amount} ${e.amount === 1 ? 'monster dies' : 'monsters die'} with their dens. The floor is clear.`,
         until: seconds + bannerSeconds + 1,
       });
-    else if (e.cue === CombatCue.Wave) army.wave = { size: e.amount, from: { ...e.position }, at: town.clock() };
+    else if (e.cue === CombatCue.Wave) {
+      const gate = e.gate ?? -1;
+      army.waves = army.waves.filter(wave => wave.at === e.at && wave.gate !== gate);
+      army.waves.push({ gate, size: e.amount, from: { ...e.position }, at: e.at });
+    }
   }
   army.banners = army.banners.filter((b) => b.until > seconds).slice(-3);
 }
@@ -110,48 +117,36 @@ export function swarmBanner(app: GameHudApp, width: number, y: number): number {
   c.requestFrameAt(Math.min(banner.until, c.time() + 0.1));
   return f32(y + 56);
 }
-function waveTarget(town: Town, from: Point): Point {
-  const raiders = town.monsters().filter((m) => m.raider && m.health > 0);
-  if (!raiders.length) return from;
-  return {
-    x: raiders.reduce((s, m) => s + m.position.x, 0) / raiders.length,
-    y: raiders.reduce((s, m) => s + m.position.y, 0) / raiders.length,
-  };
-}
-/** A raid wave: a warning line for a few seconds and, while it lives, an arrow at the screen edge toward it. */
+/** Each wing gets its own bearing from its target camp and an arrow following its living raiders. */
 export function waveWarning(app: GameHudApp, width: number, height: number, y: number): number {
-  const wave = app.army.wave,
-    town = app.town;
-  if (!wave) return y;
-  const age = town.clock() - wave.at,
-    live = town.raiding();
-  if (age < 0 || (age > waveSeconds && !live) || age > 90) {
-    app.army.wave = null;
-    return y;
+  const { army, town, context: c, theme: t } = app;
+  if (!army.waves.length) return y;
+  const raiders = town.monsters().filter(m => m.raider && m.health > 0);
+  army.waves = army.waves.filter(wave => {
+    const age = town.clock() - wave.at;
+    return age >= 0 && age <= 90 && (age <= waveSeconds || raiders.some(m => m.lair === wave.gate));
+  });
+  for (const [i, wave] of army.waves.entries()) {
+    if (town.clock() - wave.at <= waveSeconds) {
+      const { x, w } = column(width), r = new Rect(x, y, w, 26),
+        home = raidSeat(town, wave.gate)?.center ?? town.camp()?.center ?? town.map().camp();
+      board(c, r, { trim: t.danger, trimWidth: 2 });
+      c.text(r, c.elideText(`A raid wave of ${wave.size} comes from the ${wayTo(home, wave.from)}`, f32(w - 16), 12, true),
+        t.danger, 12, true, Align.Center);
+      y = f32(y + 32);
+    }
+    const wing = raiders.filter(m => m.lair === wave.gate);
+    const at = wing.length ? {
+      x: wing.reduce((sum, m) => sum + m.position.x, 0) / wing.length,
+      y: wing.reduce((sum, m) => sum + m.position.y, 0) / wing.length,
+    } : wave.from;
+    edgeArrow(app, i ? `wave-arrow-${wave.gate}` : 'wave-arrow', at, wave.size, width, height);
   }
-  const c = app.context,
-    t = app.theme,
-    home = town.camp()?.center ?? town.map().camp();
-  if (age <= waveSeconds) {
-    const { x, w } = column(width),
-      r = new Rect(x, y, w, 26);
-    board(c, r, { trim: t.danger, trimWidth: 2 });
-    c.text(
-      r,
-      c.elideText(`A raid wave of ${wave.size} comes from the ${wayTo(home, wave.from)}`, f32(w - 16), 12, true),
-      t.danger,
-      12,
-      true,
-      Align.Center,
-    );
-    y = f32(y + 32);
-  }
-  edgeArrow(app, waveTarget(town, wave.from), wave.size, width, height);
-  c.requestFrameAt(c.time() + 0.25);
+  if (army.waves.length) c.requestFrameAt(c.time() + 0.25);
   return y;
 }
 /** An arrow on the screen edge pointing at a world point that is off screen; nothing while it is in view. */
-function edgeArrow(app: GameHudApp, at: Point, size: number, width: number, height: number): void {
+function edgeArrow(app: GameHudApp, id: string, at: Point, size: number, width: number, height: number): void {
   const c = app.context,
     t = app.theme,
     screen = app.camera.toScreen(project(at.x, at.y), width, height),
@@ -176,7 +171,7 @@ function edgeArrow(app: GameHudApp, at: Point, size: number, width: number, heig
     const b = back(side);
     c.line(f32(b.x), f32(b.y), f32(tip.x), f32(tip.y), t.danger, 3);
   }
-  c.control('wave-arrow', new Rect(f32(x - 15), f32(y - 15), 30, 30), () => {
+  c.control(id, new Rect(f32(x - 15), f32(y - 15), 30, 30), () => {
     const p = project(at.x, at.y);
     app.camera.x = p.x;
     app.camera.y = p.y;
@@ -190,17 +185,17 @@ export enum Verdict {
   Hard,
   Ready,
 }
-/** How a party of `count` at `average` level stands against a floor that wants `level`. */
-export function partyVerdict(count: number, average: number, level: number): Verdict {
-  return count < 3 || (count < 4 && average < level + 4)
-    ? Verdict.TooFew
-    : average < level - 1
-      ? Verdict.Losing
-      : average < level
-        ? Verdict.Hard
-        : Verdict.Ready;
+export const partyLevel = (members: readonly Person[]): number =>
+  Math.round(members.reduce((sum, p) => sum + p.level, 0) / Math.max(1, members.length));
+/** Level speaks for endurance and skills. A matched wooden, stone or iron weapon sets the floor's attack target. */
+export function partyVerdict(members: readonly Person[], floor: number, levelMargin = 0): Verdict {
+  const count = members.length, level = floorLevel(floor), average = partyLevel(members) - levelMargin;
+  if (count < 3 || (count < 4 && average < level + 4)) return Verdict.TooFew;
+  const attack = members.reduce((sum, p) => sum + attackDamage(p), 0) / count, target = 3 + floor;
+  if (average < level - 1 || attack < target - 1) return Verdict.Losing;
+  return average < level || attack < target - 0.5 ? Verdict.Hard : Verdict.Ready;
 }
-const verdictWords = ['too few to stand against a swarm', 'likely to lose this floor', 'a hard fight', 'ready'];
+const verdictWords = ['high risk', 'high risk', 'a hard fight', 'ready'];
 export const floorLevel = (floor: number): number => recommendedLevel[Math.min(floor, recommendedLevel.length - 1)];
 /** What the floor a party is sent to holds, in words the player can weigh, and whether the party is up to it.
  * Without `party` the selection is weighed, or every fighter when nobody is selected. */
@@ -232,8 +227,8 @@ export function floorForecast(app: GameAppState, gate: number, floor: number, pa
         ? selected
         : town.people().filter((p) => canControl(p) && p.downedAt < 0 && !!skillOfCalling(p.calling, 0));
   if (chosen.length) {
-    const average = Math.round(chosen.reduce((s, p) => s + p.level, 0) / chosen.length),
-      verdict = verdictWords[partyVerdict(chosen.length, average, level)];
+    const average = partyLevel(chosen),
+      verdict = verdictWords[partyVerdict(chosen, floor)];
     lines.push(
       party
         ? `Party: ${chosen.length} at level ${average} on average, ${verdict}.`

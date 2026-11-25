@@ -1,5 +1,6 @@
 import { Cue } from './sound-types';
 
+const offeringBank = 'sfx/offering/altar';
 export const cueClips: Partial<Record<Cue, string[]>> = {
   [Cue.Place]: ['ui/rune_'],
   [Cue.Demolish]: ['sfx/collapse_'],
@@ -54,17 +55,23 @@ export const cueClips: Partial<Record<Cue, string[]>> = {
   [Cue.WaveHorn]: ['sfx/combat/wave_horn_'],
   [Cue.Downed]: ['sfx/collapse_'],
   [Cue.Lyre]: ['sfx/bard/lyre_'],
+  [Cue.OfferFood]: [offeringBank],
+  [Cue.OfferWater]: [offeringBank],
+  [Cue.OfferBones]: [offeringBank],
+  [Cue.OfferGold]: [offeringBank],
+  [Cue.OfferStone]: [offeringBank],
+  [Cue.OfferAccepted]: [offeringBank],
 };
 /** The loop under a large pack nearby: skitter, breath and a low growl, seamless end to start. */
 export const swarmBedPrefix = 'sfx/combat/swarm_bed_';
-/** Individual calls from the existing authored sound banks. The source files contain
- * whole sequences; an ambient cue should emit one cluck, bark or oink. */
-export interface AnimalCallWindow {
+interface ClipWindow {
   source: string;
   from: number;
   to: number;
 }
-export const animalCallWindows: Partial<Record<Cue, readonly AnimalCallWindow[]>> = {
+export type AnimalCallWindow = ClipWindow;
+/** One animal call from a recording of a whole sequence. */
+export const animalCallWindows: Partial<Record<Cue, readonly ClipWindow[]>> = {
   [Cue.Chicken]: [
     { source: 'wildlife/chicken_01', from: 0.04, to: 0.32 },
     { source: 'wildlife/chicken_01', from: 0.6, to: 0.92 },
@@ -86,7 +93,7 @@ export const animalCallWindows: Partial<Record<Cue, readonly AnimalCallWindow[]>
   ],
 };
 /** A work cue is one impact, never an entire recording of repeated strikes. */
-export const workClipWindows: Partial<Record<Cue, readonly AnimalCallWindow[]>> = {
+export const workClipWindows: Partial<Record<Cue, readonly ClipWindow[]>> = {
   [Cue.Hammer]: [
     { source: 'sfx/hammer_01', from: 0, to: 0.34 },
     { source: 'sfx/hammer_01', from: 0.48, to: 0.82 },
@@ -98,6 +105,26 @@ export const workClipWindows: Partial<Record<Cue, readonly AnimalCallWindow[]>> 
   [Cue.Downed]: [{ source: 'sfx/collapse_01', from: 1.9, to: 2.75 }],
   [Cue.Fall]: [{ source: 'sfx/stone_door_01', from: 3.92, to: 4.75 }],
 };
+/** All six gestures arrive in one small download, separated by silent guards in the bank. */
+export const offeringClipWindows: Partial<Record<Cue, readonly ClipWindow[]>> = {
+  [Cue.OfferFood]: [{ source: offeringBank, from: 0, to: 0.20 }],
+  [Cue.OfferWater]: [{ source: offeringBank, from: 0.26, to: 0.93 }],
+  [Cue.OfferBones]: [{ source: offeringBank, from: 0.99, to: 1.08 }],
+  [Cue.OfferGold]: [{ source: offeringBank, from: 1.14, to: 1.51 }],
+  [Cue.OfferStone]: [{ source: offeringBank, from: 1.57, to: 1.87 }],
+  [Cue.OfferAccepted]: [{ source: offeringBank, from: 1.93, to: 3.08 }],
+};
+// Lifting a material uses its own cue so the last placement cannot silence a quick reversal.
+for (const [place, take] of [
+  [Cue.OfferFood, Cue.OfferTakeFood],
+  [Cue.OfferWater, Cue.OfferTakeWater],
+  [Cue.OfferBones, Cue.OfferTakeBones],
+  [Cue.OfferGold, Cue.OfferTakeGold],
+  [Cue.OfferStone, Cue.OfferTakeStone],
+]) {
+  cueClips[take] = cueClips[place];
+  offeringClipWindows[take] = offeringClipWindows[place];
+}
 // The authored crash peaks at frame 41280; its cropped window begins at 40793.
 // The caller can subtract this lead-in when scheduling the visible landing.
 export const treeFallClipImpactSeconds = 487 / 22050;
@@ -106,6 +133,7 @@ export const treeFallClipImpactSeconds = 487 / 22050;
 export const initialEffectPrefixes = [
   ...new Set([
     'sfx/hammer_',
+    offeringBank,
     ...[
       Cue.Place,
       Cue.Click,

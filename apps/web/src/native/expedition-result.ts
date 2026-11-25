@@ -45,7 +45,7 @@ export function resultTitle(outcome: ExpeditionResult): string {
     case ExpeditionEnd.Sealed:
       return `${outcome.world} is sealed`;
     case ExpeditionEnd.Withdrew:
-      return 'The party withdrew';
+      return outcome.scoutingGoalMet ? 'Scouting party returned' : 'The party withdrew';
     case ExpeditionEnd.CastOut:
       return 'Thrown back through the gate';
     case ExpeditionEnd.Lost:
@@ -58,7 +58,7 @@ export function resultLines(outcome: ExpeditionResult): string[] {
     [
       'The floor is cleared.',
       'The gate is sealed for good.',
-      'The party came home before the floor was cleared.',
+      outcome.scoutingGoalMet ? 'Optional goal complete. A den fell and the party came home.' : 'The party came home before the floor was cleared.',
       'You barely made it out of the gate.',
       'The whole party fell beyond the gate.',
     ][outcome.end],
@@ -237,7 +237,7 @@ export function renderExpeditionResult(this: ResultApp, width: number, height: n
     rowH = 50,
     columns = wide ? 2 : 1,
     colW = f32((inner - (columns - 1) * 10) / columns),
-    tone = lost(outcome.end) ? t.danger : outcome.end === ExpeditionEnd.Withdrew ? t.accent : t.success,
+    tone = lost(outcome.end) ? t.danger : outcome.end === ExpeditionEnd.Withdrew && !outcome.scoutingGoalMet ? t.accent : t.success,
     lines = resultLines(outcome).flatMap((line, i) => wrapText(c, line, inner, i ? 12 : 13, 2, !i).map((row) => ({ row, first: i === 0 }))),
     deeds = resultDeeds(outcome).flatMap((line) => wrapText(c, line, colW, 11, 2)),
     rewards = outcome.rewards.flatMap((line) => wrapText(c, line, inner, 11, 2)),

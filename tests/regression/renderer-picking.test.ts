@@ -14,6 +14,9 @@ import {
 import { WorldRendererState } from '../../packages/native-renderer/src/world-renderer-state';
 import { paintFields } from '../../packages/native-renderer/src/terrain-painter';
 import { WorldPicker } from '../../packages/native-renderer/src/world-picking';
+import { batchScenery, registerScenery } from '../../packages/native-renderer/src/scenery-batches';
+import { Rect } from '../../packages/native-ui/src/types';
+import { mistTones } from '../../packages/native-renderer/src/mist-bands';
 import { registerPick } from '../../packages/native-renderer/src/world-pick-registry';
 import { registerDepth, sortWorldObjects } from '../../packages/native-renderer/src/world-depth';
 import { TreeBatch, TreeKind } from '../../packages/native-renderer/src/tree-painter';
@@ -21,6 +24,8 @@ import { paintYmir } from '../../packages/native-renderer/src/ymir-statue';
 import { paintVolcano } from '../../packages/native-renderer/src/volcano-painter';
 import { paintHvergelmir } from '../../packages/native-renderer/src/hvergelmir-painter';
 import type { WorldObjectRef } from '../../packages/native-renderer/src/world-picking-types';
+import type { Context } from '../../packages/native-ui/src';
+import { nameplatePlace } from '../../apps/web/src/native/world-nameplate';
 
 class Pixels {
   constructor(
@@ -71,6 +76,7 @@ function fixture(dpr = 1) {
     revision = 1n;
   const map = {
     width: () => 32,
+    sights: () => [{ center: point(), radius: revealed ? 1000 : 0 }],
     inside: () => true,
     revealed: () => revealed,
     at: () => ({ trees }),
@@ -135,6 +141,110 @@ function fixture(dpr = 1) {
 function rectangle(x: number, y: number, w: number, h: number) {
   return new ShapeNode().appendRect(x, y, w, h).fill(90, 130, 80);
 }
+it.each([0.5, 1, 1.75])('keeps distant trees individually pickable inside a shared paint at DPR %s', (dpr) => {
+  const v = fixture(dpr);
+  try {
+    const trees = [40, 85, 130].map((x, id) => {
+      const art = rectangle(x, 40, 3, 20).appendRect(x + 12, 40, 3, 20);
+      const tree = v.add(art, { kind: 'tree', id });
+      tree.shaded({ tone: mistTones.veil, strength: mistTones.memory });
+      registerScenery(tree, new Rect(x, 40, 15, 20));
+      return tree;
+    });
+    const merged = batchScenery(trees, 0.45);
+    expect(merged.length).toBe(1);
+    expect(batchScenery(trees, 0.45)[0]).toBe(merged[0]);
+    expect(batchScenery(trees, 1.4)).toEqual(trees);
+    v.s.objects.children = merged;
+    v.draw();
+    expect(v.picker.pick(point(41, 50))?.id).toBe(0);
+    expect(v.picker.pick(point(86, 50))?.id).toBe(1);
+    expect(v.picker.pick(point(47, 50))).toBeNull();
+    expect(v.picker.querySelection({ x: 46, y: 45, w: 4, h: 6 })).toEqual([]);
+    expect(v.picker.querySelection({ x: 54, y: 45, w: 48, h: 6 }).map(hit => hit.id)).toEqual([1, 0]);
+    expect(v.picker.selectionGeometry({ kind: 'tree', id: 2 })?.bounds.x).toBeCloseTo(130, 3);
+    trees[1].shaded(undefined);
+    expect(batchScenery(trees, 0.45)).toEqual(trees);
+    trees[1].shaded(trees[0].shade).translate(1, 0);
+    expect(batchScenery(trees, 0.45)).toEqual(trees);
+  } finally {
+    v.dispose();
+  }
+});
+it('reuses stationary ground visibility across presents and notices edits to a sight or a tree', () => {
+  const v = fixture();
+  try {
+    const map = v.town.map(), source = unproject(45, 50);
+    const sight = { center: { ...source }, radius: 2 };
+    const sights = [sight, { center: point(-40, -40), radius: 1 }];
+    vi.spyOn(map, 'sights').mockReturnValue(sights);
+    const reveal = vi.spyOn(map, 'revealed').mockImplementation(
+      (foot) => sights.some(({ center, radius }) => Math.hypot(foot.x - center.x, foot.y - center.y) <= radius),
+    );
+    v.add(rectangle(40, 45, 10, 10), { kind: 'tree', id: 1, instanceIndex: 0 }, source);
+    v.draw();
+    expect(v.picker.pick(point(45, 50))?.id).toBe(1);
+    v.draw();
+    expect(reveal).toHaveBeenCalledTimes(1);
+    sights.push({ center: point(40, 40), radius: 1 });
+    v.draw();
+    expect(reveal).toHaveBeenCalledTimes(1);
+    v.trees(0);
+    v.draw();
+    expect(v.picker.pick(point(45, 50))).toBeNull();
+    v.trees(1);
+    sight.center.x += 10;
+    const marker = { key: 'tree:1:0', kind: 'tree' as const, hover: true };
+    expect(v.picker.groundSelection([marker], v.town)).toEqual([]);
+    v.draw();
+    expect(v.picker.pick(point(45, 50))).toBeNull();
+    sight.radius = 20;
+    v.draw();
+    expect(v.picker.pick(point(45, 50))?.id).toBe(1);
+    source.x += 100;
+    v.draw();
+    expect(v.picker.pick(point(45, 50))).toBeNull();
+    sights.push({ center: { ...source }, radius: 1 });
+    v.draw();
+    expect(v.picker.pick(point(45, 50))?.id).toBe(1);
+  } finally {
+    v.dispose();
+  }
+});
+it('keeps holes, depth and drag order where distant trees overlap', () => {
+  const v = fixture();
+  try {
+    const trees = [40, 105, 43, 160].map((x, id) => {
+      const art = rectangle(x, 40, 4, 25).appendRect(x + 14, 40, 4, 25).fill(80 + id * 20, 130, 80);
+      const tree = v.add(art, { kind: 'tree', id, instanceIndex: 0 });
+      tree.shaded({ tone: mistTones.veil, strength: mistTones.memory });
+      registerScenery(tree, new Rect(x, 40, 18, 25));
+      return tree;
+    });
+    v.draw();
+    const pixels = v.surface.pixels.slice();
+    const box = { x: 40, y: 45, w: 150, h: 5 };
+    const ids = () => v.picker.querySelection(box).map((hit) => hit.id);
+    expect(ids()).toEqual([3, 2, 1, 0]);
+    v.s.objects.children = batchScenery(trees, 0.45);
+    v.draw();
+    expect(v.surface.pixels).toEqual(pixels);
+    expect(v.picker.pick(point(44, 50))?.id).toBe(2);
+    expect(v.picker.pick(point(55, 50))?.id).toBe(0);
+    expect(v.picker.pick(point(51, 50))).toBeNull();
+    expect(ids()).toEqual([3, 2, 1, 0]);
+    const marker = { key: 'tree:2:0', kind: 'tree' as const, hover: true };
+    expect(v.picker.groundSelection([marker], v.town)[0].key).toBe(marker.key);
+    const removed = trees.slice();
+    removed.splice(2, 1);
+    v.s.objects.children = batchScenery(removed, 0.45);
+    v.draw();
+    expect(ids()).toEqual([3, 1, 0]);
+    expect(v.picker.selectionGeometry({ kind: 'tree', id: 2, instanceIndex: 0 })).toBeNull();
+  } finally {
+    v.dispose();
+  }
+});
 function animation(firstOpacity = 100) {
   const shape = (x: number) => ({
     ty: 'gr',
@@ -472,6 +582,36 @@ it('targets the actual high Ymir body while unrevealed volcano and spring stay u
     v.reveal(true);
     v.draw();
     expect(v.picker.selectionGeometry({ kind: 'landmark', id: 2 })).not.toBeNull();
+  } finally {
+    v.dispose();
+  }
+});
+it('keeps a unit nameplate still through its poses and moves it only with the feet', () => {
+  const v = fixture(),
+    context = { textWidth: () => 48 } as unknown as Context,
+    ref = { kind: 'person', id: 3 } as const;
+  try {
+    let root: SceneNode | undefined;
+    const plate = (body: ShapeNode, foot: { x: number; y: number }) => {
+      if (root) v.s.objects.remove(root);
+      root = new SceneNode().add(body);
+      v.s.objects.add(root);
+      registerPick(root, {
+        ref,
+        body: [body],
+        foot: unproject(foot.x, foot.y),
+        stand: { above: 31, below: 2.6, half: 6 },
+      });
+      v.draw();
+      return nameplatePlace(context, 'Askr', v.picker.selectionGeometry(ref)!, 320, 240).bounds;
+    };
+    // At rest, then mid-swing with the axe raised high and out to one side.
+    const rest = plate(rectangle(44, 36, 12, 24), { x: 50, y: 60 }),
+      swing = plate(rectangle(42, 20, 34, 42), { x: 50, y: 60 }),
+      walked = plate(rectangle(84, 56, 12, 24), { x: 90, y: 80 });
+    expect({ ...rest }).toEqual({ x: 20, y: 69.6, w: 60, h: 14 });
+    expect(swing).toEqual(rest);
+    expect({ ...walked }).toEqual({ x: 60, y: 89.6, w: 60, h: 14 });
   } finally {
     v.dispose();
   }

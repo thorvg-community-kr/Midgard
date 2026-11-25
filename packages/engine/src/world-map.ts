@@ -1,8 +1,10 @@
 import { add, sub, scale, point, length, distance, normalized, lerp, segmentDistance, cubic, type Point } from './geometry';
-import { clamp, f32, hash01, lround, remainder, u32 } from './numeric';
-import { DungeonKind, Giant, Layer, Region, Terrain, Volcano, World, impassable, isStone, isWater, lavaFloor, lavaLevel, makeTile, volcanicCrest, volcanoFoot, type Dungeon, type River, type Sight, type Tile, type TileCoord } from './world-types';
+import { clamp, f32 as toFloat32, hash01, lround, remainder, u32 } from './numeric';
+import { DungeonKind, Giant, Layer, Region, Terrain, Volcano, World, unsafeGround, isStone, isWater, lavaFloor, lavaLevel, makeTile, volcanicCrest, volcanoFoot, type Dungeon, type River, type Sight, type Tile, type TileCoord } from './world-types';
 import { placeDungeons } from './dungeon-sites';
 import { copyNative } from './native-copy';
+// Keep this intrinsic local in the generation loops, including in development module builds.
+const f32 = toFloat32;
 const smooth = (t: number): number => f32(f32(t * t) * (f32(3 - f32(2 * t))));
 interface NoiseLattice {
     x: number;
@@ -66,6 +68,15 @@ const springLogo = point(72, 24), fireLogo = point(89, 142), ymirShoreLogo = poi
 const spines = [[point(96, 71), point(80, 86), point(58, 101)], [point(130, 110), point(89, 142), point(70, 172)]];
 const spinePoints = spines.map((spine) => spine.map(fromLogo));
 const centreLogos = [point(110, 20), point(95, 80), point(88, 152)];
+function coastlineEdges(points: Point[]) {
+    return points.map((b, index) => {
+        const a = points[(index + points.length - 1) % points.length];
+        // Leave room for float rounding in closestOnSegment's interpolation of these unit-scale coordinates.
+        const pad = 1e-6;
+        return { a, b, left: Math.min(a.x, b.x) - pad, right: Math.max(a.x, b.x) + pad,
+            top: Math.min(a.y, b.y) - pad, bottom: Math.max(a.y, b.y) + pad };
+    });
+}
 const bolt = (() => {
     const outline: Point[] = [], bay: Point[] = [];
     const curve = (out: Point[], p0: Point, p1: Point, p2: Point, p3: Point): void => { for (let i = 0; i <= 8; i++)
@@ -80,13 +91,13 @@ const bolt = (() => {
     curve(bay, tip, bend1, bend2, end);
     for (const p of [point(f32(160.583), f32(52.909)), point(210, f32(52.909)), point(210, f32(10.156))])
         bay.push(fromLogo(p));
-    return { outline, bay };
+    return { outline: coastlineEdges(outline), bay: coastlineEdges(bay) };
 })();
-function signedDistance(p: Point, polygon: Point[]): number {
+function signedDistance(p: Point, edges: ReturnType<typeof coastlineEdges>): number {
     let nearest = 3.4028234663852886e38, inside = false;
-    for (let i = 0, j = f32(polygon.length - 1); i < polygon.length; j = i++) {
-        const a = polygon[j], b = polygon[i];
-        nearest = Math.min(nearest, segmentDistance(p, a, b));
+    for (const { a, b, left, right, top, bottom } of edges) {
+        if (p.x + nearest >= left && p.x - nearest <= right && p.y + nearest >= top && p.y - nearest <= bottom)
+            nearest = Math.min(nearest, segmentDistance(p, a, b));
         if ((a.y > p.y) !== (b.y > p.y) && p.x < f32(a.x + f32(f32((f32(p.y - a.y)) / (f32(b.y - a.y))) * (f32(b.x - a.x)))))
             inside = !inside;
     }
@@ -155,7 +166,7 @@ function clearing(map: WorldMap, cx: number, cy: number, radius: number): boolea
             if (!map.inside(x, y))
                 return false;
             const terrain = map.at(x, y).terrain;
-            if (isWater(terrain) || isStone(terrain) || impassable(terrain))
+            if (isWater(terrain) || isStone(terrain) || unsafeGround(terrain))
                 return false;
         }
     return true;
@@ -173,6 +184,7 @@ export function wildTrees(map: WorldMap, x: number, y: number): number {
 export function treePosition(map: WorldMap, x: number, y: number, index: number): Point { return point(f32(f32(x + f32(.2)) + f32(hash01(map.seed(), x, y, 30 + index) * f32(.6))), f32(f32(y + f32(.2)) + f32(hash01(map.seed(), x, y, 40 + index) * f32(.6)))); }
 export const worldName = (world: World): string => ['Asgard', 'Vanaheim', 'Alfheim', 'Jotunheim', 'Svartalfheim', 'Niflheim', 'Muspelheim', 'Helheim'][world] || '';
 let lastGenerated: { seed: number; width: number; height: number; map: WorldMap } | undefined;
+const noDrifts: ReadonlySet<number> = new Set();
 export class WorldMap {
     static readonly resolution = 2;
     columns = 0;
@@ -186,6 +198,10 @@ export class WorldMap {
     sites: Dungeon[] = [];
     ymir: Giant | null = null;
     fire: Volcano | null = null;
+    /** Special footing on the current gate floor, reconstructed from its plan on load. */
+    passageCells?: { deepSnow: Set<number>; basaltCell: number };
+    get deepSnow(): ReadonlySet<number> { return this.passageCells?.deepSnow ?? noDrifts; }
+    get basaltCell(): number { return this.passageCells?.basaltCell ?? -1; }
     laidOut = true;
     width(): number { return this.columns; }
     height(): number { return this.rows; }
@@ -268,7 +284,7 @@ export class WorldMap {
     }
     onEasternCoast(p: Point, reach = 10): boolean {
         const tile = this.cell(p);
-        if (!tile || isWater(tile.terrain) || impassable(tile.terrain) || f32(f32(p.x / this.columns) - f32(p.y / this.rows)) < f32(.12))
+        if (!tile || isWater(tile.terrain) || unsafeGround(tile.terrain) || f32(f32(p.x / this.columns) - f32(p.y / this.rows)) < f32(.12))
             return false;
         for (let step = 1; step <= reach; step++) {
             const shore = this.cell(add(p, point(step, f32(f32(-step * this.rows) / this.columns))));
@@ -289,17 +305,20 @@ export class WorldMap {
         return World.Jotunheim;
     }
     reveal(cx: number, cy: number, radius: number): boolean {
-        if (this.seen.some(s => f32(f32(Math.hypot(f32(s.center.x - cx), f32(s.center.y - cy))) + radius) <= s.radius))
-            return false;
-        this.seen.push({ center: point(cx, cy), radius });
+        const sight = { center: point(cx, cy), radius };
+        let added = this.rememberSight(sight);
+        if (this.fire?.inSight(sight))
+            for (const slope of this.fire.sights()) if (this.rememberSight(slope)) added = true;
+        return added;
+    }
+    private rememberSight(sight: Sight): boolean {
+        const { center, radius } = sight, { x: cx, y: cy } = center;
+        if (this.revealedWithin(center, radius)) return false;
+        this.seen.push(sight);
         for (let y = f32(Math.trunc(f32(cy - radius)) - 1); y <= f32(Math.trunc(f32(cy + radius)) + 1); y++)
             for (let x = f32(Math.trunc(f32(cx - radius)) - 1); x <= f32(Math.trunc(f32(cx + radius)) + 1); x++)
                 if (this.inside(x, y) && f32(Math.hypot(f32(f32(x + f32(.5)) - cx), f32(f32(y + f32(.5)) - cy))) <= radius)
                     this.at(x, y).revealed = true;
-        if (this.fire && distance(point(cx, cy), this.fire.center()) <= radius)
-            for (const sight of this.fire.sights())
-                if (!this.revealedWithin(sight.center, sight.radius))
-                    this.reveal(sight.center.x, sight.center.y, sight.radius);
         return true;
     }
     revealStart(): void { this.reveal(this.camp().x, this.camp().y, 7); }
@@ -372,6 +391,11 @@ export class WorldMap {
         const heart = map.ymir.center(), spring = mapOf(fromLogo(springLogo), width, height), fire = mapOf(fromLogo(fireLogo), width, height), lake = Math.max(f32(2.5), f32(f32(.045) / tile));
         map.fire = Volcano.around(fire);
         const mereWide = 6, mereFront = f32(5.5), mereBack = clamp(f32((f32(width + height)) * f32(.037)), f32(8.5), 13);
+        // Conservative tile boxes contain the complete falloff of the landmark fields.
+        // The spring is stretched by 1.45, volcanic heat extends five tiles past its longest tongue,
+        // and the giant's clearing, grove and tarn all fit inside the widest of their reaches.
+        const springReach = Math.ceil(2 * lake + 16), fireReach = Volcano.size / 2 + 26,
+            giantReach = Math.ceil(Math.max(1.2 * (clear + 4) + 1, 22, 2 * mereBack + 2));
         for (let j = 0; j <= f32(height * 2); j++) {
             for (let i = 0; i <= f32(width * 2); i++) {
                 const x = f32(i / 2), y = f32(j / 2), here = screenOf(point(x, y), width, height), depth = depthOf(seed, here);
@@ -392,38 +416,44 @@ export class WorldMap {
                 const beach = f32(fractalNoise(u32(seed + 330), f32(x * f32(.1)), f32(y * f32(.1))) - f32((f32(cold + hot)) * f32(.6)));
                 let land = landMask(seed, x, y, width, height);
                 const wobble = (from: Point, salt: number): number => { const angle = f32(Math.atan2(f32(y - from.y), f32(x - from.x))); return f32(f32(.8) + f32(f32(.4) * fractalNoise(u32(seed + salt), f32(f32(f32(Math.cos(angle)) * f32(1.5)) + 5), f32(f32(f32(Math.sin(angle)) * f32(1.5)) + 5)))); };
-                const rift = f32(Math.hypot(f32(f32((f32(f32(f32(x - spring.x) - y) + spring.y)) * f32(.7071)) / f32(1.45)), f32((f32(f32(f32(x - spring.x) + y) - spring.y)) * f32(.7071)))), lip = f32(Math.atan2(f32(y - spring.y), f32(x - spring.x)));
-                const ragged = f32(wobble(spring, 730) + f32(f32(.16) * (f32(fractalNoise(u32(seed + 731), f32(f32(f32(Math.cos(lip)) * 4) + 9), f32(f32(f32(Math.sin(lip)) * 4) + 9)) - f32(.5))))), pool = within(rift, f32(lake * ragged), f32(1.5));
-                land = f32(land + f32(Math.max(0, f32(f32(.8) - land)) * within(distance(point(x, y), spring), f32(f32(lake * f32(1.45)) + 6), 4)));
-                elevation = f32(elevation + f32((f32(f32(.1) - elevation)) * pool));
-                heat = f32(heat + f32((f32(f32(.3) - heat)) * within(rift, f32(f32(lake * ragged) - f32(.4)), f32(.9))));
-                ridge = f32(ridge + f32((f32(-f32(.5) - ridge)) * within(rift, f32(lake + 3), 2)));
-                const gap = distance(point(x, y), fire), cone = f32(Volcano.size * f32(.5)), heading = f32(Math.atan2(f32(y - fire.y), f32(x - fire.x))), reach = clamp(f32((f32(width + height)) / 352), f32(.5), 1), burning = f32(hot * hot);
-                const tongue = f32(cone + f32((f32(6 + f32(14 * fractalNoise(u32(seed + 795), f32(f32(f32(Math.cos(heading)) * f32(2.2)) + 5), f32(f32(f32(Math.sin(heading)) * f32(2.2)) + 5))))) * reach));
-                const apron = f32(within(gap, tongue, 3) * burning), older = smooth(clamp(f32((f32(fractalNoise(u32(seed + 796), f32(x * f32(.22)), f32(y * f32(.22))) - f32(.62))) * 8), 0, 1));
-                land = f32(land + f32(Math.max(0, f32(f32(.8) - land)) * within(gap, f32(cone + 14), 4)));
-                heat = f32(heat + f32(f32((f32(Math.max(heat, 1) - heat)) * within(gap, f32(tongue + 2), 3)) * burning));
-                let channels = 0;
-                for (let k = 3; k < 5; k++) {
-                    let aim = f32(f32(f32(3.9) + f32((f32(k - 3)) * f32(1.2))) + f32((f32(hash01(seed, k, 11, 780) - f32(.5))) * f32(.8)));
-                    aim = f32(aim + f32((f32(fractalNoise(u32(u32(seed + 790) + k), f32(gap * f32(.12)), 3) - f32(.5))) * f32(.9)));
-                    channels = Math.max(channels, within(f32(Math.abs(remainder(f32(heading - aim), f32(6.2832))) * gap), f32(.9), f32(1.2)));
+                if (Math.abs(x - spring.x) <= springReach && Math.abs(y - spring.y) <= springReach) {
+                    const rift = f32(Math.hypot(f32(f32((f32(f32(f32(x - spring.x) - y) + spring.y)) * f32(.7071)) / f32(1.45)), f32((f32(f32(f32(x - spring.x) + y) - spring.y)) * f32(.7071)))), lip = f32(Math.atan2(f32(y - spring.y), f32(x - spring.x)));
+                    const ragged = f32(wobble(spring, 730) + f32(f32(.16) * (f32(fractalNoise(u32(seed + 731), f32(f32(f32(Math.cos(lip)) * 4) + 9), f32(f32(f32(Math.sin(lip)) * 4) + 9)) - f32(.5))))), pool = within(rift, f32(lake * ragged), f32(1.5));
+                    land = f32(land + f32(Math.max(0, f32(f32(.8) - land)) * within(distance(point(x, y), spring), f32(f32(lake * f32(1.45)) + 6), 4)));
+                    elevation = f32(elevation + f32((f32(f32(.1) - elevation)) * pool));
+                    heat = f32(heat + f32((f32(f32(.3) - heat)) * within(rift, f32(f32(lake * ragged) - f32(.4)), f32(.9))));
+                    ridge = f32(ridge + f32((f32(-f32(.5) - ridge)) * within(rift, f32(lake + 3), 2)));
                 }
-                ridge = f32(ridge + f32(f32((f32(f32(f32(.025) + f32(f32(.03) * channels)) - ridge)) * apron) * (f32(1 - older))));
-                ridge = f32(ridge + f32(f32((f32(-f32(.4) - ridge)) * apron) * older));
-                elevation = f32(elevation + f32((f32(f32(.85) - elevation)) * within(gap, f32(cone + 2), 16)));
-                const front = f32((f32(f32(f32(x - heart.x) + y) - heart.y)) * f32(.7071)), near = f32(within(f32(distance(point(x, y), heart) / wobble(heart, 750)), clear, 4) * smooth(clamp(f32(f32(front / 4) + f32(.5)), 0, 1)));
-                elevation = f32(elevation + f32((f32(f32(.48) - elevation)) * near));
-                moisture = f32(moisture + f32((f32(f32(.44) - moisture)) * near));
-                ridge = f32(ridge + f32((f32(-f32(.6) - ridge)) * near));
-                heat = f32(heat + f32((f32(f32(.45) - heat)) * near));
-                const grove = within(f32(distance(point(x, y), add(heart, point(3, 12))) / wobble(heart, 770)), f32(3.5), f32(1.5));
-                moisture = f32(moisture + f32((f32(f32(.78) - moisture)) * grove));
-                const behind = f32(-(f32(f32(f32(x - heart.x) + y) - heart.y)) * f32(.7071)), across = f32((f32(f32(f32(x - heart.x) - y) + heart.y)) * f32(.7071));
-                const bearing = f32(Math.atan2(f32(y - heart.y), f32(x - heart.x))), shore = f32(f32(.93) + f32(f32(.14) * fractalNoise(u32(seed + 760), f32(f32(f32(Math.cos(bearing)) * f32(1.8)) + 5), f32(f32(f32(Math.sin(bearing)) * f32(1.8)) + 5))));
-                const mere = within(f32(f32(Math.hypot(f32(across / mereWide), f32((f32(behind - f32((f32(mereBack - mereFront)) / 2))) / (f32((f32(mereBack + mereFront)) / 2))))) / shore), 1, f32(.15));
-                land = f32(land - f32(mere * (f32(land + f32(.4)))));
-                ridge = f32(ridge + f32((f32(-f32(.6) - ridge)) * mere));
+                if (Math.abs(x - fire.x) <= fireReach && Math.abs(y - fire.y) <= fireReach) {
+                    const gap = distance(point(x, y), fire), cone = f32(Volcano.size * f32(.5)), heading = f32(Math.atan2(f32(y - fire.y), f32(x - fire.x))), reach = clamp(f32((f32(width + height)) / 352), f32(.5), 1), burning = f32(hot * hot);
+                    const tongue = f32(cone + f32((f32(6 + f32(14 * fractalNoise(u32(seed + 795), f32(f32(f32(Math.cos(heading)) * f32(2.2)) + 5), f32(f32(f32(Math.sin(heading)) * f32(2.2)) + 5))))) * reach));
+                    const apron = f32(within(gap, tongue, 3) * burning), older = smooth(clamp(f32((f32(fractalNoise(u32(seed + 796), f32(x * f32(.22)), f32(y * f32(.22))) - f32(.62))) * 8), 0, 1));
+                    land = f32(land + f32(Math.max(0, f32(f32(.8) - land)) * within(gap, f32(cone + 14), 4)));
+                    heat = f32(heat + f32(f32((f32(Math.max(heat, 1) - heat)) * within(gap, f32(tongue + 2), 3)) * burning));
+                    let channels = 0;
+                    for (let k = 3; k < 5; k++) {
+                        let aim = f32(f32(f32(3.9) + f32((f32(k - 3)) * f32(1.2))) + f32((f32(hash01(seed, k, 11, 780) - f32(.5))) * f32(.8)));
+                        aim = f32(aim + f32((f32(fractalNoise(u32(u32(seed + 790) + k), f32(gap * f32(.12)), 3) - f32(.5))) * f32(.9)));
+                        channels = Math.max(channels, within(f32(Math.abs(remainder(f32(heading - aim), f32(6.2832))) * gap), f32(.9), f32(1.2)));
+                    }
+                    ridge = f32(ridge + f32(f32((f32(f32(f32(.025) + f32(f32(.03) * channels)) - ridge)) * apron) * (f32(1 - older))));
+                    ridge = f32(ridge + f32(f32((f32(-f32(.4) - ridge)) * apron) * older));
+                    elevation = f32(elevation + f32((f32(f32(.85) - elevation)) * within(gap, f32(cone + 2), 16)));
+                }
+                if (Math.abs(x - heart.x) <= giantReach && Math.abs(y - heart.y) <= giantReach) {
+                    const front = f32((f32(f32(f32(x - heart.x) + y) - heart.y)) * f32(.7071)), near = f32(within(f32(distance(point(x, y), heart) / wobble(heart, 750)), clear, 4) * smooth(clamp(f32(f32(front / 4) + f32(.5)), 0, 1)));
+                    elevation = f32(elevation + f32((f32(f32(.48) - elevation)) * near));
+                    moisture = f32(moisture + f32((f32(f32(.44) - moisture)) * near));
+                    ridge = f32(ridge + f32((f32(-f32(.6) - ridge)) * near));
+                    heat = f32(heat + f32((f32(f32(.45) - heat)) * near));
+                    const grove = within(f32(distance(point(x, y), add(heart, point(3, 12))) / wobble(heart, 770)), f32(3.5), f32(1.5));
+                    moisture = f32(moisture + f32((f32(f32(.78) - moisture)) * grove));
+                    const behind = f32(-(f32(f32(f32(x - heart.x) + y) - heart.y)) * f32(.7071)), across = f32((f32(f32(f32(x - heart.x) - y) + heart.y)) * f32(.7071));
+                    const bearing = f32(Math.atan2(f32(y - heart.y), f32(x - heart.x))), shore = f32(f32(.93) + f32(f32(.14) * fractalNoise(u32(seed + 760), f32(f32(f32(Math.cos(bearing)) * f32(1.8)) + 5), f32(f32(f32(Math.sin(bearing)) * f32(1.8)) + 5))));
+                    const mere = within(f32(f32(Math.hypot(f32(across / mereWide), f32((f32(behind - f32((f32(mereBack - mereFront)) / 2))) / (f32((f32(mereBack + mereFront)) / 2))))) / shore), 1, f32(.15));
+                    land = f32(land - f32(mere * (f32(land + f32(.4)))));
+                    ridge = f32(ridge + f32((f32(-f32(.6) - ridge)) * mere));
+                }
                 const at = f32(f32(j * stride) + i);
                 layer(Layer.Land)[at] = land;
                 layer(Layer.Elevation)[at] = elevation;
@@ -521,7 +551,7 @@ export class WorldMap {
             }
             yield;
         }
-        const settleable = (terrain: Terrain): boolean => !isWater(terrain) && !isStone(terrain) && !impassable(terrain) && terrain !== Terrain.Ash && terrain !== Terrain.Frost;
+        const settleable = (terrain: Terrain): boolean => !isWater(terrain) && !isStone(terrain) && !unsafeGround(terrain) && terrain !== Terrain.Ash && terrain !== Terrain.Frost;
         const open = new Int32Array(f32((f32(width + 1)) * (f32(height + 1)))), dry = new Int32Array(open.length);
         for (let y = 0; y < height; y++) {
             for (let x = 0; x < width; x++) {

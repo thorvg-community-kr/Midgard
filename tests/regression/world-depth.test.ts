@@ -200,3 +200,32 @@ it('orders opposite building corners without a non-transitive global-sort flip',
   expect(state.objects.children.indexOf(building)).toBeLessThan(state.objects.children.indexOf(front));
   state.adapter.dispose();
 });
+
+it('updates cached tree rows when a foot moves or a child is replaced between frames', () => {
+  const state = new WorldRendererState(tvg),
+    first = new SceneNode(),
+    second = new SceneNode(),
+    figure = new SceneNode(),
+    replacement = new SceneNode(),
+    row = new SceneNode().add(first).add(second);
+  const expectOrder = (...expected: PaintNode[]) => {
+    sortWorldObjects(state);
+    expect(state.objects.children).toHaveLength(expected.length);
+    expected.forEach((paint, i) => expect(state.objects.children[i]).toBe(paint));
+  };
+  state.rowTrees = [row];
+  state.rows = [new SceneNode().add(figure)];
+  registerDepth(first, point(4, 4), 'tree:first');
+  registerDepth(second, point(1, 1), 'tree:second');
+  registerDepth(figure, point(3, 3), 'person:1');
+  try {
+    expectOrder(second, figure, first);
+    registerDepth(second, point(5, 5), 'tree:second');
+    expectOrder(figure, first, second);
+    registerDepth(replacement, point(2, 2), 'tree:new');
+    row.children[0] = replacement;
+    expectOrder(replacement, figure, second);
+  } finally {
+    state.adapter.dispose();
+  }
+});

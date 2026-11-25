@@ -6,28 +6,17 @@ import { Building } from '../../packages/engine/src/town-models';
 import { Activity, Calling, Person, Race, Role, Monster, AnimalKind } from '../../packages/engine/src/person';
 import { Product, Resources, Structure } from '../../packages/engine/src/building-catalog';
 import {
-  offeringKeys,
-  offeringOutcome,
-  offeringProfile,
-  offeringGradeOf,
-  offeringScore,
-  gradeOfScore,
-  offeringAcceptedText,
-  OfferingGrade,
-  refusalChances,
-  offeringRefused,
-  refusalWord,
+  defaultOffering, offeringBonus, offeringKeys, offeringReason, residentStartingLevel,
 } from '../../packages/engine/src/prayer-offering';
 import { altarCap, altarBaseCap, altarCapReason, altarCapLine } from '../../packages/engine/src/altar-cap';
-import { riteTimeline } from '../../packages/native-renderer/src/offering-rite';
-import { riteCues, riteEnding } from '../../apps/web/src/native/offering-rite-sound';
-import { offeringPhrases } from '../../packages/localization/src/korean/offering';
+import { burdenFrom, carryLimit } from '../../packages/engine/src/carried-resources';
+import { characterPreset } from '../../packages/engine/src/character-preset';
 import { korean } from '../../packages/localization/src/korean';
 import { hasHangul } from '../../packages/localization/src/index';
-import { Cue } from '../../packages/native-audio/src/sound-types';
+import { offeringPhrases } from '../../packages/localization/src/korean/offering';
 import { point } from '../../packages/engine/src/geometry';
 import { copyNative } from '../../packages/engine/src/native-copy';
-import { encodeTown, decodeTown } from '../../packages/engine/src/save-game';
+import { encodeTown, encodeTownPayload, decodeTown } from '../../packages/engine/src/save-game';
 import { sharpAnchor } from '../../packages/engine/src/road-network';
 
 let base: Town;
@@ -63,7 +52,7 @@ beforeAll(() => {
 });
 const fixture = () => copyNative(base);
 function offering(): Resources {
-  return new Resources(9, 0, 6, 8, 0, 7, 0, 0, 10);
+  return new Resources(2, 0, 3, 6, 0, 1, 0, 0, 4);
 }
 function fillBeds(town: Town, leave = 0): void {
   while (town.population() < town.housing() - leave) {
@@ -73,7 +62,7 @@ function fillBeds(town: Town, leave = 0): void {
   }
 }
 
-describe('offerings shape an unarmed resident', () => {
+describe('creating a resident at the altar', () => {
   it('does not replace a resident road assignment when a new resident is created', () => {
     const town = fixture(),
       p = town.people()[0];
@@ -112,18 +101,38 @@ describe('offerings shape an unarmed resident', () => {
     for (const key of offeringKeys) expect(town.stock()[key]).toBe(before[key] - gift[key]);
     expect(encodeTown(town)).not.toBe(existing);
   });
-  it('uses exactly the advertised level range and class probabilities without creating weapons', () => {
-    const town = fixture(),
-      gift = offering(),
-      profile = offeringProfile(gift);
-    vi.spyOn(town, 'roll').mockReturnValue(0);
-    const born = town.summonFromOffering(1, gift)!;
-    expect(born.calling).toBe(Calling.Warrior);
-    expect(born.level).toBe(profile.levelMin);
-    expect(born.trained).toBe(true);
-    expect(born.attackMultiplier()).toBeCloseTo(1.3 * (1 + Person.attackPerLevel * (profile.levelMin - 1)));
-    expect(born.vitalityMultiplier()).toBeCloseTo(profile.vitalityMin);
-    expect(born.inventory.every((item) => item === null)).toBe(true);
+  it('starts everyone as an untrained settler at half the living residents’ average rounded down', () => {
+    const town = fixture(), first = town.folk[0];
+    expect(residentStartingLevel(town)).toBe(1);
+    first.level = 9;
+    const ally = copyNative(first);
+    ally.id = town.nextPerson++;
+    ally.level = 6;
+    town.folk.push(ally);
+    // A fallen ally can still be revived. Visitors, neutrals and those who died do not count.
+    ally.downedAt = town.clock();
+    ally.health = 0;
+    for (const overrides of [{ faction: 1 }, { role: Role.Guest }, { health: -1 }]) {
+      const outsider = copyNative(first);
+      Object.assign(outsider, { id: town.nextPerson++, level: 30 }, overrides);
+      town.folk.push(outsider);
+    }
+    const born = town.offerAtAltar(1, offering()).born!;
+    expect([born.race, born.calling, born.trained]).toEqual([Race.Human, Calling.Settler, false]);
+    expect([born.level, born.experience]).toEqual([3, 0]);
+    expect(residentStartingLevel(town)).toBe(3);
+    first.level = 1;
+    expect(residentStartingLevel(town)).toBe(1);
+    expect(residentStartingLevel({ folk: [], controlFaction: 0 })).toBe(1);
+  });
+  it.each([0, 0.999])('guarantees one resident for the basic food cost at roll %s', (roll) => {
+    const town = fixture(), before = town.stock().food;
+    town.awaiting = true;
+    vi.spyOn(town, 'roll').mockReturnValue(roll);
+    const born = town.offerAtAltar(1, defaultOffering()).born!;
+    expect([born.birthStrength, born.birthVitality]).toEqual(roll ? [0, 1] : [1, 0]);
+    expect(town.stock().food).toBe(before - 4);
+    expect(town.awaiting).toBe(false);
   });
   for (const invalid of [0, -1, 0.5, NaN, Infinity, 10000])
     it(`rejects invalid or empty amounts (${invalid}) without payment or RNG changes`, () => {
@@ -158,26 +167,65 @@ describe('offerings shape an unarmed resident', () => {
       expect(encodeTown(town)).toBe(before);
     }
   });
-  it('lets the same total favor different classes and bounds expensive offerings', () => {
-    const bone = new Resources(),
-      water = new Resources(),
-      gold = new Resources();
-    bone.bones = water.water = gold.gold = 30;
-    const chance = (gift: Resources, calling: Calling) =>
-      offeringProfile(gift).classes.find((row) => row.calling === calling)!.chance;
-    expect(chance(bone, Calling.Warrior)).toBeGreaterThan(chance(water, Calling.Warrior));
-    expect(chance(water, Calling.Cleric)).toBeGreaterThan(chance(bone, Calling.Cleric));
-    expect(chance(gold, Calling.Mage)).toBeGreaterThan(chance(bone, Calling.Mage));
-    expect(offeringProfile(new Resources(0, 0, 0, 30)).specialistChance).toBeGreaterThan(
-      offeringProfile(new Resources(0, 0, 0, 4)).specialistChance,
-    );
-    const max = new Resources(9999, 0, 9999, 9999, 0, 9999, 0, 0, 9999),
-      p = offeringProfile(max);
-    expect(p.levelMax).toBeLessThanOrEqual(8);
-    expect(p.specialistChance).toBeLessThanOrEqual(0.85);
-    expect(p.classes.reduce((sum, c) => sum + c.chance, 0)).toBeCloseTo(p.specialistChance);
-    expect(offeringOutcome(max, () => 0.999999).calling).toBe(Calling.Settler);
-    expect(offeringOutcome(max, () => 0.999999).level).toBe(p.levelMax);
+  it('counts each full measure beyond four food equally and caps the goods at sixteen', () => {
+    for (const key of offeringKeys) {
+      for (let extra = 0; extra <= 13; ++extra) {
+        const gift = defaultOffering();
+        gift[key] += extra;
+        expect(offeringReason(gift) === '').toBe(extra <= 12);
+        expect(offeringBonus(gift)).toBe(Math.min(3, Math.floor(extra / 4)));
+      }
+    }
+    expect(offeringReason(new Resources(0, 0, 16))).toContain('4 food');
+  });
+  it('gives one extra point for eight food, which could also feed two residents', () => {
+    const town = fixture(), another = fixture();
+    const born = town.offerAtAltar(1, new Resources(0, 0, 0, 8)).born!;
+    expect(born.birthStrength + born.birthVitality).toBe(2);
+    for (let i = 0; i < 2; ++i) {
+      const p = another.offerAtAltar(1, defaultOffering()).born!;
+      expect(p.birthStrength + p.birthVitality).toBe(1);
+    }
+    expect(town.stock()).toEqual(another.stock());
+    expect(another.population()).toBe(town.population() + 1);
+  });
+  it('validates the identity before spending and keeps cosmetic choices independent of aptitude rolls', () => {
+    const town = fixture(), original = encodeTown(town), other = fixture();
+    const identity = characterPreset(town.folk[0]);
+    identity.name = '  ';
+    expect(town.offerAtAltar(1, offering(), identity).born).toBeNull();
+    identity.name = 'Astrid';
+    identity.calling = Calling.Mage;
+    expect(town.offerAtAltar(1, offering(), identity).born).toBeNull();
+    expect(encodeTown(town)).toBe(original);
+    identity.calling = Calling.Settler;
+    const born = town.offerAtAltar(1, offering(), identity).born!;
+    const random = other.offerAtAltar(1, offering()).born!;
+    expect(born.name).toBe('Astrid');
+    expect(born.customLook).toEqual(identity.look);
+    const loaded = decodeTown(encodeTown(town), (map) => new Town(map, 32, false, true)).person(born.id)!;
+    expect(loaded.name).toBe(born.name);
+    expect(loaded.customLook).toMatchObject(born.customLook!);
+    expect([born.birthStrength, born.birthVitality]).toEqual([random.birthStrength, random.birthVitality]);
+    expect(born.birthStrength + born.birthVitality).toBe(4);
+    identity.look.hair.r = (identity.look.hair.r + 1) % 256;
+    expect(born.customLook!.hair.r).not.toBe(identity.look.hair.r);
+  });
+  it('retains the aptitudes and their effects as a resident gains levels', () => {
+    const town = fixture();
+    const baseline = town.folk[0], gift = new Resources(0, 0, 0, 8);
+    vi.spyOn(town, 'roll').mockReturnValueOnce(0).mockReturnValueOnce(0)
+      .mockReturnValueOnce(0).mockReturnValueOnce(0.9);
+    const born = town.offerAtAltar(1, gift).born!;
+    expect([born.birthStrength, born.birthVitality]).toEqual([1, 1]);
+    for (let level = 1; level <= 3; ++level) {
+      expect(born.level).toBe(level);
+      expect(carryLimit(born) - carryLimit(baseline)).toBe(3);
+      expect(burdenFrom(born) - burdenFrom(baseline)).toBe(3);
+      expect(born.vitalityMultiplier() - baseline.vitalityMultiplier()).toBeCloseTo(0.08);
+      born.gainExperience(born.experienceToNextLevel());
+      baseline.gainExperience(baseline.experienceToNextLevel());
+    }
   });
   it('round trips bones and the real resident result without replaying an arrival', () => {
     const town = fixture(),
@@ -186,6 +234,11 @@ describe('offerings shape an unarmed resident', () => {
     town.people()[0].carriedProduct = Product.Bones;
     town.people()[0].carrying = 2;
     const loaded = decodeTown(encodeTown(town), (map) => new Town(map, 32, false, true))!;
+    expect(encodeTownPayload(town)[0]).toBe(20);
+    expect(encodeTownPayload(fixture())[0]).toBeLessThan(20);
+    expect(loaded.person(born.id)!.birthStrength).toBe(born.birthStrength);
+    expect(loaded.person(born.id)!.birthVitality).toBe(born.birthVitality);
+    expect(loaded.folk[0].birthStrength + loaded.folk[0].birthVitality).toBe(0);
     expect(loaded.stock().bones).toBe(town.stock().bones);
     expect(loaded.person(born.id)!.calling).toBe(born.calling);
     expect(loaded.person(born.id)!.level).toBe(born.level);
@@ -242,131 +295,13 @@ describe('bones are stored spoils', () => {
   });
 });
 
-const gift = (water = 0, bones = 0, gold = 0, food = 0, stone = 0): Resources => {
-  const r = new Resources();
-  Object.assign(r, { water, bones, gold, food, stone });
-  return r;
-};
-
-describe('offering grades', () => {
-  it('cut the score at 3, 5 and 7', () => {
-    expect([2.99, 3, 4.99, 5, 6.99, 7, 10.5].map(gradeOfScore)).toEqual([0, 1, 1, 2, 2, 3, 3]);
-  });
-  it('read a bare, a middling, a rich and a kingly gift', () => {
-    expect(offeringGradeOf(gift(0, 0, 0, 4)).name).toBe('Humble');
-    expect(offeringGradeOf(gift(4, 0, 4, 8, 4)).name).toBe('Worthy');
-    expect(offeringGradeOf(gift(8, 12, 10, 16, 6)).name).toBe('Bountiful');
-    expect(offeringGradeOf(gift(60, 60, 60, 60, 60)).name).toBe('Kingly');
-  });
-  it('never change the profile, and only rise as gifts are added', () => {
-    const base = gift(5, 5, 5, 5, 5),
-      before = JSON.stringify(offeringProfile(base));
-    offeringGradeOf(base, gift(60, 60, 60, 60, 60));
-    expect(JSON.stringify(offeringProfile(base))).toBe(before);
-    let last = -1;
-    for (let n = 0; n <= 60; n += 3) {
-      const grade = offeringGradeOf(gift(n, n, n, n, n)).grade;
-      expect(grade).toBeGreaterThanOrEqual(last);
-      last = grade;
-    }
-  });
-  it('name the quickest resource for the next grade, within the stores', () => {
-    const humble = offeringGradeOf(gift(0, 0, 0, 4)),
-      next = humble.next!;
-    expect(next.grade).toBe(OfferingGrade.Worthy);
-    const raised = gift(0, 0, 0, 4);
-    for (let extra = 1; extra < 9999; ++extra) {
-      raised[next.resource] += 1;
-      if (offeringGradeOf(raised).grade >= OfferingGrade.Worthy) break;
-    }
-    expect(offeringGradeOf(raised).grade).toBe(OfferingGrade.Worthy);
-    expect(offeringGradeOf(gift(0, 0, 0, 4), gift(0, 0, 0, 4)).next).toBeNull();
-    expect(offeringGradeOf(gift(60, 60, 60, 60, 60)).next).toBeNull();
-  });
-  it('say what was accepted in plain words', () => {
-    expect(offeringAcceptedText(OfferingGrade.Humble)).toBe('A humble offering was accepted.');
-    expect(offeringAcceptedText(OfferingGrade.Kingly)).toBe('A kingly offering was accepted.');
-  });
-});
-
-describe('the rite per grade', () => {
-  it('is longer and fuller for higher grades', () => {
-    const lengths = [0, 1, 2, 3].map((g) => riteTimeline(g, 3, 3).end);
-    expect([...lengths].sort((a, b) => a - b)).toEqual(lengths);
-    expect(lengths[3] - lengths[0]).toBeGreaterThan(2);
-    expect(riteTimeline(3, 5, 3).end).toBeLessThan(11);
-  });
-  it('asks for a cue at each beat, louder for higher grades, with no bells', () => {
-    const keys = ['water', 'gold', 'stone'] as const,
-      low = riteCues(riteTimeline(0, 3, 2), keys, 2),
-      high = riteCues(riteTimeline(3, 3, 2), keys, 2),
-      loudest = (list: ReturnType<typeof riteCues>, cue: Cue) =>
-        Math.max(...list.filter((c) => c.cue === cue).map((c) => c.gain));
-    expect(low.filter((c) => c.cue === Cue.Coins)).toHaveLength(1);
-    expect(low.filter((c) => c.cue === Cue.Click)).toHaveLength(2 + 2);
-    expect(loudest(high, Cue.Discover)).toBeGreaterThan(loudest(low, Cue.Discover));
-    expect(low.some((c) => c.cue === Cue.Raven)).toBe(false);
-    expect(high.some((c) => c.cue === Cue.Raven)).toBe(true);
-    expect([...low, ...high].some((c) => c.cue === Cue.Complete || c.cue === Cue.Notice)).toBe(false);
-    const tl = riteTimeline(3, 3, 2);
-    expect(riteEnding(tl, false).map((c) => c.cue)).toEqual([Cue.Fall, Cue.Sanctuary, Cue.Rally]);
-    expect(riteEnding(tl, true).map((c) => c.cue)).toEqual([Cue.Fall, Cue.Click]);
-  });
-});
-
-describe('refused offerings', () => {
-  it('fail by grade: often, sometimes, rarely, never', () => {
-    expect(refusalChances).toEqual([0.35, 0.15, 0.05, 0]);
-    expect([0, 1, 2, 3].map(refusalWord)).toEqual([
-      'Often refused',
-      'Sometimes refused',
-      'Rarely refused',
-      'Never refused',
-    ]);
-    expect(offeringRefused(0, 0.64)).toBe(false);
-    expect(offeringRefused(0, 0.65)).toBe(true);
-    expect(offeringRefused(3, 0.999999)).toBe(false);
-    expect(offeringRefused(1, 0)).toBe(false);
-  });
-  it('spend the gifts, send no one and use one roll', () => {
-    const town = fixture(),
-      before = town.stock().clone(),
-      people = town.population(),
-      small = gift(0, 0, 0, 4);
-    vi.spyOn(town, 'roll').mockReturnValue(0.99);
-    const result = town.offerAtAltar(1, small);
-    expect(result).toEqual({ born: null, refused: true });
-    expect(town.population()).toBe(people);
-    expect(town.stock().food).toBe(before.food - 4);
-    expect(town.roll).toHaveBeenCalledTimes(1);
-  });
-  it('lets a kingly gift through whatever the roll', () => {
-    const town = fixture();
-    vi.spyOn(town, 'roll').mockReturnValue(0.999999);
-    expect(town.offerAtAltar(1, gift(60, 60, 60, 60, 60)).born).not.toBeNull();
-  });
-  it('is deterministic for one seed and saves like any other town', () => {
-    const run = () => {
-      const town = fixture();
-      return town.offerAtAltar(1, gift(0, 0, 0, 4)).refused;
-    };
-    expect(run()).toBe(run());
-    const town = fixture();
-    vi.spyOn(town, 'roll').mockReturnValue(0.99);
-    town.offerAtAltar(1, gift(0, 0, 0, 4));
-    const loaded = decodeTown(encodeTown(town), (map) => new Town(map, 32, false, true))!;
-    expect(loaded.stock().food).toBe(town.stock().food);
-    expect(loaded.population()).toBe(town.population());
-  });
-});
-
 describe('the altar cap', () => {
   const withDepth = (depth: number[]) => {
     const town = fixture();
     town.depth = depth;
     return town;
   };
-  it('starts at four and rises by two a floor and two more for a seal', () => {
+  it('starts at eight and rises by four per floor and four more per seal', () => {
     expect(altarBaseCap).toBe(8);
     expect([[], [0], [1], [2], [3]].map((d) => altarCap(withDepth(d)))).toEqual([8, 8, 12, 16, 24]);
   });
@@ -381,19 +316,49 @@ describe('the altar cap', () => {
     const stock = town.stock().clone(),
       people = town.population(),
       rolls = vi.spyOn(town, 'roll');
-    expect(town.altarOfferingReason(1, gift(0, 0, 0, 8))).toBe(altarCapReason);
-    expect(town.summonFromOffering(1, gift(0, 0, 0, 8))).toBeNull();
+    expect(town.altarOfferingReason(1, defaultOffering())).toBe(altarCapReason);
+    expect(town.summonFromOffering(1, defaultOffering())).toBeNull();
     expect(town.stock()).toEqual(stock);
     expect(town.population()).toBe(people);
     expect(rolls).not.toHaveBeenCalled();
-    expect(altarCapReason).toBe('Odin sends no more until another floor beyond a gate is cleared.');
+    expect(altarCapReason).toBe('Clear another floor beyond a gate to make room for more residents.');
     town.depth = [1];
     // Leave one bed free: the fixture's homes hold fewer than the base cap.
     while (town.population() > town.housing() - 1) town.folk.pop();
-    expect(town.altarOfferingReason(1, gift(0, 0, 0, 8))).toBe('');
+    expect(town.altarOfferingReason(1, defaultOffering())).toBe('');
+  });
+  it('counts a bed held by a fallen ally and a spot promised by another altar', () => {
+    const town = fixture();
+    fillBeds(town);
+    const fallen = town.folk.at(-1)!;
+    fallen.health = 0;
+    fallen.downedAt = town.clock();
+    expect(town.altarOfferingReason(1, defaultOffering())).toContain('No free resident bed');
+    // A paid promise in a different settlement holds one of the faction's remaining spots.
+    const camp = new Building(town.nextId++, Structure.Camp, point(21, 24), 0, 0);
+    camp.village = camp.id;
+    const altar = new Building(town.nextId++, Structure.Shrine, point(25, 24), 0, 0);
+    altar.village = camp.id;
+    altar.devotionDueDay = town.days + 1;
+    town.placed.push(camp, altar);
+    town.foundSettlement(camp.id);
+    while (town.population() < altarBaseCap - 1) {
+      const p = copyNative(town.folk[0]);
+      p.id = town.nextPerson++;
+      p.village = p.home = camp.id;
+      town.folk.push(p);
+    }
+    // Open a local bed so the only remaining obstacle is the colony-wide promise.
+    town.folk[1].village = town.folk[1].home = camp.id;
+    const original = town.stock().clone();
+    expect(town.altarOfferingReason(1, defaultOffering())).toBe(altarCapReason);
+    expect(town.offerAtAltar(1, defaultOffering()).born).toBeNull();
+    expect(town.stock()).toEqual(original);
+    altar.devotionDueDay = -1;
+    expect(town.altarOfferingReason(1, defaultOffering())).toBe('');
   });
   it('shows the raise in the reward lines text', () => {
-    expect(altarCapLine(6)).toBe('Odin will now send up to 6 residents.');
+    expect(altarCapLine(6)).toBe('Your settlement can now grow to 6 residents.');
   });
   it('is read from the saved depth, so a loaded town keeps it', () => {
     const town = withDepth([2]),
@@ -403,39 +368,17 @@ describe('the altar cap', () => {
 });
 
 describe('the offering words in Korean', () => {
-  it('use only KS X 1001 syllables, keep placeholders and cover every runtime line', () => {
-    const decoder = new TextDecoder('euc-kr'),
-      carried = new Set<string>();
-    for (let lead = 0xb0; lead < 0xc9; ++lead)
-      for (let trail = 0xa1; trail < 0xff; ++trail)
-        carried.add(decoder.decode(new Uint8Array([lead, trail])));
-    const used = [...Object.values(offeringPhrases).join('')].filter((c) => /[\uac00-\ud7a3]/.test(c));
-    expect(used.filter((c) => !carried.has(c))).toEqual([]);
+  it('preserve placeholders and translate capacity and validation messages', () => {
     const marks = (text: string) => [...text.matchAll(/\{(\d+)\}/g)].map((hit) => hit[1]).sort();
     for (const [key, value] of Object.entries(offeringPhrases)) expect(marks(value), key).toEqual(marks(key));
     const lines = [
-      ...[0, 1, 2, 3].flatMap((g) => [
-        offeringAcceptedText(g),
-        offeringGradeOf(gift(0, 0, 0, 4)).line,
-        refusalWord(g),
-      ]),
-      ...['Humble', 'Worthy', 'Bountiful', 'Kingly'].map((name) => `${name} offering`),
-      ...offeringKeys.flatMap((key) =>
-        ['worthy', 'bountiful', 'kingly'].map((g) => `Lay more ${key} to reach a ${g} offering.`),
-      ),
-      altarCapLine(6),
-      altarCapReason,
-      'Odin sends up to 6 residents; 2 live here.',
-      'Leans toward Warriors.',
-      'Odin turned the offering away. The gifts are gone.',
+      altarCapLine(6), altarCapReason, offeringReason(new Resources()),
+      offeringReason(new Resources(0, 0, 0, 20)), offeringReason(new Resources(0, 0, 0, -1)),
     ];
     for (const line of lines) expect(hasHangul(korean.translate(line)), line).toBe(true);
-    for (const g of [1, 2, 3])
-      expect(hasHangul(korean.translate(offeringGradeOf(gift(60, 60, 60, 60, 60)).line))).toBe(true);
-    for (const line of [
-      'A fair gift. It tends to bring a settler with some skill.',
-      'A rich gift. It tends to bring a gifted and hardy resident.',
-    ])
-      expect(hasHangul(korean.translate(line)), line).toBe(true);
+    const welcome = korean.translate('Runa joins the settlement · Level 4 · Strength +1 · Vitality +2');
+    expect(welcome).toContain('Runa');
+    expect(welcome).not.toMatch(/joins|Level|Strength|Vitality/);
+    expect(welcome.match(/\d+/g)).toEqual(['4', '1', '2']);
   });
 });

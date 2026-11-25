@@ -1,10 +1,11 @@
 import { itemSpec } from './equipment';
 import { ceremonySeconds } from './town-devotion';
+import { beginMeal, drinkSeconds } from './resident-meals';
 // Resident arrivals and guest activities; resident priorities live in unit-scheduler.
 import { TownState } from './town-state';
 import { Person, Activity, Role, Calling, adventurer } from './person';
 import { Building } from './town-models';
-import { Product, Structure, Resources, isOutfitter, isLodging, isHome } from './building-catalog';
+import { Product, Structure, Resources, isOutfitter, isLodging } from './building-catalog';
 import { Point, point, add, distance } from './geometry';
 import { f32 as f } from './numeric';
 import { DungeonKind, Dungeon } from './world-types';
@@ -224,13 +225,9 @@ export function arrive(this: PeopleTown, p: Person): void {
       if (treasury.food > 0 && place) {
         --treasury.food;
         ++today.eaten;
-        p.food = 1;
         if (p.role === Role.Guest) this.charge(p, place, 2);
-        // Food can be served at a residential doorway, but a meal does not grant
-        // residency or permission to enter somebody else's home.
-        if (p.role === Role.Guest || !isHome(place.kind) || p.home === place.id)
-          enter(p, place.threshold());
-        p.until = this.time + 3;
+        // Food is handed out at the door, where the diner stays for the meal.
+        beginMeal(p, this.time, place.id);
       } else p.activity = Activity.Idle;
       break;
     case Activity.Drinking:
@@ -238,7 +235,7 @@ export function arrive(this: PeopleTown, p: Person): void {
         p.hydration = 1;
         if (treasury.water > 0) --treasury.water;
         ++today.drunk;
-        p.until = this.time + 2;
+        p.until = this.time + drinkSeconds;
       } else { p.activity = Activity.Idle; p.until = this.time; }
       break;
     case Activity.Treating:
@@ -287,6 +284,7 @@ export function arrive(this: PeopleTown, p: Person): void {
         delivered = Math.min(p.carrying, Math.max(0, room));
       this.store(resourceBundle(p.carriedProduct, delivered), village);
       p.carrying -= delivered;
+      let unloadedAny = delivered > 0;
       // A trip to storage empties the whole pack, not just the hands.
       for (let slot = 0; slot < p.inventory.length; ++slot) {
         const stack = p.inventory[slot],
@@ -296,8 +294,10 @@ export function arrive(this: PeopleTown, p: Person): void {
           unloaded = Math.min(stack.quantity, Math.max(0, space));
         this.store(resourceBundle(item.product, unloaded), village);
         stack.quantity -= unloaded;
+        if (unloaded > 0) unloadedAny = true;
         if (!stack.quantity) p.inventory[slot] = null;
       }
+      if (unloadedAny) p.transfer = { taking: false, at: this.time, toward: place?.center };
       p.activity = Activity.Idle;
       p.until = this.time + (p.carrying ? 2 : 0);
       break;

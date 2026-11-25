@@ -14,7 +14,8 @@ import {
 import { Layer, Terrain, isWater, isStone, lavaLevel, crestRidge } from '../../engine/src/world-types';
 import { ShapeNode, SceneNode, type Rgb, type Rgba } from './paint';
 import { appendPolygon, fill, mix, opaque, sightDisc } from './vector-paint';
-import { region, eachCell, appendOutline, type Sample } from './contours';
+import { groundContours } from './ground-contours';
+import { eachCell, appendOutline, RESOLUTION, type Sample } from './contours';
 import type { Climate, TerrainMap, TileRegion, River, Sight } from './render-types';
 import { drift, Liquid, type Drift } from './water-motion';
 import { paintLava } from './lava-motion';
@@ -107,9 +108,14 @@ function drop(p: Point, k = 1): Point {
   return { x: f(p.x + f(seaDrop * k)), y: f(p.y + f(seaDrop * k)) };
 }
 function layer(map: TerrainMap, which: Layer): Sample {
-  return (i, j) => map.sample(which, i, j);
+  const data = map.layer?.(which);
+  if (!data) return (i, j) => map.sample(which, i, j);
+  const stride = map.width() * RESOLUTION + 1,
+    bottom = map.height() * RESOLUTION,
+    outside = which === Layer.Land ? -1 : 0;
+  return (i, j) => i < 0 || i >= stride || j < 0 || j > bottom ? outside : data[j * stride + i];
 }
-function paintSea(iso: SceneNode, map: TerrainMap, tints: Tinted[], area?: TileRegion): void {
+function paintSea(iso: SceneNode, map: TerrainMap, tints: Tinted[], contour: ReturnType<typeof groundContours>): void {
   const land = layer(map, Layer.Land);
   // Deep to shallow: indigo-blue to a sage teal at the shore. Each band drifts on its own loop.
   const bands: [number, Rgb, number, number][] = [
@@ -120,7 +126,7 @@ function paintSea(iso: SceneNode, map: TerrainMap, tints: Tinted[], area?: TileR
     [0.012, [26, 61, 60], 0.26, 0.11],
   ];
   bands.forEach(([depth, color, freezes, reach], index) => {
-    const shape = region(map, 2, (i, j) => f(land(i, j) + f(depth)), drop({ x: 0, y: 0 }), area);
+    const shape = contour(`sea-${depth}`, (i, j) => f(land(i, j) + f(depth)), 2, drop({ x: 0, y: 0 }));
     tints.push({
       shape,
       color: (k) => opaque(mix(color, frozen, f(f(freezes) * k.frost))),
@@ -225,7 +231,8 @@ export function groundColor(terrain: Terrain, shade: number, climate: Climate): 
 }
 export function paintGround(iso: SceneNode, map: TerrainMap, area?: TileRegion): Tinted[] {
   const tints: Tinted[] = [];
-  paintSea(iso, map, tints, area);
+  const bounded = groundContours(map, area);
+  paintSea(iso, map, tints, bounded);
   paintCliffs(iso, map, area);
   const land = layer(map, Layer.Land),
     elevation = layer(map, Layer.Elevation),
@@ -244,30 +251,29 @@ export function paintGround(iso: SceneNode, map: TerrainMap, area?: TileRegion):
     (terrain: Terrain): Tint =>
     (k) =>
       opaque(groundColor(terrain, 1, k));
-  const bounded = (sample: Sample) => region(map, 0, sample, { x: 0, y: 0 }, area);
-  addTint(bounded(land), tone(Terrain.Grass));
-  addTint(bounded(onLand((i, j) => f(f(0.38) - moisture(i, j)))), tone(Terrain.Meadow));
-  addTint(bounded(onLand((i, j) => f(moisture(i, j) - f(0.54)))), tone(Terrain.Forest));
+  addTint(bounded('land', land), tone(Terrain.Grass));
+  addTint(bounded('meadow', onLand((i, j) => f(f(0.38) - moisture(i, j)))), tone(Terrain.Meadow));
+  addTint(bounded('forest', onLand((i, j) => f(moisture(i, j) - f(0.54)))), tone(Terrain.Forest));
   const heat = layer(map, Layer.Heat);
-  addTint(bounded(onLand((i, j) => f(f(0.25) - heat(i, j)))), tone(Terrain.Frost));
+  addTint(bounded('frost', onLand((i, j) => f(f(0.25) - heat(i, j)))), tone(Terrain.Frost));
   addTint(
-    bounded(onLand((i, j) => Math.min(f(heat(i, j) - f(0.62)), f(f(0.5) - moisture(i, j))))),
+    bounded('ash', onLand((i, j) => Math.min(f(heat(i, j) - f(0.62)), f(f(0.5) - moisture(i, j))))),
     tone(Terrain.Ash),
   );
-  addTint(bounded(onLand((i, j) => f(elevation(i, j) - f(0.7)))), tone(Terrain.Rock));
+  addTint(bounded('rock', onLand((i, j) => f(elevation(i, j) - f(0.7)))), tone(Terrain.Rock));
   addTint(
-    bounded(onLand((i, j) => Math.min(f(f(0.2) - heat(i, j)), f(elevation(i, j) - f(0.55))))),
+    bounded('ice', onLand((i, j) => Math.min(f(f(0.2) - heat(i, j)), f(elevation(i, j) - f(0.55))))),
     tone(Terrain.Ice),
   );
   const ridge = layer(map, Layer.Ridge);
-  addTint(bounded(onLand((i, j) => Math.min(ridge(i, j), f(land(i, j) - f(0.1))))), tone(Terrain.Mountain));
+  addTint(bounded('mountain', onLand((i, j) => Math.min(ridge(i, j), f(land(i, j) - f(0.1))))), tone(Terrain.Mountain));
   const lava = (inset: number): Sample =>
     onLand((i, j) => f(lavaLevel(land(i, j), heat(i, j), ridge(i, j)) - f(inset)));
-  addTint(bounded(lava(-0.12)), (k) => opaque(mix([46, 40, 39], [148, 156, 168], f(k.snow * f(0.3)))));
-  addTint(bounded(lava(-0.03)), () => opaque([30, 24, 24]));
-  paintLava(iso, map, tints, lava, tone(Terrain.Lava), area);
+  addTint(bounded('outer-crust', lava(-0.12)), (k) => opaque(mix([46, 40, 39], [148, 156, 168], f(k.snow * f(0.3)))));
+  addTint(bounded('inner-crust', lava(-0.03)), () => opaque([30, 24, 24]));
+  paintLava(iso, map, tints, lava, tone(Terrain.Lava), bounded, area);
   addTint(
-    bounded(
+    bounded('crest',
       onLand((i, j) =>
         Math.min(f(land(i, j) - f(0.1)), f(heat(i, j) - f(0.62)), f(ridge(i, j) - crestRidge)),
       ),
@@ -275,11 +281,11 @@ export function paintGround(iso: SceneNode, map: TerrainMap, area?: TileRegion):
     tone(Terrain.Mountain),
   );
   addTint(
-    bounded(onLand((i, j) => Math.min(f(f(0.05) - land(i, j)), f(beach(i, j) - f(0.45))))),
+    bounded('sand', onLand((i, j) => Math.min(f(f(0.05) - land(i, j)), f(beach(i, j) - f(0.45))))),
     tone(Terrain.Sand),
   );
   for (const level of [0.25, 0.5, 0.75])
-    addTint(bounded(onLand((i, j) => f(shade(i, j) - f(level)))), () => [255, 255, 240, 6]);
+    addTint(bounded(`shade-${level}`, onLand((i, j) => f(shade(i, j) - f(level)))), () => [255, 255, 240, 6]);
   const facing = (i: number, j: number) =>
     f(
       f(
@@ -293,7 +299,7 @@ export function paintGround(iso: SceneNode, map: TerrainMap, area?: TileRegion):
     [0.012, false],
     [0.03, false],
   ] as const)
-    addTint(bounded(onLand((i, j) => f((lit ? facing(i, j) : -facing(i, j)) - f(step)))), () =>
+    addTint(bounded(`slope-${lit}-${step}`, onLand((i, j) => f((lit ? facing(i, j) : -facing(i, j)) - f(step)))), () =>
       lit ? [255, 250, 235, 18] : [12, 14, 26, 26],
     );
   const lake: Sample = (i, j) => Math.min(f(land(i, j) - f(0.12)), f(f(0.3) - elevation(i, j)));
@@ -301,10 +307,10 @@ export function paintGround(iso: SceneNode, map: TerrainMap, area?: TileRegion):
     bank: Tint = (k) =>
       opaque(mix(groundColor(Terrain.Sand, 1, k), groundColor(Terrain.Water, 2, k), f(0.35)));
   addTint(
-    bounded((i, j) => f(lake(i, j) + f(0.025))),
+    bounded('lake-bank', (i, j) => f(lake(i, j) + f(0.025))),
     bank,
   );
-  addTint(bounded(lake), water);
+  addTint(bounded('lake', lake), water);
   const deeper =
     (color: Rgb): Tint =>
     (k) =>
@@ -315,7 +321,7 @@ export function paintGround(iso: SceneNode, map: TerrainMap, area?: TileRegion):
     [0.14, [2, 17, 34]],
   ];
   depths.forEach(([depth, color], index) => {
-    const shape = bounded((i, j) => f(lake(i, j) - f(depth)));
+    const shape = bounded(`lake-${depth}`, (i, j) => f(lake(i, j) - f(depth)));
     tints.push({
       shape,
       color: deeper(color),
@@ -325,7 +331,7 @@ export function paintGround(iso: SceneNode, map: TerrainMap, area?: TileRegion):
     iso.add(shape);
   });
   addTint(
-    bounded((i, j) => Math.min(lake(i, j), f(f(0.2) - heat(i, j)))),
+    bounded('lake-ice', (i, j) => Math.min(lake(i, j), f(f(0.2) - heat(i, j)))),
     tone(Terrain.Ice),
   );
   const river = map.river();
@@ -335,7 +341,7 @@ export function paintGround(iso: SceneNode, map: TerrainMap, area?: TileRegion):
   ] as const) {
     const ribbon = riverRibbon(river, (i) => f(f(river.width[i] / 2) + extra));
     tints.push({ shape: ribbon, color, stroke: false });
-    const cut = bounded(land);
+    const cut = bounded('land', land);
     cut.fill(255, 255, 255);
     ribbon.clip(cut);
     iso.add(ribbon);

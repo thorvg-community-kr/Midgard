@@ -109,7 +109,12 @@ function receiveHandover(town: Town, p: Person): void {
   }
   const room = Math.max(1, Math.floor(carryLimit(p) - carriedWeight(p))),
     count = Math.min(target.missing(p.carriedProduct), heldAmount(giver, p.carriedProduct), room);
-  p.carrying += takeHeld(giver, p.carriedProduct, count);
+  const taken = takeHeld(giver, p.carriedProduct, count);
+  if (taken > 0) {
+    p.carrying += taken;
+    p.transfer = { taking: true, at: town.time, toward: { ...giver.position } };
+    giver.transfer = { taking: false, at: town.time, toward: { ...p.position } };
+  }
   done(0);
 }
 export function constructionMaterials(this: Town, work: Activity, id: number): ConstructionMaterials | null {
@@ -418,6 +423,7 @@ export function fetchConstructionMaterials(this: Town, p: Person): void {
     this.reserves(p.target).subtract(resourceBundle(p.carriedProduct, count));
   }
   p.carrying += count;
+  if (count > 0) p.transfer = { taking: true, at: this.time };
   p.activity = Activity.Idle;
   p.until = this.time + (count ? 0 : 3);
 }
@@ -436,9 +442,11 @@ export function deliverConstructionMaterials(this: Town, p: Person): void {
     const used = Math.min(p.carrying, target.missing(p.carriedProduct));
     target.delivered.add(resourceBundle(p.carriedProduct, used));
     p.carrying -= used;
+    if (used > 0) p.transfer = { taking: false, at: this.time };
     if (p.carrying > 0 && !this.keepCargo(p)) {
       target.delivered.add(resourceBundle(p.carriedProduct, p.carrying));
       p.carrying = 0;
+      p.transfer = { taking: false, at: this.time };
     }
     ++this.changes;
   }

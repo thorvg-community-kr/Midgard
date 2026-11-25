@@ -3,6 +3,7 @@ import type { Rect } from '../../../../packages/native-ui/src';
 import type { Point } from '../../../../packages/engine/src/geometry';
 import type { Structure } from '../../../../packages/engine/src/building-catalog';
 import type { Order, Tool } from '../../../../packages/engine/src/game-tools';
+import type { WorldObjectRef } from '../../../../packages/native-renderer/src/world-picking-types';
 export interface GameHudApp extends GameAppState {
   reducedMotion(): boolean;
   animatingUi(): boolean;
@@ -12,12 +13,12 @@ export interface GameHudApp extends GameAppState {
   togglePause(): void;
   selectBuilding(id: number): void;
   selectPeople(ids: readonly number[]): void;
+  selectObject(ref: WorldObjectRef): void;
   selectTool(tool: Tool, keepUnits?: boolean): void;
   prepare(order: Order): void;
-  toggleAuto(): void;
-  stopSelected(): void;
-  leaveSelected(): void;
   openUnitBuild(): void;
+  toggleAuto(): void;
+  wakeEveryone(): void;
   personAt(screen: Point): number;
   buildingAtScreen(screen: Point): number;
   toolStructure(): Structure | undefined;
@@ -33,7 +34,6 @@ export interface GameHudApp extends GameAppState {
   finish(): void;
   undoPoint(): void;
   residentSelection(): boolean;
-  shelteredSelection(): boolean;
   personPanelBounds(width: number, height: number, commands: boolean): Rect;
   personPanel(panel: Rect): void;
   dismissBuildDrawer(): void;

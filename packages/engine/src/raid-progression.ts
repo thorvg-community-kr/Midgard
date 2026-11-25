@@ -52,11 +52,13 @@ export function raidKind(seed: number, day: number): RaidKind {
 export const raidMuster = {
   /** Might of each resident at home: their blow times their vitality, so arms and levels count. */
   perBlow: 1,
-  /** Might of each manned watchtower and of each tier of a fortified seat. */
+  /** Might of each completed watchtower and of each tier of a fortified seat. */
   perTower: 2,
   perTier: 2.5,
   /** Might the dungeons add each week on their own. */
   perWeek: 3,
+  /** How much of a settlement's fighting strength an opening gate can match in the first week. */
+  openingMight: 6,
   /** Swarmers per point of might; a leader for every `leaderMight`, an extra brute for every `bruteMight`. */
   swarm: 1,
   leastSwarm: 3,
@@ -65,6 +67,11 @@ export const raidMuster = {
   /** A raiding swarmer bites this much softer than one beyond a gate, where the brood is at home. */
   swarmBite: 0.46,
 };
+/** Gates learn to field larger forces over time. Well-armed founders still get a first week of scouting packs. */
+export function raidMight(settlement: number, week: number): number {
+  const age = Math.min(threatWeeks, week);
+  return Math.min(settlement, raidMuster.openingMight + age) + raidMuster.perWeek * age;
+}
 /** A raid is a wave sized to the settlement's `might`: `count` leaders (grunts, or brutes for a brute raid) with
  * the shape's `health` and `damage`, a few extra `brutes`, and a `swarm` of swarmers. The first raids on a young
  * camp are probes: a few swarmers and no leader. */
@@ -77,17 +84,17 @@ export function raidShape(kind: RaidKind, might: number) {
     return { count: Math.max(1, Math.ceil(leaders / 2)), health: 1.8, damage: 1.25, brutes: 0, swarm: Math.round(swarm / 2) };
   return { count: leaders, health: 1, damage: 1, brutes: Math.floor(might / raidMuster.bruteMight), swarm };
 }
-export const raidWarning = (kind: RaidKind, gate: string): string =>
+export const raidWarning = (kind: RaidKind, gate: string, camp: number): string =>
   kind === RaidKind.Horde
-    ? `Many small tracks circle ${gate}: a horde will come tonight`
+    ? `A horde from ${gate} will raid Camp #${camp + 1} tonight`
     : kind === RaidKind.Brutes
-      ? `Heavy tracks lead from ${gate}: a few great brutes will come tonight`
+      ? `Brutes from ${gate} will raid Camp #${camp + 1} tonight`
       : kind === RaidKind.Pincer
-        ? `Two gates stir at once: raiders will come from both sides tonight`
-        : `Fresh tracks lead from ${gate}: a raid will come tonight`;
+        ? `One wing from ${gate} will raid Camp #${camp + 1} tonight`
+        : `A pack from ${gate} will raid Camp #${camp + 1} tonight`;
 /** A fortified seat shoots at raiders; a bare camp cannot. */
 export const seatVolley = { reach: 8, pause: 1.5, damagePerTier: 1.5 };
-/** Told once a week while any discovered gate is still open. */
+/** Told once a week while any hostile gate is active. */
 export const pressureNotice = (week: number): string =>
   week > threatWeeks
     ? ''

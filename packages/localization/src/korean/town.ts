@@ -42,6 +42,10 @@ export const townPhrases: Phrases = {
 
   // town-construction: fields and demolition
   'Click to outline a field': '클릭해서 밭의 윤곽을 그리세요',
+  'Drag an area for the farm': '농장이 들어설 구역을 드래그하세요',
+  'Too small for a farmhouse and a field': '농가와 밭이 들어가기에 너무 작습니다',
+  'No corner has room for the farmhouse': '모서리에 농가가 들어설 자리가 없습니다',
+  'Too large for one farmhouse to work': '농가 하나가 돌보기에 너무 큽니다',
   'The outline crosses itself': '윤곽선이 서로 겹칩니다',
   'Too small': '너무 작습니다',
   'At most {0} acres per field': '밭 하나는 최대 {0}에이커입니다',
@@ -152,8 +156,8 @@ export const townPhrases: Phrases = {
   'Build a workbench first': '먼저 작업대를 지으세요',
 
   // town-hiring
-  'Guests are temporary visitors. New residents arrive through an altar prayer.':
-    '손님은 잠시 머무는 방문객입니다. 새 주민은 제단의 기도로 찾아옵니다.',
+  'Guests visit for a while. Prepare food and a free bed to welcome a resident at the altar.':
+    '손님은 잠시 마을에 머뭅니다. 식량과 빈 침상을 마련하면 제단에서 새 주민을 맞이할 수 있습니다.',
   'A close-combat profession that strikes hardest. Equip a crafted weapon for stronger attacks.':
     '가장 강하게 공격하는 근접 전투 직업입니다. 제작한 무기를 장비하면 공격이 더 강해집니다.',
   'A ranged-combat profession that strikes harder. Equip a crafted bow to attack from a distance.':
@@ -268,7 +272,8 @@ export const townPhrases: Phrases = {
   "smithy": "대장간",
   "Needs a level {0} {1}": "{0}단계 {1} 필요",
   "Build a smithy first": "먼저 대장간을 지으세요",
-  "Has nothing to upgrade": "업그레이드할 것이 없습니다",
+  "Made by upgrading a {0}": "{0}을(를) 업그레이드해서 만듭니다",
+  "Needs level {0}": "레벨 {0} 필요",
   "Already at the highest level": "이미 가장 높은 단계입니다",
   "Someone is already upgrading it": "이미 누군가 업그레이드하고 있습니다",
   "The {0} takes both hands": "{0}은(는) 두 손으로 듭니다",

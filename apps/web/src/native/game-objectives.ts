@@ -29,6 +29,7 @@ import { showNotice } from './notice-toast';
 import { Cue, Sound } from '../../../../packages/native-audio/src/sound-types';
 import { hudGlyph } from './hud-glyphs';
 import { craftBars } from './craft-station-hud';
+import { orderRail } from './unit-orders-card';
 /** Seconds the "Quest complete" ribbon covers the panel's head, and how long the next quest is marked as new. */
 export const questRules = { ribbon: 2.6, fresh: 8 };
 export function objectives(this: GameHudApp, width: number, height: number, top: number): void {
@@ -73,7 +74,9 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
   else if (fresh) c.requestFrameAt(this.questNewAt + questRules.fresh);
   const collapsed = compact ? !this.mobileQuestsExpanded : this.objectivesCollapsed,
     header = this.touchMode ? 44 : 38,
-    w = Math.min(compact && collapsed ? 164 : 292, f32(width - 24)),
+    // Opened on a small touch screen it keeps left of the order rail.
+    rail = compact ? orderRail(this, width, height) : null,
+    w = Math.min(compact && collapsed ? 164 : 292, f32(width - 24), rail && !rail.beside ? f32(rail.bounds.x - 20) : Infinity),
     y = Math.min(top, f32(height - 60)),
     expanded = clamp(f32(f32(this.dockBounds.y - y) - 24), 38, 210),
     reveal = c.animate('quests/reveal', collapsed ? 0 : 1, 0.18),

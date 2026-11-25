@@ -13,6 +13,7 @@ import { korean, koreanPhrases } from '../../packages/localization/src/korean';
 import goals from '../../packages/engine/data/settlement-goals.json';
 import { Structure, structureSpec } from '../../packages/engine/src/building-catalog';
 import { itemCatalog } from '../../packages/engine/src/equipment';
+import { gearStats } from '../../packages/engine/src/gear-stats';
 import { Activity, Calling, activityName, callingName } from '../../packages/engine/src/person';
 import { goalBranchName, GoalBranch } from '../../packages/engine/src/settlement-progression';
 import { pressureNotice, raidWarning, RaidKind } from '../../packages/engine/src/raid-progression';
@@ -77,6 +78,20 @@ describe('language choice', () => {
 
 describe('Korean tables', () => {
   const known = (text: string) => expect(hasHangul(korean.translate(text)), text).toBe(true);
+  it('retains every signed gear stat and distinguishes attack scaling from an attribute granted by armor', () => {
+    for (const item of itemCatalog.filter(i => i.category !== 'resource')) {
+      const fields = gearStats(item).flatMap(line => line.split(' · '));
+      const translated = fields.map(field => {
+        const text = korean.translate(field);
+        expect(text, field).not.toMatch(/[A-Za-z]/);
+        expect(text.match(/[+-]?\d+(?:\.\d+)?/g), field).toEqual(field.match(/[+-]?\d+(?:\.\d+)?/g));
+        return text;
+      });
+      expect(korean.translate(fields.join(' · ')), item.id).toBe(translated.join(' · '));
+    }
+    for (const attribute of ['STR', 'DEX', 'INT'])
+      expect(korean.translate(`${attribute} scaling +1`)).not.toBe(korean.translate(`${attribute} +1`));
+  });
   it('keeps every placeholder of a key in its translation', () => {
     for (const table of koreanPhrases)
       for (const [key, value] of Object.entries(table)) {
@@ -104,7 +119,7 @@ describe('Korean tables', () => {
       'Needs 6 residents',
       pressureNotice(2),
       pressureNotice(12),
-      raidWarning(RaidKind.Horde, 'Wolf Cave'),
+      raidWarning(RaidKind.Horde, 'Wolf Cave', 0),
       'Bjorn reached level 3!',
       '12 wood, 3 stone',
     ])

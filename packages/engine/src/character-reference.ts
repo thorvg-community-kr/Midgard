@@ -1,11 +1,13 @@
 import references from '../data/character-references.json';
 import { BodyType, FaceShape, PortraitEyeForm, PortraitEyeKind, type Appearance } from './person-appearance';
+import { HairCut } from './likeness';
 import { clamp, f32 as f, hash01 } from './numeric';
 export const referenceHeadCount = 19,
   faceBaseCount = 30,
   eyeReferenceCount = 20,
   earAssetCount = 30,
   hairAssetCount = 150,
+  savedHairAssetCount = hairAssetCount + HairCut.Mane + 1,
   baldHairAsset = 19,
   outfitAssetCount = 14;
 export enum CharacterAssetGroup {
@@ -20,21 +22,44 @@ export enum CharacterAssetGender {
   Feminine,
   Unisex,
 }
-const hairIndex = (i: number) => clamp(i, 0, hairAssetCount - 1),
-  baseIndex = (i: number) => clamp(i, 0, faceBaseCount - 1);
+/** Project a resident cut to its nearest shape when the old studio displays it. */
+export function referenceHairIndex(i: number): number {
+  const cut = residentHairCut(i);
+  return cut === null ? clamp(i, 0, hairAssetCount - 1) : legacyHairAsset(cut);
+}
+const baseIndex = (i: number) => clamp(i, 0, faceBaseCount - 1);
 export const faceBaseName = (i: number): string => references.faces[baseIndex(i)].name;
 export const headAssetName = (i: number): string =>
   references.heads[clamp(i, 0, referenceHeadCount - 1)].name;
 export const eyeAssetName = (i: number): string =>
   i >= referenceHeadCount ? 'Flat lids / elf' : headAssetName(i);
-export const hairAssetName = (i: number): string => references.looks[hairIndex(i)].name;
-export const characterAssetGroup = (i: number): CharacterAssetGroup => references.looks[hairIndex(i)].group;
+export const hairAssetName = (i: number): string => references.looks[referenceHairIndex(i)].name;
+export const characterAssetGroup = (i: number): CharacterAssetGroup =>
+  references.looks[referenceHairIndex(i)].group;
 export const characterAssetGender = (i: number): CharacterAssetGender =>
-  references.looks[hairIndex(i)].gender;
+  references.looks[referenceHairIndex(i)].gender;
 export const characterAssetReady = (i: number): boolean =>
   i >= 0 && i < hairAssetCount && references.looks[i].ready;
-export const safeCharacterHairAsset = (i: number): number =>
-  i < 0 || i >= hairAssetCount ? baldHairAsset : references.looks[i].fallback;
+/** Saved resident cuts follow the original studio's asset range in the same byte. */
+export const residentHairCut = (asset: number): HairCut | null =>
+  asset >= hairAssetCount && asset < savedHairAssetCount ? asset - hairAssetCount : null;
+/** The closest studio asset for a renderer using the reference heads. */
+export const legacyHairAsset = (cut: HairCut): number =>
+  cut < HairCut.Topknot && cut !== HairCut.Shag
+    ? cut
+    : ({
+        [HairCut.Shag]: 14,
+        [HairCut.Topknot]: 19,
+        [HairCut.WarBraid]: 19,
+        [HairCut.CrownBraid]: 16,
+        [HairCut.SideBraid]: 6,
+        [HairCut.Mane]: 5,
+      }[cut as number] ?? 0);
+export function safeCharacterHairAsset(i: number): number {
+  const cut = residentHairCut(i);
+  if (cut !== null) i = legacyHairAsset(cut);
+  return i < 0 || i >= hairAssetCount ? baldHairAsset : references.looks[i].fallback;
+}
 export const characterOutfitReady = (i: number): boolean => i >= 0 && i < outfitAssetCount && i !== 10;
 export const safeCharacterOutfitAsset = (i: number): number => (characterOutfitReady(i) ? i : 0);
 export const outfitAssetName = (i: number): string => references.outfits[safeCharacterOutfitAsset(i)].name;
@@ -46,14 +71,14 @@ export function setCharacterHeadBase(a: Appearance, i: number): void {
   a.scalpBlend = a.jawBlend = 0;
 }
 export function resolveCharacterAssets(a: Appearance): void {
-  a.hairAsset = safeCharacterHairAsset(a.hairAsset);
+  if (residentHairCut(a.hairAsset) === null) a.hairAsset = safeCharacterHairAsset(a.hairAsset);
   a.outfitAsset = safeCharacterOutfitAsset(a.outfitAsset);
   a.hairCap = a.hairFringe = a.hairBack = a.hairTied = 255;
 }
 export function characterAssetWeight(i: number, gender: BodyType): number {
   if (!characterAssetReady(i)) return 0;
   if (i === baldHairAsset) return f(0.25);
-  const h = references.looks[hairIndex(i)],
+  const h = references.looks[i],
     family = [5, f(0.35), 1, f(1.5), 2][h.group];
   return f(family * (h.gender === 2 ? 4 : h.gender === gender ? 8 : 1));
 }
@@ -69,9 +94,9 @@ export function randomCharacterReference(seed: number, gender: BodyType): number
 }
 export function useCharacterReference(a: Appearance, i: number): void {
   i = safeCharacterHairAsset(i);
-  const source = references.looks[hairIndex(i)];
+  const source = references.looks[i];
   setCharacterHeadBase(a, source.native_face);
-  a.hairAsset = hairIndex(i);
+  a.hairAsset = i;
   a.earAsset = source.native_face;
   a.eyeReference = a.browReference = source.eye;
   a.hairCap = a.hairFringe = a.hairBack = a.hairTied = 255;

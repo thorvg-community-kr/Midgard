@@ -13,7 +13,6 @@ import {
   attackReach,
   bareHandsRate,
   carryBonus,
-  gearEffect,
   itemCatalog,
   itemSpec,
   stoneRate,
@@ -21,6 +20,7 @@ import {
   workEfficiency,
   workItem,
 } from '../../packages/engine/src/equipment';
+import { gearEffect } from '../../packages/engine/src/gear-stats';
 import {
   burdenFrom,
   burdenPace,
@@ -32,7 +32,8 @@ import {
 import { fieldWork } from '../../packages/engine/src/farm-work';
 import { animalSpec } from '../../packages/engine/src/wildlife';
 import { StrikeKind, strikeOf } from '../../packages/engine/src/skill-catalog';
-import { recipeGroup, stationRecipes } from '../../apps/web/src/native/craft-station-hud';
+import { recipeGroup, stationRecipes, type RecipeGroup } from '../../apps/web/src/native/craft-station-hud';
+import { levelVariant } from '../../packages/engine/src/craft-stations';
 import * as mining from '../../packages/engine/src/mining';
 
 function fixture(size = 48) {
@@ -219,12 +220,9 @@ describe('a tool line reads wood, stone, iron', () => {
       expect(s.cost.stone).toBeGreaterThan(0);
       expect(s.visual).toBe(w.visual);
       expect(s.work).toEqual(w.work);
-      expect([w.rate, s.rate, i.rate]).toEqual([woodenRate, stoneRate, 1]);
-      expect(w.attackBonus).toBeLessThan(s.attackBonus);
+      expect([w.rate, s.rate, i.rate]).toEqual([woodenRate, stoneRate, bareHandsRate * 1.75]);
+      expect(w.attackBonus).toBeLessThanOrEqual(s.attackBonus);
       expect(s.attackBonus).toBeLessThan(i.attackBonus);
-      expect(gearEffect(s)).toBe(
-        gearEffect(i).replace(/ than a stone \w+$/, ` than a ${w.name.toLowerCase()}`),
-      );
     }
   });
   it('fells a tree', () => {
@@ -241,7 +239,7 @@ describe('a tool line reads wood, stone, iron', () => {
       harvestTime(t, true),
     );
     report('mining s', { bare, wood, stone, iron });
-    expect(wood).toBeLessThan(bare * 0.8);
+    expect(wood).toBeCloseTo(bare / 1.25, 0);
     expect(stone).toBeLessThan(wood * 0.9);
     expect(iron).toBeLessThan(stone * 0.9);
   });
@@ -260,7 +258,7 @@ describe('a tool line reads wood, stone, iron', () => {
 });
 
 describe('the shovel lays roads and breaks in fields', () => {
-  it('lays a road faster than a hammer of its make, and leaves the hammer as fast as it was', () => {
+  it('lays a road at the same efficiency as a hammer of its make', () => {
     const times = Object.fromEntries(
       [null, 'wooden-mallet', 'wooden-shovel', 'hammer', 'shovel', 'hammer+wooden-shovel'].map((t) => [
         t ?? 'bare',
@@ -268,11 +266,11 @@ describe('the shovel lays roads and breaks in fields', () => {
       ]),
     );
     report('road s', times);
-    expect(times['wooden-shovel']).toBeLessThan(times['wooden-mallet'] * 0.85);
-    expect(times.shovel).toBeLessThan(times.hammer * 0.85);
+    expect(times['wooden-shovel']).toBeCloseTo(times['wooden-mallet'], 2);
+    expect(times.shovel).toBeCloseTo(times.hammer, 2);
     expect(times.shovel).toBeLessThan(times['wooden-shovel'] * 0.8);
     // The hammer's road pace is set by its own rate, as before the shovel existed.
-    expect(times.hammer).toBeCloseTo(times.bare * bareHandsRate, 0);
+    expect(times.hammer).toBeCloseTo(times.bare / 1.75, 0);
     // With both in hand the better tool does the work, and nothing gets slower.
     expect(times['hammer+wooden-shovel']).toBeLessThanOrEqual(times.hammer + 0.1);
   });
@@ -283,9 +281,9 @@ describe('the shovel lays roads and breaks in fields', () => {
     expect(workItem(p, 'construction')?.id).toBe('shovel');
     p.activity = Activity.Building;
     expect(workItem(p, 'construction')?.id).toBe('hammer');
-    expect(workEfficiency(p, 'construction')).toBe(1);
+    expect(workEfficiency(p, 'construction') / bareHandsRate).toBeCloseTo(1.75);
   });
-  it('breaks in a field faster than a hoe of its make', () => {
+  it('breaks in a field at the same efficiency as a hoe of its make', () => {
     const times = Object.fromEntries(
       [null, 'wooden-hoe', 'wooden-shovel', 'hoe', 'shovel', 'hoe+wooden-shovel'].map((t) => [
         t ?? 'bare',
@@ -293,8 +291,8 @@ describe('the shovel lays roads and breaks in fields', () => {
       ]),
     );
     report('tilling s', times);
-    expect(times['wooden-shovel']).toBeLessThan(times['wooden-hoe'] * 0.85);
-    expect(times.shovel).toBeLessThan(times.hoe * 0.85);
+    expect(times['wooden-shovel']).toBeCloseTo(times['wooden-hoe'], 2);
+    expect(times.shovel).toBeCloseTo(times.hoe, 2);
     expect(times['hoe+wooden-shovel']).toBeLessThanOrEqual(times.hoe + 0.2);
   });
 });
@@ -314,7 +312,7 @@ describe('the sickle tends the standing crop', () => {
     };
     report('summer field work per s', summer);
     report('spring field work per s', spring);
-    expect(summer['flint-sickle']).toBeGreaterThan(summer.hoe * 1.03);
+    expect(summer['flint-sickle']).toBeCloseTo(summer['stone-hoe'], 2);
     expect(summer.sickle).toBeGreaterThan(summer['flint-sickle'] * 1.05);
     expect(summer['hoe+sickle']).toBeCloseTo(summer.sickle, 2);
     expect(spring.sickle).toBeCloseTo(spring.bare, 2);
@@ -323,11 +321,11 @@ describe('the sickle tends the standing crop', () => {
   it('names the kinds of field work a farmhand’s tools count for', () => {
     const { town, p, field } = farmFixture(null, false, true);
     p.workField = field.id;
-    expect(fieldWork(town, p)).toEqual(['farming', 'digging']);
+    expect(fieldWork(town, p)).toEqual(['digging', 'farming']);
     field.tilled = 1;
     // A day is a whole number of 12-second hoe-and-water cycles, so its first seconds are hoeing.
     town.time = town.days * TownState.secondsPerDay + 0.5;
-    expect(fieldWork(town, p)).toEqual(['farming', 'reaping']);
+    expect(fieldWork(town, p)).toEqual(['reaping', 'farming']);
   });
 });
 
@@ -458,55 +456,57 @@ describe('the spear', () => {
 });
 
 describe('the station lists', () => {
-  it('groups the bench into Tools and Gear and the smithy into Weapons, Shields and Armor, each kind’s makes side by side', () => {
-    const bench = stationRecipes(Structure.Workbench),
-      smith = stationRecipes(Structure.Weaponsmith);
-    expect([...bench.keys()]).toEqual(['Tools', 'Gear']);
-    expect(bench.get('Tools')!.map((i) => i.id)).toEqual([
-      'wooden-axe',
+  it('lists one row a kind, the make the next order gives, and nothing that waits for a level', () => {
+    const { town, p, bench } = fixture(),
+      smith = new Building(town.nextId++, Structure.Weaponsmith, point(18, 12), 0, 0),
+      armorer = new Building(town.nextId++, Structure.Armorer, point(24, 18), 0, 0);
+    smith.village = armorer.village = 0;
+    town.placed.push(smith, armorer);
+    const ids = (station: Building, group: RecipeGroup) => stationRecipes(town, station).get(group)?.map((i) => i.id) ?? [];
+    // A first bench and smithy and a resident with nothing: the first make of each kind that level 1 opens.
+    p.level = 1;
+    expect([...stationRecipes(town, bench).keys()]).toEqual(['Tools', 'Gear']);
+    expect(ids(bench, 'Tools')).toEqual(['wooden-axe', 'wooden-pick', 'wooden-mallet', 'wooden-hoe', 'wooden-shovel']);
+    expect(ids(bench, 'Gear')).toEqual(['pack-basket']);
+    expect([...stationRecipes(town, smith).keys()]).toEqual(['Weapons', 'Shields', 'Armor', 'Gear']);
+    expect(ids(smith, 'Gear')).toEqual(['boots']);
+    expect(ids(smith, 'Weapons')).toEqual(['wooden-sword', 'wooden-club']);
+    for (const [i, kind] of [Structure.Watchtower, Structure.TrainingYard, Structure.MageTower].entries()) {
+      const school = new Building(town.nextId++, kind, point(28, 12 + 4 * i), 0, 0);
+      school.village = 0;
+      town.placed.push(school);
+    }
+    expect(ids(smith, 'Weapons')).toEqual(['wooden-sword', 'wooden-club', 'short-bow', 'wooden-spear', 'wooden-staff']);
+    expect(ids(smith, 'Shields')).toEqual(['shield']);
+    expect(ids(smith, 'Armor')).toEqual(['wooden-armor']);
+    // What is carried keeps its row until the station can better it; then the row is the next make.
+    addInventory(p, 'wooden-axe');
+    addInventory(p, 'wooden-sword');
+    expect(ids(bench, 'Tools')[0]).toBe('wooden-axe');
+    bench.variant = smith.variant = levelVariant(2);
+    expect(ids(bench, 'Tools')).toEqual(['stone-axe', 'wooden-pick', 'wooden-mallet', 'wooden-hoe', 'wooden-shovel', 'flint-sickle']);
+    expect(ids(bench, 'Gear')).toEqual(['hunting-knife', 'pack-basket']);
+    // The flint sword is for level 3: until then the row keeps the wooden one.
+    expect(ids(smith, 'Weapons')[0]).toBe('wooden-sword');
+    p.level = 3;
+    expect(ids(smith, 'Weapons')[0]).toBe('flint-sword');
+    // Iron comes one make at a time: the bench at its top still offers stone for a wooden axe.
+    bench.variant = smith.variant = levelVariant(3);
+    expect(ids(bench, 'Tools')).toEqual([
       'stone-axe',
-      'axe',
       'wooden-pick',
-      'stone-pick',
-      'pickaxe',
       'wooden-mallet',
-      'stone-hammer',
-      'hammer',
       'wooden-hoe',
-      'stone-hoe',
-      'hoe',
       'wooden-shovel',
-      'shovel',
       'flint-sickle',
-      'sickle',
       'watering-can',
       'saw',
     ]);
-    expect(bench.get('Gear')!.map((i) => i.id)).toEqual(['hunting-knife', 'pack-basket']);
-    expect([...smith.keys()]).toEqual(['Weapons', 'Shields', 'Armor']);
-    expect(smith.get('Weapons')!.map((i) => i.id)).toEqual([
-      'wooden-sword',
-      'flint-sword',
-      'sword',
-      'wooden-club',
-      'mace',
-      'iron-mace',
-      'short-bow',
-      'bow',
-      'longbow',
-      'wooden-spear',
-      'flint-spear',
-      'spear',
-      'wooden-staff',
-      'staff',
-      'seer-staff',
-    ]);
-    expect(smith.get('Shields')!.map((i) => i.id)).toEqual(['shield', 'reinforced-shield', 'iron-shield']);
-    expect(smith.get('Armor')!.map((i) => i.id)).toEqual(['wooden-armor', 'studded-armor', 'mail-armor', 'helmet']);
+    expect(ids(smith, 'Armor')).toEqual(['wooden-armor', 'helmet']);
     // The armorer makes nothing now: old ones become smithies when a save loads.
-    expect([...stationRecipes(Structure.Armorer).keys()]).toEqual([]);
+    expect([...stationRecipes(town, armorer).keys()]).toEqual([]);
     for (const item of itemCatalog.filter((i) => i.workshop !== null)) {
-      expect(['Tools', 'Weapons', 'Shields', 'Armor', 'Gear']).toContain(recipeGroup(item));
+      expect(['Tools', 'Weapons', 'Shields', 'Armor', 'Gear', 'Materials']).toContain(recipeGroup(item));
       expect(gearEffect(item), item.id).not.toBe('');
       expect(item.seconds, item.id).toBeGreaterThan(0);
     }

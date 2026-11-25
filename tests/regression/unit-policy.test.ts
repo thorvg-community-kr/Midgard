@@ -67,12 +67,12 @@ describe('resident automatic policy', () => {
     town.orderMove([p.id],add(p.position,point(2,0)));step(town,4);
     expect(p.autoMode).toBe(true);expect(p.ordered).toBe(false);expect(p.task).not.toBe(Activity.Moving);
   });
-  it('keeps a rested resident in their own home for the night', () => {
+  it('lets a rested resident leave home after dark', () => {
     const town=fixture(),p=town.people()[0], home=town.camp()!;
     town.editHour(0);p.activity=Activity.Sleeping;p.target=home.id;p.position=home.door();
     enter(p,home.threshold());p.doorway=1;p.position=home.threshold();p.rest=1;
-    town.scheduleAutomatic(p);
-    expect(p.activity).toBe(Activity.Sleeping);expect(p.inside).toBe(true);
+    town.scheduleAutomatic(p);step(town,5);
+    expect(p.activity).not.toBe(Activity.Sleeping);expect(p.inside).toBe(false);
   });
   it('leaves the actual shelter when a new workplace changes the command target', () => {
     const town=fixture(),p=town.people()[0],home=town.camp()!;
@@ -228,11 +228,12 @@ describe('resident automatic policy', () => {
     foe.position=add(p.position,point(.5,0));foe.home={...foe.position};foe.angry=true;foe.provokedBy=p.id;
     town.orderAttackMove([p.id],point(33,33));town.advance(.1);expect(p.activity).toBe(Activity.Fighting);
   });
-  it('recovers critical health at its own home and exits only once after dawn', () => {
+  it('recovers critical health at home and leaves as soon as fit, even at night', () => {
     const town=fixture(),p=town.people()[0],home=town.camp()!;p.health=.3;
     town.scheduleAutomatic(p);expect(p.activity).toBe(Activity.Sleeping);expect(p.target).toBe(home.id);
     step(town,3);expect(p.inside).toBe(true);p.health=p.rest=1;town.editHour(0);
-    for(let i=0;i<300;++i){town.advance(.1);expect(p.activity).toBe(Activity.Sleeping);expect(p.inside).toBe(true);}
+    step(town,5);
+    for(let i=0;i<50;++i){town.advance(.1);expect(p.activity).not.toBe(Activity.Sleeping);expect(p.inside).toBe(false);}
     town.editHour(12);step(town,5);expect(p.inside).toBe(false);expect(p.doorway).toBe(0);
   });
   it('keeps two workshop workers at distinct stable outdoor apron positions', () => {

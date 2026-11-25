@@ -130,7 +130,7 @@ function working(v: Fixture) {
   expect(v.job.workedSeconds, JSON.stringify(snapshot(v))).toBeGreaterThan(0.1);
 }
 
-describe('direct workplace orders outrank routine night sleep', () => {
+describe('work and recovery after dark', () => {
   it.each([0.1, 0.3, 0.49])('honors a single command independently of scheduler phase (%s)', (offset) => {
     const v = fixture(Structure.Well, true);
     v.p.scheduleAt = v.town.clock() + offset;
@@ -161,15 +161,15 @@ describe('direct workplace orders outrank routine night sleep', () => {
         expect(v.p.ordered, diagnostic).toBe(true);
         expect(v.town.climate().night).toBeGreaterThan(0.5);
       });
-  it('keeps ordinary automatic workplace assignment eligible for night sleep', () => {
+  it('works an ordinary automatic assignment after dark while fit', () => {
     const v = fixture();
     v.p.job = v.job.id;
     v.p.task = Activity.Working;
     v.p.taskSite = v.job.id;
     v.p.ordered = false;
-    const trace = advance(v, 3);
-    expect(v.p.activity, JSON.stringify(trace)).toBe(Activity.Sleeping);
-    expect(v.job.workedSeconds).toBe(0);
+    const trace = advance(v, 24);
+    expect(v.p.activity, JSON.stringify(trace)).toBe(Activity.Working);
+    expect(v.job.workedSeconds).toBeGreaterThan(3);
   });
   it('keeps title-autoplay staffing automatic when moving a worker to an essential workplace', () => {
     const v = fixture(),
@@ -257,7 +257,7 @@ describe('direct workplace orders outrank routine night sleep', () => {
     v.town.orderAutomatic([v.p.id]);
     advance(v, 1);
     expect(v.p.ordered).toBe(false);
-    expect(v.p.activity).toBe(Activity.Sleeping);
+    expect(v.p.activity).not.toBe(Activity.Sleeping);
   });
   for (const need of ['food', 'hydration'] as const)
     it(`temporarily satisfies critical ${need} without forgetting the direct workplace`, () => {
@@ -274,16 +274,17 @@ describe('direct workplace orders outrank routine night sleep', () => {
       expect(v.p.ordered).toBe(true);
       expect(v.job.workedSeconds).toBeGreaterThan(before + 1);
     });
-  it('retains the existing stress-breakdown exception instead of forcing an overwhelmed resident to work', () => {
+  it('pauses an exhausted worker and preserves the ordered workplace', () => {
     const v = fixture();
     working(v);
     v.p.stress = 0.86;
     advance(v, 0.2);
     expect(v.p.stressRecovery).toBe(true);
-    expect(v.p.ordered).toBe(false);
-    expect(v.p.task).toBe(Activity.Idle);
+    expect(v.p.ordered).toBe(true);
+    expect(v.p.task).toBe(Activity.Working);
+    expect(v.p.taskSite).toBe(v.job.id);
   });
-  it('releases a destroyed workplace and lets normal Auto choose nighttime rest', () => {
+  it('releases a destroyed workplace and lets a fit resident choose other work after dark', () => {
     const v = fixture();
     working(v);
     v.town.placed = v.town.placed.filter((b) => b.id !== v.job.id);
@@ -291,7 +292,7 @@ describe('direct workplace orders outrank routine night sleep', () => {
     advance(v, 2);
     expect(v.p.taskSite).toBe(-1);
     expect(v.p.ordered).toBe(false);
-    expect(v.p.activity).toBe(Activity.Sleeping);
+    expect(v.p.activity).not.toBe(Activity.Sleeping);
   });
   it('honors Stop after direct work without reassigning the old workplace', () => {
     const v = fixture();
@@ -304,5 +305,110 @@ describe('direct workplace orders outrank routine night sleep', () => {
     expect(v.p.job).toBe(-1);
     expect(v.p.ordered).toBe(false);
     expect(v.job.workedSeconds).toBe(before);
+  });
+});
+
+describe('waking the settlement', () => {
+  function asleepPair() {
+    const v = fixture(Structure.Well, true),
+      home = v.town.camp()!,
+      other = new Person(1, 'Second sleeper', Role.Resident, Calling.Settler, Race.Human, 6, home.door());
+    other.home = other.village = 0;
+    other.food = other.rest = other.hydration = other.health = 1;
+    other.stress = 0;
+    other.activity = Activity.Sleeping;
+    other.target = home.id;
+    enter(other, home.threshold());
+    other.doorway = 1;
+    other.position = home.threshold();
+    v.town.folk.push(other);
+    v.town.nextPerson = 2;
+    return { ...v, other, home };
+  }
+  const night = (town: Town) => town.climate().night > 0.5;
+  it('lists who is abed and brings every one of them out with one order', () => {
+    const v = asleepPair();
+    expect(v.town.abed()).toEqual([0, 1]);
+    expect(v.town.wakeAll()).toBe(2);
+    advance(v, 8);
+    expect(v.p.inside).toBe(false);
+    expect(v.other.inside).toBe(false);
+    expect(v.town.abed()).toEqual([]);
+    expect(v.town.wakeAll()).toBe(0);
+  });
+  it('leaves alone a resident at work indoors and one the player cannot command', () => {
+    const v = asleepPair();
+    v.p.activity = Activity.Working;
+    v.other.stressRecovery = true;
+    expect(v.town.abed()).toEqual([]);
+    expect(v.town.wakeAll()).toBe(0);
+    expect(v.other.inside).toBe(true);
+  });
+  it('honors waking for a short interval and lets a tired resident rest again the same night', () => {
+    const v = asleepPair();
+    v.town.wakeAll();
+    v.p.rest = 0.18;
+    advance(v, 4);
+    expect(v.p.inside).toBe(false);
+    expect(v.p.activity).not.toBe(Activity.Sleeping);
+    advance(v, 23);
+    expect(night(v.town)).toBe(true);
+    expect(v.p.activity).toBe(Activity.Sleeping);
+    expect(v.p.inside).toBe(true);
+    expect(v.other.inside).toBe(false);
+  });
+  it('keeps up a sleeper taken out of bed by an ordinary move order', () => {
+    const v = fixture(Structure.Well, true);
+    v.town.orderMove([v.p.id], point(32, 33));
+    const trace = advance(v, 40);
+    expect(v.p.inside, JSON.stringify(trace)).toBe(false);
+    expect(v.p.activity, JSON.stringify(trace)).not.toBe(Activity.Sleeping);
+    expect(v.p.ordered).toBe(false);
+  });
+  it('lets the player send a woken resident back to bed', () => {
+    const v = fixture(Structure.Well, true),
+      home = v.town.camp()!;
+    v.town.wakeAll();
+    advance(v, 8);
+    expect(v.p.inside).toBe(false);
+    v.p.rest = 0.35;
+    expect(v.town.orderRest([v.p.id], home.id)).toBe(true);
+    advance(v, 20);
+    expect(v.p.inside, JSON.stringify(snapshot(v))).toBe(true);
+    expect(v.p.activity).toBe(Activity.Sleeping);
+  });
+  it('keeps a fit resident active after loading at night', () => {
+    const v = fixture(Structure.Well, true);
+    v.town.wakeAll();
+    advance(v, 8);
+    const loaded = decodeTown(encodeTown(v.town), (map) => new Town(map, 64, false)),
+      p = loaded.people()[0];
+    for (let i = 0; i < 300; ++i) {
+      loaded.wildlifeDay = loaded.days;
+      loaded.advance(0.1);
+    }
+    expect(p.activity).not.toBe(Activity.Sleeping);
+    expect(p.inside).toBe(false);
+  });
+  it('sends nobody to bed while a raid is on, and to bed again when it is over', () => {
+    const v = fixture(),
+      raider = new Monster(900, 0, point(50, 50));
+    raider.raider = true;
+    raider.health = 1000;
+    v.town.beasts.push(raider);
+    v.p.position = point(33, 31);
+    v.p.rest = 0.18;
+    for (let i = 0; i < 100; ++i) {
+      v.town.wildlifeDay = v.town.days;
+      v.town.advance(0.1);
+      raider.position = point(50, 50);
+      raider.path = [];
+      expect(v.p.activity).not.toBe(Activity.Sleeping);
+    }
+    expect(v.p.inside).toBe(false);
+    v.town.beasts = [];
+    advance(v, 30);
+    expect(v.p.inside, JSON.stringify(snapshot(v))).toBe(true);
+    expect(v.p.activity).toBe(Activity.Sleeping);
   });
 });

@@ -37,7 +37,7 @@ export function buildDemo(
     if (!town.buildRoad(path)) diagnostic('demo: road: ' + check.reason);
   };
   const place = (kind: Structure, cursor: Point) => {
-    const spot = town.fit(kind, cursor, 0),
+    const spot = town.fit(kind, cursor, 0, 'roadside'),
       check = town.canPlace(kind, spot.center, spot.angle);
     if (!town.place(kind, spot.center, spot.angle))
       diagnostic('demo: ' + structureSpec(kind).name + ': ' + check.reason);
@@ -104,6 +104,7 @@ export function buildDemo(
         Structure.Guild,
         add(sub(to, scale(toward, f(1.4))), scale(point(-toward.y, toward.x), f(1.4))),
         0,
+        'roadside',
       ),
       check = town.canPlace(Structure.Guild, spot.center, spot.angle);
     if (!town.place(Structure.Guild, spot.center, spot.angle)) diagnostic('demo: guild: ' + check.reason);

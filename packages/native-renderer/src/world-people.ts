@@ -1,3 +1,5 @@
+import { ranchGrowth } from '../../engine/src/ranch-cycle';
+import { isRanchHarvest, ranchWorkSeconds } from '../../engine/src/livestock';
 // World agents, articulated action poses, combat feedback and footprints.
 import { Town } from '../../engine/src/town';
 import { Agent, AgentKind, type Traffic } from '../../engine/src/traffic';
@@ -15,16 +17,22 @@ import { f32 as f, clamp, lround } from '../../engine/src/numeric';
 import { Activity, TreeWorkKind, type TreeWorkEvent } from '../../engine/src/person';
 import { farmWorkPhase, fieldWork } from '../../engine/src/farm-work';
 import { breedOf } from '../../engine/src/town-monsters';
+import { animalSpec } from '../../engine/src/wildlife';
 import { injuryOf, Injury } from '../../engine/src/person-look';
 import { Product, Structure, structureSpec } from '../../engine/src/building-catalog';
 import { Weather } from '../../engine/src/climate';
 import { treePosition } from '../../engine/src/world-map';
 import * as mining from '../../engine/src/mining';
 import * as woodcutting from '../../engine/src/woodcutting';
-import { harvestTiming, harvestDuration, hammerTiming, workElapsed } from '../../engine/src/work-timing';
-import { workItem, equippedItem, itemSpec, toolFor, type WorkKind } from '../../engine/src/equipment';
+import { harvestTiming, harvestDuration, harvestSwingPeriod, hammerTiming, roadCrewStep, workElapsed } from '../../engine/src/work-timing';
+import { roadWorkHeading } from '../../engine/src/person-navigation';
+import { combatItem, equippedItem, productItem, toolFor, workItem, type WorkKind } from '../../engine/src/equipment';
+import { inArea } from '../../engine/src/realm-layout';
+import { craftOrder, orderSeconds } from '../../engine/src/craft-orders';
 import { ceremonySeconds } from '../../engine/src/town-devotion';
 import { playing } from '../../engine/src/bard-phrases';
+import { clearMarks, clearTargetPoint } from '../../engine/src/town-clearing';
+import { drinkSeconds, mealSeconds } from '../../engine/src/resident-meals';
 import { humanoidClips } from './humanoid-rig';
 import { clipTurn } from './rig-clip';
 import { poseArm } from './person-arm';
@@ -53,19 +61,22 @@ import { updateBuildingDamage } from './building-damage';
 import {
   clearWorkProps,
   animateCraft,
+  animateFoundry,
   animateFieldWork,
   animateProcessingWork,
   animateTrade,
   tradeOf,
 } from './work-motion';
 import {
-  combatEquipment,
-  heldMaterial,
-  materialOf,
-  showEquipment,
-  poseBow,
-  type HeldTool,
-} from './person-equipment';
+  animateBenchCraft,
+  animateClearing,
+  animateRoadwork,
+  animateStationWork,
+  braceLoad,
+  passLoad,
+  transferSeconds,
+} from './site-work-motion';
+import { materialOf, showEquipment, poseBow } from './person-equipment';
 import {
   animateAction,
   animateBrace,
@@ -77,12 +88,25 @@ import {
   animateWork,
   strikePhase,
 } from './action-motion';
-import { animatePrayer, updateDevotionEffects } from './devotion-effects';
+import { altarArrivals, animatePrayer } from './devotion-effects';
 import { releaseBeast } from './combat-effects';
-import { poseRank, windupOf } from './monster-rank-look';
+import { monsterHeight, poseRank, windupOf } from './monster-rank-look';
 const inSight = (s: WorldRendererState, p: { x: number; y: number }) => s.currentVisibility.sample(p) >= 119;
-/** The last of an item's making, in its own seconds, is spent holding the finished piece up. */
+/** A smith holds a finished weapon up during the last part of its order. */
 const craftLiftSeconds = 1.3;
+const supplyActivities = new Set([
+  Activity.Idle,
+  Activity.Holding,
+  Activity.FetchingMaterials,
+  Activity.DeliveringMaterials,
+  Activity.WaitingMaterials,
+  Activity.Hauling,
+  Activity.Building,
+  Activity.Roadwork,
+  Activity.Working,
+  Activity.Felling,
+  Activity.Mining,
+]);
 function finalHarvestContact(town: Town, person: number): TreeWorkEvent | undefined {
   const events = town.treeEvents();
   for (let i = events.length - 1; i >= 0; --i) {
@@ -113,6 +137,8 @@ export function moveAgents(
     if (attacker >= 0) strikes.set(attacker, hit);
   }
   const view = viewRect(s);
+  const arrivalTime = s.arrivalSeconds ?? seconds;
+  const arrivals = s.sceneView ? undefined : altarArrivals(s, town, arrivalTime);
   for (const figure of s.figures.values()) figure.seen = false;
   for (const person of town.people()) {
     let figure = s.figures.get(person.id);
@@ -147,26 +173,30 @@ export function moveAgents(
       figure.striding = false;
       figure.lookKey = key;
     }
-    const crossing = person.crossingDoorway(),
-      row = standingRow(town, crossing ? person.entrance : person.position, count);
+    figure.arrival = arrivals?.get(person.id)?.pose(person, s, arrivalTime);
+    const foot = figure.arrival?.foot ?? person.position,
+      rising = figure.arrival?.rising,
+      crossing = !rising && person.crossingDoorway(),
+      baseline = crossing ? person.entrance : foot,
+      row = standingRow(town, baseline, count);
     if (row !== figure.row) {
       if (figure.row >= 0) s.rows[figure.row].remove(figure.paint);
       s.rows[row].add(figure.paint);
       figure.row = row;
     }
-    registerDepth(figure.paint, crossing ? person.entrance : person.position, `person:${person.id}`);
-    cullAround(figure.paint, person.position);
+    registerDepth(figure.paint, baseline, `person:${person.id}`);
+    cullAround(figure.paint, foot);
     // Out of sight or off the screen: keep the place it stands, pose nothing, draw nothing.
-    if (!s.sceneView && (!inSight(s, person.position) || !standsInView(s, view, person.position))) {
-      const at = project(person.position.x, person.position.y);
+    if (!s.sceneView && (!inSight(s, foot) || !standsInView(s, view, foot))) {
+      const at = project(foot.x, foot.y);
       figure.paint.transform([figure.facing, 0, at.x, 0, 1, at.y, 0, 0, 1]);
       figure.paint.opacity(0);
-      figure.last = { ...person.position };
+      figure.last = { ...foot };
       figure.striding = false;
       figure.shown = seconds;
       continue;
     }
-    const screen = project(person.position.x, person.position.y),
+    const screen = project(foot.x, foot.y),
       strike = strikes.get(person.id),
       followingThrough = !!strike && town.clock() - strike.at < 0.25,
       fighting = person.activity === Activity.Fighting || followingThrough;
@@ -175,7 +205,46 @@ export function moveAgents(
     if (crossing)
       ahead = person.inside ? sub(person.threshold, person.entrance) : sub(person.entrance, person.threshold);
     else if (person.moving()) ahead = sub(person.path[0], person.position);
-    else if (figure.last.x >= 0) ahead = sub(person.position, figure.last);
+    else if (figure.last.x >= 0) ahead = sub(foot, figure.last);
+    const outdoors = !s.sceneView && !rising && !person.inside && !crossing && person.downedAt < 0,
+      working = outdoors && !person.moving(),
+      ranchWork = working && !person.approachingOrder && isRanchHarvest(person.activity) ? ranchWorkSeconds(person.activity) : 0,
+      clearing =
+        working && !fighting && person.activity === Activity.Holding && person.clearing >= 0
+          ? clearMarks(town).find((mark) => mark.serial === person.clearing)
+          : undefined,
+      workplace = person.activity === Activity.Working ? town.building(person.target) : null,
+      buildSite = working && person.activity === Activity.Building ? town.building(person.target) : null,
+      servingTime = person.activity === Activity.Drinking ? drinkSeconds : mealSeconds,
+      sinceServed = town.clock() - (person.until - servingTime),
+      dining =
+        working &&
+        !fighting &&
+        (person.activity === Activity.Eating || person.activity === Activity.Drinking) &&
+        sinceServed >= 0 &&
+        sinceServed < servingTime;
+    const transfer = person.transfer,
+      transferAge = transfer ? town.clock() - transfer.at : -1,
+      passing =
+        outdoors &&
+        !fighting &&
+        !clearing &&
+        transferAge >= 0 &&
+        transferAge < transferSeconds &&
+        supplyActivities.has(person.activity);
+    if (clearing) {
+      const at =
+        clearing.kind === 'building'
+          ? town.building(clearing.id)?.center
+          : clearing.kind === 'field'
+            ? clearTargetPoint(town, clearing)
+            : person.goal;
+      if (at) ahead = sub(at, person.position);
+    } else if (working) {
+      const place = buildSite ?? (dining && person.target >= 0 ? town.building(person.target) : workplace);
+      if (place && !(place.kind === Structure.Farm && person.workField >= 0))
+        ahead = sub(place.center, person.position);
+    }
     const prayerSite = person.activity === Activity.Praying ? town.building(person.target) : null,
       praying = prayerSite?.kind === Structure.Shrine && !person.moving() && !crossing && !person.inside;
     if (praying) ahead = sub(prayerSite.center, person.position);
@@ -184,13 +253,23 @@ export function moveAgents(
     if (patient && !person.moving()) ahead = sub(patient.position, person.position);
     // A crafter, and anyone waiting a turn beside the station, faces it.
     const station =
-      person.task === Activity.Crafting && !person.moving() && !crossing
-        ? town.building(person.craftWorkshop)
+      person.task === Activity.Crafting && (person.activity === Activity.Crafting || person.activity === Activity.Holding) && !person.moving() && !crossing
+        ? town.building(person.refining ? person.target : person.craftWorkshop)
         : null;
     if (station) ahead = sub(station.center, person.position);
-    const chopping =
-        person.activity === Activity.Felling && !person.moving() && !crossing && person.tree >= 0,
-      miningNow = person.activity === Activity.Mining && !person.moving() && !crossing && person.tree >= 0;
+    // Whoever lays a road faces the way it grows. Once they stand at its front, the steps that keep them
+    // there and the sidestep that makes room for a crew mate are not a turn.
+    const front =
+      outdoors && !fighting && person.activity === Activity.Roadwork ? town.roads().road(person.target) : null;
+    figure.laying =
+      !!front &&
+      (!person.moving() ||
+        (!!figure.laying &&
+          person.path.length === 1 &&
+          distance(person.position, person.path[0]) <= roadCrewStep));
+    if (front && figure.laying) ahead = roadWorkHeading(front) ?? ahead;
+    const chopping = working && person.activity === Activity.Felling && person.tree >= 0,
+      miningNow = working && person.activity === Activity.Mining && person.tree >= 0;
     // The final hit changes the simulation to Collecting immediately. Preserve
     // its short grounded follow-through from the real event, not the new deadline.
     const workContact =
@@ -212,6 +291,11 @@ export function moveAgents(
       if (town.map().inside(x, y) && town.map().at(x, y).trees)
         ahead = sub(treePosition(town.map(), x, y, town.map().at(x, y).trees - 1), person.position);
     }
+    if (ranchWork) {
+      const pen = town.building(person.taskSite);
+      if (pen) ahead = sub(pen.center, person.position);
+    }
+    if (passing && transfer?.toward && !person.moving()) ahead = sub(transfer.toward, person.position);
     if (fighting && !person.moving()) {
       const foe =
         person.foe >= 0
@@ -226,10 +310,10 @@ export function moveAgents(
     // avoid mirroring for subpixel corrections around the target's centerline.
     const facingThreshold = fighting && !person.moving() ? 2 / tileHalfWidth : 0.0001;
     if (Math.abs(f(ahead.x - ahead.y)) > facingThreshold) figure.facing = f(ahead.x - ahead.y) < 0 ? -1 : 1;
-    if (figure.last.x >= 0)
-      figure.stride = f(figure.stride + f(Math.min(1, distance(figure.last, person.position)) * f(5.5)));
-    figure.last = { ...person.position };
-    const striding = !s.sceneView && (person.moving() || crossing),
+    const step = figure.last.x >= 0 ? distance(figure.last, foot) : 0;
+    figure.stride = f(figure.stride + f(Math.min(1, step) * f(5.5)));
+    figure.last = { ...foot };
+    const striding = !s.sceneView && !rising && (person.moving() || crossing || (!!figure.arrival && step > 0.005)),
       bob = striding ? strideBob(figure.stride) : 0,
       // A resting chest rises and settles; each person keeps their own rhythm.
       // It moves in eight steps a second: finer would redraw every idle figure on every frame.
@@ -237,27 +321,10 @@ export function moveAgents(
         striding || s.sceneView
           ? 0
           : f(Math.sin((Math.floor(seconds * 8) / 8) * 1.6 + person.id * 1.7) * 0.009),
-      collecting =
-        !s.sceneView && person.activity === Activity.Collecting
-          ? f(
-              Math.sin(
-                f(
-                  f(3.14159265) *
-                    f(
-                      clamp(
-                        1 -
-                          (person.until - town.clock()) /
-                            (person.carriedProduct === Product.Stone
-                              ? mining.collectSeconds
-                              : woodcutting.fallSeconds),
-                        0,
-                        1,
-                      ),
-                    ),
-                ),
-              ),
-            )
-          : 0;
+      gatherDuration = ranchWork || (person.activity === Activity.Collecting
+        ? person.carriedProduct === Product.Stone ? mining.collectSeconds : woodcutting.fallSeconds : 0),
+      collecting = !s.sceneView && gatherDuration
+        ? f(Math.sin(Math.PI * clamp(1 - (person.until - town.clock()) / gatherDuration, 0, 1))) : 0;
     figure.paint.transform([figure.facing, 0, screen.x, 0, 1, screen.y, 0, 0, 1]);
     // A blow makes the figure flinch and settle; nothing else squashes it.
     const elapsed = figure.shown === undefined ? 0 : clamp(seconds - figure.shown, 0, 0.1);
@@ -307,23 +374,17 @@ export function moveAgents(
       );
     }
     figure.parts.shadow?.transform([1, 0, 0, 0, 1, 0, 0, 0, 1]);
-    stridePose(figure.parts, figure.stride, striding);
-    if (!striding)
-      animateGesture(
-        figure.parts.arms,
-        !s.sceneView && canIdleGesture(person)
-          ? idleGesture((person.look ^ Math.imul(person.id, 7919)) >>> 0, moodOf(person), seconds)
-          : { kind: IdleGesture.None, phase: 0, mirrored: false },
-      );
     figure.striding = striding;
     figure.paint.opacity(
-      !s.sceneView && !inSight(s, person.position) ? 0 : lround(f(255 * person.visibility())),
+      !s.sceneView && !inSight(s, foot) ? 0 : rising ? 255 : lround(f(255 * person.visibility())),
     );
     registerPick(figure.paint, {
       ref: { kind: 'person', id: person.id },
       body: figure.parts.body ? [figure.parts.body] : [],
-      foot: { ...person.position },
+      foot: { ...foot },
       ellipse: { rx: 6, ry: 2.6 },
+      // Up to the health bar, or the bleed-out ring over a downed body.
+      stand: { above: person.downedAt >= 0 ? 26 : 31, below: 2.6, half: 6 },
     });
     figure.parts.alert?.opacity(
       !person.stressRecovery && (person.stress > f(0.7) || person.food < f(0.15)) ? 255 : 0,
@@ -331,12 +392,8 @@ export function moveAgents(
     figure.parts.stressRecovery?.opacity(person.stressRecovery ? 255 : 0);
     figure.parts.affiliation?.opacity(person.faction > 0 ? 255 : 0);
     const hammering =
-      !person.moving() &&
-      !crossing &&
-      (person.activity === Activity.Building || person.activity === Activity.Roadwork);
-    const workplace = person.activity === Activity.Working ? town.building(person.target) : null,
-      working = !s.sceneView && !striding && !person.inside && !crossing,
-      farming = working && workplace?.kind === Structure.Farm && person.workField >= 0,
+      working && (person.activity === Activity.Building || person.activity === Activity.Roadwork);
+    const farming = working && workplace?.kind === Structure.Farm && person.workField >= 0,
       watering = farming && farmWorkPhase(person, town.clock(), town.fields()) === 1,
       processing =
         working &&
@@ -352,33 +409,33 @@ export function moveAgents(
         working && workplace && !fighting && !farming && !processing && !forging
           ? tradeOf(workplace.kind)
           : null;
-    // At a craft station stone and iron are beaten into shape with the crafter's own hammer and wood
-    // is pared with the bench's knife; the last of the work is spent holding the finished piece up.
-    const made =
-        !s.sceneView && station && person.activity === Activity.Crafting && !person.inside && person.craftItem
-          ? itemSpec(person.craftItem)
+    const order =
+        working && !fighting && station && person.activity === Activity.Crafting && person.craftItem
+          ? craftOrder(person.craftItem)
           : null,
-      craftHammer = made ? (workItem(person, 'crafting')?.visual ?? null) : null,
-      pounding = !!made && made.material !== 'wood' && craftHammer !== null,
-      // Only a piece that goes in the hand can be held up.
-      finished = made?.visual && made.visual !== 'basket' ? made.visual : null,
+      made = person.refining && order ? productItem(person.refining) : order && order.kind !== 'station' ? order.item : null,
+      improving = order?.kind === 'station',
+      orderDuration = order && made ? orderSeconds(order, null) : 0,
+      atBench = station?.kind === Structure.Workbench,
+      refining = made?.workshop === Structure.Foundry,
+      craftHammer = made && !refining && made.visual !== 'basket' ? workItem(person, 'crafting') : null,
+      // The smith inspects a finished weapon. At the workbench the hands stay on the stock until the order ends.
+      finished = !atBench && made?.visual && made.visual !== 'basket' ? made : null,
       craftLift =
-        made && finished
+        finished
           ? clamp(
-              (person.craftProgress - made.seconds) / Math.min(craftLiftSeconds, made.seconds * 0.35) + 1,
+              (person.craftProgress - orderDuration) / Math.min(craftLiftSeconds, orderDuration * 0.35) + 1,
               0,
               1,
             )
-          : 0,
-      craftTool: HeldTool | null =
-        craftLift > 0 ? finished : pounding ? craftHammer : made?.material === 'wood' ? 'knife' : null;
+          : 0;
     clearWorkProps(figure.parts);
     const workKind: WorkKind | undefined =
       chopping || workContact?.kind === TreeWorkKind.Chop
         ? 'woodcutting'
         : miningNow || workContact?.kind === TreeWorkKind.Mine
           ? 'mining'
-          : hammering
+          : hammering || (clearing && clearing.kind !== 'field')
             ? 'construction'
             : farming
               ? watering
@@ -388,62 +445,57 @@ export function moveAgents(
                 ? workplace.kind === Structure.Sawmill
                   ? 'sawing'
                   : 'crafting'
-                : forging
+                : forging || improving
                   ? 'crafting'
                   : undefined;
-    const tool = praying
-      ? null
-      : fighting
-        ? combatEquipment(person)
-        : made
-          ? craftTool
+    const jobTool =
+        workKind === 'farming'
+          ? toolFor(person, fieldWork(town, person))
           : workKind
-            ? // Field work goes to whichever fitting tool is fastest: a shovel breaks new ground, a sickle reaps.
-              ((workKind === 'farming'
-                ? toolFor(person, fieldWork(town, person))
-                : workItem(person, workKind)
-              )?.visual ?? null)
-            : trade
-              ? null
-              : (equippedItem(person, 'weapon')?.visual ?? null);
-    showEquipment(
-      figure.parts,
-      tool,
-      // The piece shows what it is made of; the bench's own knife is flint.
-      made && craftLift > 0 ? materialOf(made) : made && !pounding ? 'stone' : heldMaterial(person, tool),
-    );
-    const handsBusy =
-        fighting ||
-        chopping ||
-        miningNow ||
-        !!workContact ||
-        hammering ||
-        farming ||
-        processing ||
-        praying ||
-        !!made,
+            ? workItem(person, workKind)
+            : null,
+      hauling =
+        striding &&
+        !crossing &&
+        person.carrying > 0 &&
+        (person.activity === Activity.Hauling || person.activity === Activity.DeliveringMaterials);
+    const casting =
+        working && town.clock() < person.castUntil && person.castUntil > person.castAt ? person.cast : null,
+      drilling =
+        working && (person.activity === Activity.Training || workplace?.kind === Structure.TrainingYard),
+      occupied = isRanchHarvest(person.activity) || !!workKind || !!order || !!clearing || dining || passing || hauling || praying,
+      tending = person.activity === Activity.Tending,
+      handsFree = !occupied && !trade && !tending && person.activity !== Activity.Collecting,
+      // The walk to a gate is still in town. Only those already across it keep their weapons drawn.
+      realmReady = handsFree && inArea(town.realmArea, person.position),
+      weaponReady =
+        outdoors && !tending && !passing && !praying && (fighting || !!casting || drilling || realmReady),
+      weapon = weaponReady ? (fighting ? combatItem(person) : equippedItem(person, 'weapon')) : null,
+      workTool = made ? (craftLift > 0 ? finished : craftHammer) : jobTool,
+      item = passing || praying ? null : weaponReady ? weapon : workTool,
+      tool = item?.visual === 'basket' ? null : (item?.visual ?? null),
       // A bard plays a phrase standing or strolling, whenever the hands are free.
       strumming =
-        !s.sceneView &&
-        !!figure.parts.luteHeld &&
-        !handsBusy &&
-        !trade &&
-        !person.inside &&
-        !crossing &&
-        collecting === 0 &&
-        person.activity !== Activity.Tending &&
-        playing(person, town.clock());
-    figure.parts.lute?.opacity(handsBusy || strumming ? 0 : 255);
+        outdoors && handsFree && !weaponReady && !!figure.parts.luteHeld && playing(person, town.clock());
+    showEquipment(figure.parts, tool, materialOf(item), weaponReady && (weapon?.hands ?? 1) === 1);
+    stridePose(figure.parts, figure.stride, striding);
+    if (!striding)
+      animateGesture(
+        figure.parts.arms,
+        outdoors && handsFree && !weaponReady && canIdleGesture(person)
+          ? idleGesture((person.look ^ Math.imul(person.id, 7919)) >>> 0, moodOf(person), seconds)
+          : { kind: IdleGesture.None, phase: 0, mirrored: false },
+      );
+    figure.parts.lute?.opacity(weaponReady || occupied || strumming ? 0 : 255);
     figure.parts.luteHeld?.opacity(strumming ? 255 : 0);
-    if (strumming) showEquipment(figure.parts, null);
     if (tool === 'bow') poseBow(figure.parts, 0);
     figure.parts.arrow?.opacity(0);
     if (!s.sceneView) {
       // A skill has its own pose for as long as its cast runs.
-      if (person.cast && !striding && town.clock() < person.castUntil && person.castUntil > person.castAt)
+      if (casting)
         animateCast(
           figure.parts,
-          person.cast,
+          casting,
           tool,
           (town.clock() - person.castAt) / (person.castUntil - person.castAt),
         );
@@ -464,27 +516,58 @@ export function moveAgents(
           Math.max(0, ceremonySeconds - (person.until - town.clock())),
           ceremonySeconds,
         );
+      else if (improving || (buildSite && buildSite.progress >= 1 && buildSite.health < 1))
+        animateStationWork(figure.parts, tool, workElapsed(town.clock(), person.id));
+      else if (refining)
+        animateFoundry(
+          figure.parts,
+          made.product === Product.BoundFrostwood,
+          workElapsed(town.clock(), person.id),
+        );
+      else if (made && (atBench || (station?.kind === Structure.Weaponsmith && craftLift === 0)))
+        animateBenchCraft(
+          figure.parts,
+          made.visual === 'basket' ? 'wicker' : materialOf(made),
+          craftHammer ? materialOf(craftHammer) : null,
+          workElapsed(town.clock(), person.id),
+          station.angle,
+          station.kind === Structure.Weaponsmith,
+        );
       else if (made)
-        animateCraft(figure.parts, tool, pounding, workElapsed(town.clock(), person.id), craftLift);
-      else if (farming && tool)
-        animateFieldWork(figure.parts, watering, town.clock() + person.id * 0.31, tool);
-      else if (processing && tool)
+        animateCraft(
+          figure.parts,
+          tool,
+          craftHammer !== null,
+          workElapsed(town.clock(), person.id),
+          craftLift,
+        );
+      else if (clearing)
+        animateClearing(figure.parts, clearing.kind, tool, workElapsed(town.clock(), person.id));
+      else if (dining) animateSip(figure.parts, sinceServed, person.activity === Activity.Drinking);
+      else if (passing && transfer) passLoad(figure.parts, transfer.taking, transferAge / transferSeconds);
+      else if (hauling) braceLoad(figure.parts, figure.stride);
+      else if (farming) animateFieldWork(figure.parts, watering, town.clock() + person.id * 0.31, tool);
+      else if (processing)
         animateProcessingWork(
           figure.parts,
           workplace.kind === Structure.Sawmill,
           town.clock() + person.id * 0.31,
+          !!tool,
         );
-      else if (chopping || miningNow || workContact)
+      else if (chopping || miningNow || workContact) {
+        const duration = harvestDuration(person, miningNow || workContact?.kind === TreeWorkKind.Mine);
         animateWork(
           figure.parts,
           tool,
           workContact
             ? harvestTiming.impact + town.clock() - workContact.at
-            : town.clock() - (person.until - harvestDuration(person, miningNow)),
-          harvestTiming.period,
+            : town.clock() - (person.until - duration),
+          harvestSwingPeriod(duration),
           harvestTiming.impact,
         );
-      else if (hammering || farming || processing || forging)
+      } else if (hammering && person.activity === Activity.Roadwork)
+        animateRoadwork(figure.parts, tool, workElapsed(town.clock(), person.id));
+      else if (hammering || forging)
         animateWork(
           figure.parts,
           tool,
@@ -493,21 +576,18 @@ export function moveAgents(
           hammerTiming.impact,
         );
       // Drilling in the training yard: the same blows as a fight, unhurried, at the dummies.
-      else if (workplace?.kind === Structure.TrainingYard && working && !fighting)
+      else if (drilling)
         animateAction(figure.parts, tool, (town.clock() + person.id * 0.4) / 1.5, 1);
       else if (trade) animateTrade(figure.parts, trade, town.clock() + person.id * 0.31);
       else if (person.activity === Activity.Tending) animateTend(figure.parts, town.clock() + person.id);
       // What the last blow brought down is stooped for and taken up.
       else if (collecting > 0) animateGather(figure.parts, collecting);
       else if (!striding && !person.inside && !crossing) {
-        // Life in the open between tasks: a meal, a drink, a dark mood, a practice bout.
-        if (person.activity === Activity.Eating || person.activity === Activity.Drinking)
-          animateSip(figure.parts, town.clock() + person.id * 0.37, person.activity === Activity.Drinking);
-        else if (person.activity === Activity.Brooding) animateBrood(figure.parts, town.clock() + person.id);
-        else if (person.activity === Activity.Training)
-          animateAction(figure.parts, tool, (town.clock() + person.id * 0.4) / 1.5, 1);
-        // Ordered to hold: braced where they stand, weapon ready.
-        else if (person.holding && tool) animateBrace(figure.parts, tool, town.clock() + person.id * 0.37);
+        if (person.activity === Activity.Brooding) animateBrood(figure.parts, town.clock() + person.id);
+        else if (person.activity === Activity.Guarding) {
+          if (tool) animateBrace(figure.parts, tool, town.clock() + person.id);
+          else animateTrade(figure.parts, 'watch', town.clock() + person.id);
+        } else if (person.holding && tool) animateBrace(figure.parts, tool, town.clock() + person.id * 0.37);
       }
     }
     if (strumming) {
@@ -525,8 +605,8 @@ export function moveAgents(
       carrying = person.carrying > 0 && person.activity !== Activity.Collecting;
     // A loaded back bends the head forward a little.
     if (carrying && striding) figure.parts.nod = 0.06;
-    figure.parts.logs?.opacity(carrying && person.carriedProduct === Product.Wood ? 255 : 0);
-    figure.parts.stone?.opacity(carrying && person.carriedProduct === Product.Stone ? 255 : 0);
+    figure.parts.logs?.opacity(carrying && [Product.Wood, Product.Frostwood].includes(person.carriedProduct) ? 255 : 0);
+    figure.parts.stone?.opacity(carrying && [Product.Stone, Product.IronOre, Product.CinderOre].includes(person.carriedProduct) ? 255 : 0);
     figure.parts.planks?.opacity(carrying && person.carriedProduct === Product.Planks ? 255 : 0);
     figure.parts.cutStone?.opacity(carrying && person.carriedProduct === Product.CutStone ? 255 : 0);
     // A downed resident drops onto their back and lies there; revived, they get up as quickly.
@@ -542,6 +622,7 @@ export function moveAgents(
       lying = clamp((figure.lying ?? (flat ? 1 : 0)) + (flat ? 1 : -1) * elapsed * (down ? 2.6 : 1.5), 0, 1);
     figure.lying = lying;
     if (lying > 0) {
+      clearWorkProps(figure.parts);
       showEquipment(figure.parts, null);
       layDown(figure.parts, down ? lying * lying : lying * lying * (3 - 2 * lying));
     }
@@ -550,7 +631,7 @@ export function moveAgents(
     figure.parts.sack?.opacity(
       (job && carried !== Structure.Lumberyard && carried !== Structure.Quarry) ||
         (carrying &&
-          ![Product.Wood, Product.Stone, Product.Planks, Product.CutStone].includes(person.carriedProduct))
+          ![Product.Wood, Product.Frostwood, Product.Stone, Product.IronOre, Product.CinderOre, Product.Planks, Product.CutStone].includes(person.carriedProduct))
         ? 255
         : 0,
     );
@@ -561,6 +642,7 @@ export function moveAgents(
     const record = town.fallen?.find((fallen) => fallen.id === id),
       age = record ? town.clock() - record.at : -1;
     if (age >= 0 && age < 2.4) {
+      clearWorkProps(figure.parts);
       figure.lying = Math.max(figure.lying ?? 0, clamp(age / 0.4, 0, 1));
       showEquipment(figure.parts, null);
       layDown(figure.parts, figure.lying * figure.lying);
@@ -654,12 +736,13 @@ export function moveAgents(
       const rank = s.sceneView
         ? { sx: 1, sy: 1, dx: 0, dy: 0 }
         : poseRank(town, beast, sprite.paint, rig?.body);
+      const size = beast.ranchBornAt >= 0 ? .56 + .44 * ranchGrowth(beast, town.clock()) : 1;
       sprite.paint.transform([
-        facing * rank.sx,
+        facing * rank.sx * size,
         0,
         screen.x + rank.dx,
         0,
-        lying * rank.sy,
+        lying * rank.sy * size,
         screen.y + rank.dy,
         0,
         0,
@@ -670,7 +753,12 @@ export function moveAgents(
         ref: { kind: beast.animal == null ? 'monster' : 'animal', id: beast.id },
         body: rig ? [rig.body] : animalBody(sprite.paint),
         foot: { ...beast.position },
-        ellipse: { rx: (beast.giant() ? 14 : 9) * rank.sx, ry: (beast.giant() ? 6 : 3.5) * rank.sy },
+        ellipse: { rx: (beast.giant() ? 14 : 9) * rank.sx * size, ry: (beast.giant() ? 6 : 3.5) * rank.sy * size },
+        stand: {
+          above: beast.animal == null ? monsterHeight(town, beast, s) + 8 : animalSpec(beast.animal).height * size,
+          below: (beast.giant() ? 6 : 3.5) * size,
+          half: (beast.giant() ? 14 : 9) * size,
+        },
       });
     }
   for (const [id, sprite] of s.beasts) {
@@ -682,7 +770,7 @@ export function moveAgents(
     s.beasts.delete(id);
   }
   poseFallen(s, town);
-  if (!s.sceneView) updateDevotionEffects(s, town);
+  if (arrivals) for (const arrival of arrivals.values()) arrival.update(s, arrivalTime);
 }
 interface FallenBeast {
   paint: SceneNode;

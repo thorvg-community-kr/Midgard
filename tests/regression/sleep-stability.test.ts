@@ -193,9 +193,9 @@ describe('sleep state stability', () => {
         states.join('\n'),
       ).toHaveLength(1);
       expect(
-        states.filter((s) => s.includes('Idle:')),
+        states.some((s) => s.includes('Idle:')),
         states.join('\n'),
-      ).toEqual([]);
+      ).toBe(true);
       expect(p.ordered).toBe(false);
       expect(p.autoMode).toBe(true);
       expect(p.task).toBe(Activity.Idle);
@@ -327,7 +327,7 @@ describe('sleep state stability', () => {
     if (!direct) expect(resident.recoveringRest).toBe(true);
   });
 
-  it('sleeps once per night across three ordinary days and returns to daytime work', () => {
+  it('keeps working across nightfall and takes breaks when fatigued across three days', () => {
     const town = fixture(),
       p = town.people()[0];
     const workshop = new Building(town.nextId++, Structure.Sawmill, point(35, 34), 0, 0);
@@ -339,16 +339,11 @@ describe('sleep state stability', () => {
     town.orderAutomatic([p.id]);
     const states = trace(town, 900),
       sleeping = states.filter((s) => s.includes('Sleeping:'));
-    expect(
-      sleeping.filter((s) => s.includes('Sleeping:true:false')),
-      states.join('\n'),
-    ).toHaveLength(3);
-    expect(
-      sleeping.filter((s) => s.includes('Sleeping:false:true')),
-      states.join('\n'),
-    ).toHaveLength(3);
-    expect(states.filter((s) => s.includes('Working:false:false'))).toHaveLength(4);
-    expect(p.inside).toBe(false);
-    expect(distance(p.position, workshop.door())).toBeLessThan(1);
+    const breaks = sleeping.filter(s => s.includes('Sleeping:false:true'));
+    expect(breaks.length, states.join('\n')).toBeGreaterThan(0);
+    for (const entry of breaks) expect(Number(/rest=([\d.]+)/.exec(entry)![1])).toBeLessThanOrEqual(0.2);
+    expect(sleeping.filter(s => s.includes('Sleeping:true:false'))).toHaveLength(breaks.length);
+    expect(states.filter(s => s.includes('Working:false:false')).length).toBeGreaterThan(1);
+    expect(workshop.workedSeconds).toBeGreaterThan(0);
   });
 });

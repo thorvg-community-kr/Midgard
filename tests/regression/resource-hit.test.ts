@@ -18,6 +18,7 @@ import { harvestDuration, harvestTiming, treeFallTiming } from '../../packages/e
 import * as mining from '../../packages/engine/src/mining';
 import { WorldRendererState } from '../../packages/native-renderer/src/world-renderer-state';
 import { SceneNode, identity } from '../../packages/native-renderer/src/paint';
+import { mistTones } from '../../packages/native-renderer/src/mist-bands';
 import { Rect } from '../../packages/native-ui/src/types';
 import { buildTreeRow, swayTrees, updateFelling } from '../../packages/native-renderer/src/world-trees';
 import { treeAt } from '../../packages/native-renderer/src/tree-painter';
@@ -216,8 +217,9 @@ for (const stone of [false, true])
         ...(stone ? {} : { instanceIndex: 0 }),
       });
       expect(geometry?.foot).toEqual(v.state.view.toScreen(v.pivot, 640, 400));
-      expect(v.draw(1.5, 0, 0, `${name}-settled`)).toBe(before);
+      expect(v.draw(1.5)).not.toBe(before);
       expect(paint.matrix).toEqual(identity);
+      expect(v.draw(stone ? 1.8 : 3, 0, 0, `${name}-settled`)).toBe(before);
       expect(hasResourceHits(v.state)).toBe(false);
       expect(v.state.adapter.retainedPaintCount).toBe(baseline);
     } finally {
@@ -252,6 +254,31 @@ it('composes with wind, targets only the hit tree instance, and never accumulate
   }
 });
 
+it('keeps distant remembered foliage at rest and resumes its wind when seen or approached', () => {
+  const v = fixture(false, 2);
+  try {
+    const s = v.state, remembered = v.target();
+    const visible = s.rowCanopies[v.row].find((tree) => tree !== remembered)!;
+    s.fogged = true;
+    s.view.zoom = 0.5;
+    swayTrees(s, 0.8, 1);
+    expect(remembered.matrix).not.toEqual(identity);
+    remembered.shaded({ tone: mistTones.veil, strength: mistTones.memory });
+    swayTrees(s, 0.8, 2);
+    expect(remembered.matrix).toEqual(identity);
+    expect(visible.matrix).not.toEqual(identity);
+    s.view.zoom = 1.4;
+    swayTrees(s, 0.8, 3);
+    expect(remembered.matrix).not.toEqual(identity);
+    s.view.zoom = 0.5;
+    remembered.shaded(undefined);
+    swayTrees(s, 0.8, 4);
+    expect(remembered.matrix).not.toEqual(identity);
+  } finally {
+    v.dispose();
+  }
+});
+
 it('does not invent reactions for unrelated work, hidden resources, or removed targets', () => {
   const v = fixture();
   try {
@@ -273,7 +300,7 @@ it('does not invent reactions for unrelated work, hidden resources, or removed t
   }
 });
 
-it('keeps the final contact chips while the existing tree fall proceeds on its original timeline', () => {
+it('sheds a last cluster of leaves that outlasts the falling tree', () => {
   const v = fixture();
   try {
     v.town.timberEvents.push(v.contact(), v.contact(TreeWorkKind.Fall));
@@ -284,12 +311,70 @@ it('keeps the final contact chips while the existing tree fall proceeds on its o
     expect(hasResourceHits(v.state)).toBe(true);
     const fall = v.state.fallingTrees[0];
     v.draw(1.4, 0, 0, 'tree-falling');
-    expect(hasResourceHits(v.state)).toBe(false);
+    const debris = v.state.rows[v.row].children.find(p => p !== fall.paint) as SceneNode;
+    const leaves = debris.children.slice(1);
+    expect(leaves.length).toBeGreaterThanOrEqual(5);
+    expect(leaves.every(leaf => leaf.alpha > 0 && leaf.matrix[5] < v.pivot.y)).toBe(true);
     expect(v.state.fallingTrees).toHaveLength(1);
     v.draw(1 + treeFallTiming.impact);
     expect(Math.abs(fall.body.matrix[0])).toBeCloseTo(Math.cos(1.46), 5);
     v.draw(1 + treeFallTiming.duration + 0.01);
     expect(v.state.fallingTrees).toHaveLength(0);
+    expect(hasResourceHits(v.state)).toBe(true);
+    v.draw(3);
+    expect(hasResourceHits(v.state)).toBe(false);
+  } finally {
+    v.dispose();
+  }
+});
+
+it('throws faceted stone chips from the struck face and gives the last blow a wider scatter', () => {
+  const v = fixture(true);
+  try {
+    v.town.timberEvents.push(v.contact());
+    v.draw(1.01);
+    const chips = (v.state.rows[v.row].children[0] as SceneNode).children;
+    expect(chips).toHaveLength(4);
+    expect(chips.every(chip => chip.matrix[2] < 0 && chip.matrix[5] < 0)).toBe(true);
+    const first = chips[0].matrix;
+    v.draw(1.13);
+    expect(chips[0].matrix[5]).toBeLessThan(first[5]);
+    v.draw(1.62);
+    expect(chips[0].matrix[5]).toBeGreaterThan(first[5]);
+    expect(chips[0].matrix[0]).not.toBe(first[0]);
+    v.town.timberEvents.push(v.contact(TreeWorkKind.Mine, 3), v.contact(TreeWorkKind.Shatter, 3));
+    v.map.at(v.cell % 32, Math.floor(v.cell / 32)).quarried = true;
+    v.rebuild();
+    v.draw(3.12);
+    expect((v.state.rows[v.row].children[0] as SceneNode).children.length).toBeGreaterThan(chips.length);
+    v.draw(4);
+    expect(v.state.rows[v.row].children).toHaveLength(0);
+  } finally {
+    v.dispose();
+  }
+});
+
+it('shakes foliage from a spruce, only splinters from a snag, and clears flying debris for reduced motion', () => {
+  const v = fixture();
+  try {
+    const tile = v.map.at(v.cell % 32, Math.floor(v.cell / 32));
+    tile.terrain = Terrain.Frost;
+    v.rebuild();
+    v.town.timberEvents.push(v.contact());
+    v.draw(1.28);
+    const batch = v.state.rows[v.row].children[0] as SceneNode;
+    expect(batch.children.filter(leaf => leaf.alpha && leaf.matrix[5] < v.pivot.y - 10).length).toBeGreaterThanOrEqual(2);
+    v.state.reducedMotion = true;
+    v.draw(1.30);
+    expect(v.state.rows[v.row].children).toHaveLength(0);
+    v.state.reducedMotion = false;
+    tile.terrain = Terrain.Ash;
+    v.rebuild();
+    v.town.timberEvents.push(v.contact(TreeWorkKind.Chop, 2));
+    v.draw(2.1);
+    expect((v.state.rows[v.row].children[0] as SceneNode).children).toHaveLength(1);
+    v.draw(2.4);
+    expect(hasResourceHits(v.state)).toBe(false);
   } finally {
     v.dispose();
   }
@@ -330,7 +415,8 @@ it('uses contacts emitted by real harvesting rather than a second animation cloc
     v.draw(v.town.clock());
     expect(v.target().matrix).not.toEqual(identity);
     expectGrounded(v.target(), v.pivot);
-    for (let i = 0; i < 700 && p.activity === Activity.Felling; i++) v.town.advance(0.01);
+    const deadline = p.until + 0.1;
+    while (v.town.clock() < deadline && p.activity === Activity.Felling) v.town.advance(0.01);
     expect(p.activity).toBe(Activity.Collecting);
     const fall = v.town.treeEvents().find((event) => event.kind === TreeWorkKind.Fall)!;
     expect(fall).toBeDefined();

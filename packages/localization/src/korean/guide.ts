@@ -1,12 +1,13 @@
 import type { Phrases } from '../phrases';
 
-// First-time explanations, their cards and the guide log.
+// First-time explanations, their cards and the log.
 export const guidePhrases: Phrases = {
   // Card and log
   Guide: '안내',
-  'Guide (F1)': '안내 (F1)',
-  'Every first-time explanation, to read again.': '처음 겪은 일의 설명을 다시 읽을 수 있습니다.',
-  'Every first-time explanation, newest first.': '처음 겪은 일의 설명입니다. 최근 것이 위에 있습니다.',
+  Log: '로그',
+  'Log (F1)': '로그 (F1)',
+  'Everything that has happened, to read again.': '지금까지 일어난 일을 모두 다시 읽을 수 있습니다.',
+  'Everything that has happened, newest first.': '지금까지 일어난 모든 일입니다. 최근 것이 위에 있습니다.',
   'Got it': '확인',
   Look: '보기',
   'Day {0}': '{0}일째',
@@ -17,10 +18,8 @@ export const guidePhrases: Phrases = {
   'Cards: Off': '안내 카드: 끔',
   Newer: '최근',
   Older: '이전',
-  '{0}–{1} of {2}': '{2}개 중 {0}–{1}',
   Earlier: '지난 기록',
-  'Nothing yet. An explanation is written here the first time something happens.':
-    '아직 기록이 없습니다. 무언가 처음 일어나면 여기에 설명이 적힙니다.',
+  'Nothing yet. What happens is written here.': '아직 기록이 없습니다. 일어나는 일이 여기에 적힙니다.',
   '{0} joins the settlement': '{0}이(가) 정착지에 합류했습니다',
   '{0} used {1}': '{0}: {1} 사용',
   '{0} learned {1}': '{0}: {1} 습득',
@@ -48,8 +47,8 @@ export const guidePhrases: Phrases = {
     '겨울에는 사냥감이 줄어드니, 겨울이 오기 전에 식량을 모아 두세요.',
   'Hunted animals and slain monsters leave bones, which go straight to storage.':
     '사냥한 짐승과 쓰러뜨린 몬스터는 뼈를 남기며, 뼈는 곧바로 창고로 갑니다.',
-  "Offered at the Altar of Odin, bones raise the starting level of the newcomer and lean them toward the Warrior's calling.":
-    '오딘의 제단에 뼈를 바치면 새 주민의 처음 레벨이 오르고, 전사의 길로 기울게 됩니다.',
+  'Bones can go on the altar alongside food. Every four extra goods give the new settler a point in strength or vitality.':
+    '제단에는 식량과 함께 뼈도 올릴 수 있습니다. 물자를 4개 더 올릴 때마다 새 주민의 힘이나 활력이 1 오릅니다.',
   'A heavy load': '무거운 짐',
   'A heavy pack slows a resident down, and the fuller it gets, the slower they walk.':
     '배낭이 무거우면 걸음이 느려지고, 가득 찰수록 더 느리게 걷습니다.',
@@ -83,8 +82,8 @@ export const guidePhrases: Phrases = {
     '마지막 층을 돌파하면 관문이 봉인됩니다. 그 관문의 습격이 멈추고, 정착지는 그 세계의 축복을 얻습니다.',
   "The Allfather's likeness in stone stands by the founding shore, where the first two woke.":
     '모든 것의 아버지를 닮은 석상이 처음의 두 사람이 깨어난 해안가에 서 있습니다.',
-  'Once a tent and a farmhouse stand, raise an Altar of Odin at home: offerings there shape every new resident.':
-    '천막과 농가를 세운 뒤에는 오딘의 제단을 지으세요. 그곳에 바친 제물로 새 주민이 빚어집니다.',
+  'Once a tent and a farmhouse stand, build an altar at home. Set aside four food and a bed to welcome another settler.':
+    '천막과 농가를 세우면 마을에 제단을 지을 수 있습니다. 식량 4개와 빈 침상 하나를 마련해 새 주민을 맞이하세요.',
   'A volcano smokes in the south of Midgard. Its slopes are bare mountain rock that no one can cross or build on.':
     '미드가르드 남쪽에서 화산이 연기를 뿜습니다. 그 비탈은 아무도 건너거나 지을 수 없는 산의 바위입니다.',
   'The deep spring in the north from which the rivers flow.': '강물이 흘러나오는 북쪽의 깊은 샘입니다.',
@@ -104,9 +103,10 @@ export const guidePhrases: Phrases = {
   'Raids come more often in winter. Keep everyone housed: the cold wears on anyone sleeping out.':
     '겨울에는 습격이 더 잦습니다. 모두에게 집을 마련해 주세요. 밖에서 자면 추위에 지칩니다.',
   'A newcomer from the altar': '제단에서 온 새 주민',
-  'Every new resident is shaped by an offering at the Altar of Odin: water, bones, gold, food and stone each lean them a different way.':
-    '새 주민은 모두 오딘의 제단에 바친 제물로 빚어집니다. 물, 뼈, 금, 식량, 석재가 저마다 다른 쪽으로 이끕니다.',
-  'Make room in a home for them.': '그들이 지낼 집에 자리를 마련해 주세요.',
+  'Each newcomer starts as a settler. Give them a tool and a job to gain experience.':
+    '새로 합류한 사람은 모두 일반 주민으로 시작합니다. 도구를 쥐여 주고 일을 맡기면 경험을 쌓습니다.',
+  'When the guild is ready, you can send a settler there to learn a fighting calling.':
+    '길드가 세워지면 주민을 보내 전투 직업을 익히게 할 수 있습니다.',
   // Danger
   'A monster': '몬스터',
   'Monsters climb out of the gates. Swarmers are small and quick and fall to a blow or two, but they come in numbers.':
@@ -116,6 +116,10 @@ export const guidePhrases: Phrases = {
   'The first kill': '첫 처치',
   'A kill gives experience to the killer and to every ally fighting nearby, and many leave bones.':
     '처치하면 쓰러뜨린 주민과 가까이에서 함께 싸운 동료 모두가 경험치를 얻고, 대부분 뼈를 남깁니다.',
+  'Compare attack before and after equipping a weapon. A higher scaling bonus means more of that attribute counts toward the attack.':
+    '장비 창에서 무기 장착 전후의 공격력을 비교하세요. 보정 수치가 클수록 해당 능력치가 공격력에 더 많이 반영됩니다.',
+  'Levels improve endurance and unlock gear. Match a weapon to the resident’s strongest attribute for harder hits.':
+    '레벨이 오르면 더 잘 버티고 새 장비를 쓸 수 있습니다. 주민의 높은 능력치에 맞는 무기를 들면 공격력이 오릅니다.',
   'Each level makes a resident hit harder and hold out longer.':
     '레벨이 오를 때마다 더 세게 치고 더 오래 버팁니다.',
   'A resident is down': '주민이 쓰러졌습니다',
@@ -179,8 +183,8 @@ export const guidePhrases: Phrases = {
   'A bard plays': '음유시인의 연주',
   'Now and then a bard takes up the lyre while idle, strolling or resting, and plays a short tune.':
     '음유시인은 한가하거나 거닐거나 쉴 때 이따금 리라를 들고 짧은 곡을 연주합니다.',
-  'Residents who listen by the fire in the evening let go of a little stress.':
-    '저녁에 모닥불 곁에서 연주를 들은 주민은 스트레스가 조금 풀립니다.',
+  'Residents who listen by the fire in the evening recover some energy.':
+    '저녁에 모닥불 곁에서 연주를 들으면 피로가 조금 풀립니다.',
   // Buildings
   'One resident works here.': '주민 한 명이 이곳에서 일합니다.',
   'Up to {0} residents work here.': '주민이 {0}명까지 이곳에서 일합니다.',
@@ -188,9 +192,9 @@ export const guidePhrases: Phrases = {
   Later: '나중에',
   'Roads open with it: lay one with the Road tool in the build menu.':
     '이제 길을 낼 수 있습니다. 건설 메뉴의 길 도구로 길을 내세요.',
-  'Fields open with it: stake one out with the Field tool in the build menu.':
-    '이제 밭을 일굴 수 있습니다. 건설 메뉴의 밭 도구로 밭을 정하세요.',
+  'It needs more fields as the settlement grows: drag another area beside it with the Farm tool.':
+    '정착지가 커지면 밭이 더 필요합니다. 농장 도구로 농가 옆에 구역을 하나 더 드래그하세요.',
   "Gear is crafted from the settlement's stores, one piece at a time: tools at the workbench, weapons, shields and armor at the smithy.": "장비는 정착지의 비축물로 하나씩 만듭니다: 도구는 작업대에서, 무기와 방패와 갑옷은 대장간에서 만듭니다.",
   "A tool works straight from the pack; a weapon, a shield or armor goes into a free slot it fits.": "도구는 짐에 있기만 해도 쓰이고, 무기와 방패와 갑옷은 맞는 빈칸에 바로 들어갑니다.",
-  "Gear works at once: a tool in the pack speeds the work it is made for, a weapon in hand hits harder, a shield turns blows aside and armor takes part of every blow.": "장비는 바로 효과를 냅니다: 짐 속 도구는 맞는 일을 빠르게 하고, 손에 든 무기는 더 세게 치며, 방패는 공격을 막아 내고 갑옷은 모든 공격의 일부를 막습니다.",
+  "Tools speed their work from the pack. A resident with no weapon equipped fights with their strongest tool. Shields block blows and armor reduces damage.": "짐에 든 도구는 해당 작업의 효율을 높입니다. 장착한 무기가 없으면 공격력이 가장 높은 도구로 싸웁니다. 방패는 공격을 막고 갑옷은 받는 피해를 줄여 줍니다.",
 };

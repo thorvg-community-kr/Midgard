@@ -11,6 +11,8 @@ import { inArea } from './realm-layout';
 import { Season, type Calendar } from './town-models';
 import { Boon, boon, boonRules } from './gate-boons';
 import { StrikeKind } from './skill-catalog';
+import { herdLeader, tendLivestock } from './livestock';
+import { beginMeal } from './resident-meals';
 export interface WildlifeTown extends TownState {
   settlementOf(p: Person): number;
   economy(village: number): CampEconomy;
@@ -33,7 +35,7 @@ export function creatureTarget(this: TownState, id: number): Monster | null {
 }
 /** Herd and yard animals sleep at night; wolves and cats prowl then and sleep by day. A blow wakes any of them. */
 export function animalAsleep(this: TownState, animal: Monster): boolean {
-  if (animal.animal === null || animal.health <= 0 || animal.angry) return false;
+  if (animal.animal === null || animal.health <= 0 || animal.angry || (animal.pen < 0 && herdLeader(this, animal)) || (animal.pen >= 0 && animal.path.length)) return false;
   const night = this.climate().night,
     nocturnal = animal.animal === AnimalKind.Wolf || animal.animal === AnimalKind.Cat;
   return nocturnal ? night < f(0.15) && hash01(this.world.seed(), animal.id, this.days, 196) < f(0.7) : night > f(0.6);
@@ -61,14 +63,14 @@ export function populateWildlife(this: WildlifeTown): void {
     this.world.cell(p)!.dungeon < 0 &&
     distance(p, clearing) >= 4;
   for (let kind = 0; kind < animalKindCount; ++kind) {
-    let count = this.animals.filter((m) => m.animal === kind && m.health > 0).length;
+    let count = this.animals.filter((m) => m.animal === kind && m.pen < 0 && m.health > 0).length;
     let nearby = this.animals.filter(
-      (m) => m.animal === kind && m.health > 0 && distance(m.home, clearing) <= 11,
+      (m) => m.animal === kind && m.pen < 0 && m.health > 0 && distance(m.home, clearing) <= 11,
     ).length;
     const nearbyTarget = kind === AnimalKind.Wolf ? 0 : 1;
     let attempts = 0,
       born = 0;
-    while (count < perKind && born < births && attempts++ < 2000) {
+    while (count < perKind && this.animals.length < 128 && born < births && attempts++ < 2000) {
       const salt = kind * 2000 + attempts,
         a = hash01(this.world.seed(), this.days, salt, 190),
         b = hash01(this.world.seed(), this.days, salt, 191);
@@ -110,13 +112,18 @@ export function stirWildlife(this: WildlifeTown, dt: number): void {
         village = hunter ? this.settlementOf(hunter) : this.settlementAt(animal.position),
         before = this.stock(village).food;
       const remains = new Resources();
+      remains.hides = Math.ceil(dressed);
       remains.bones = Math.ceil(Math.max(1, Math.ceil(spec.food / 3)) * dressed);
       this.store(remains, village);
       if (hunter?.hunting && hunter.foe === animal.id) {
         hunter.hunting = false; hunter.foe = -1; hunter.path = [];
         hunter.carriedProduct = Product.Food; hunter.carrying += food;
-        if (hunter.food < f(.25)) { --hunter.carrying; hunter.food = 1; ++this.economy(village).today.eaten; }
         hunter.activity = Activity.Idle; hunter.until = this.time;
+        if (hunter.food < f(.25)) {
+          --hunter.carrying;
+          ++this.economy(village).today.eaten;
+          beginMeal(hunter, this.time);
+        }
         this.notify(spec.name + ' hunted (carrying ' + hunter.carrying + ' food)');
         continue;
       }
@@ -125,6 +132,7 @@ export function stirWildlife(this: WildlifeTown, dt: number): void {
       this.notify(spec.name + ' hunted (+' + gained + ' food)');
       continue;
     }
+    if (tendLivestock(this, animal, dt)) continue;
     let attacker = animal.angry ? this.person(animal.provokedBy) : null;
     if (
       attacker &&

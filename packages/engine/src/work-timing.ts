@@ -5,6 +5,17 @@ import { workEfficiency } from './equipment';
 export const harvestTiming = { duration: 6, period: 0.9, impact: 0.6 } as const;
 export const harvestDuration = (person: Person, stone = false): number =>
   harvestTiming.duration / workEfficiency(person, stone ? 'mining' : 'woodcutting');
+/** Keep the first contact at the usual time and fit whole swings up to the instant the tree or rock gives way. */
+export function harvestSwingPeriod(duration: number): number {
+  const span = duration - harvestTiming.impact;
+  return span / Math.max(1, Math.round(span / harvestTiming.period));
+}
+/** Seconds it takes to pick up what a felled tree or a broken load gives. */
+export const collectSeconds = (stone: boolean): number => (stone ? 0.65 : 0.8);
+/** Road length a second of construction work lays, paves or mends. */
+export const roadWorkRate = { laying: 0.32, paving: 0.2, mending: 0.5 } as const;
+/** How far the strokes of a crew can move a road's front within one tick: stepping after it is not a walk. */
+export const roadCrewStep = 0.25;
 export const hammerTiming = { period: 1.05, impact: 0.68 } as const;
 export const treeFallTiming = { duration: 0.8, impact: 0.64 } as const;
 export const titleAutoplayRate = 4;

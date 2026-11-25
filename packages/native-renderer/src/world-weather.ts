@@ -227,6 +227,41 @@ export function weather(s: WorldRendererState, climate: Climate, seconds: number
 const cloudTile = 1150,
   cloudCols = 6,
   cloudRows = 5;
+/** Screen points a second the cloud shadows travel over the land: slow enough to watch one pass. */
+const cloudWind = { x: 17, y: 6 };
+/** How far a whole cloud strays from the wind's line, and the seconds of one such turn across and down. */
+const cloudWander = { x: 34, y: 16, across: 61, down: 83 };
+/** A puff at rest in its cloud, and the slow turns that keep the cloud's outline from ever standing still. */
+interface Puff {
+  shape: ShapeNode;
+  x: number;
+  y: number;
+  stretch: number;
+  /** How far the puff strays from its place. */
+  sway: number;
+  /** Turns a second across, down and of its swelling, and where each begins. */
+  rate: [number, number, number];
+  phase: [number, number, number];
+}
+const puffsOf = new WeakMap<SceneNode, Puff[]>(),
+  turn = 6.2831853;
+/** Lets the puffs of one cloud sway and swell a little, each at its own slow pace. */
+function billow(cloud: SceneNode, seconds: number): void {
+  for (const p of puffsOf.get(cloud) ?? []) {
+    const swell = 1 + 0.07 * Math.sin(seconds * p.rate[2] + p.phase[2]);
+    p.shape.transform([
+      p.stretch * swell,
+      0,
+      p.x + p.sway * Math.sin(seconds * p.rate[0] + p.phase[0]),
+      0,
+      swell,
+      p.y + p.sway * Math.sin(seconds * p.rate[1] + p.phase[1]),
+      0,
+      0,
+      1,
+    ]);
+  }
+}
 export function drift(s: WorldRendererState, climate: Climate, seconds: number): void {
   const sun = f(s.shownSun * f(1 - climate.night));
   for (let i = 0; i < s.sunPasses.length; ++i) {
@@ -236,22 +271,35 @@ export function drift(s: WorldRendererState, climate: Climate, seconds: number):
   s.sunlight.opacity(sun > f(0.01) ? 255 : 0);
   if (!s.cloudShapes.length) {
     const cluster = (seed: number) => {
-      const shadow = new SceneNode();
-      const puff = (x: number, y: number, r: number, stretch: number) =>
-        shadow.add(
-          new ShapeNode()
-            .appendCircle(0, 0, r, r)
-            .fillGradient({
-              type: 'radial',
-              coordinates: [0, 0, r, 0, 0, 0],
-              stops: [
-                { offset: 0, color: [8, 14, 24, 255] },
-                { offset: f(0.6), color: [8, 14, 24, 255] },
-                { offset: 1, color: [8, 14, 24, 0] },
-              ],
-            })
-            .transform([stretch, 0, x, 0, 1, y, 0, 0, 1]),
-        );
+      const shadow = new SceneNode(),
+        puffs: Puff[] = [];
+      const puff = (x: number, y: number, r: number, stretch: number) => {
+        const shape = new ShapeNode()
+          .appendCircle(0, 0, r, r)
+          .fillGradient({
+            type: 'radial',
+            coordinates: [0, 0, r, 0, 0, 0],
+            stops: [
+              { offset: 0, color: [8, 14, 24, 255] },
+              { offset: f(0.6), color: [8, 14, 24, 255] },
+              { offset: 1, color: [8, 14, 24, 0] },
+            ],
+          })
+          .transform([stretch, 0, x, 0, 1, y, 0, 0, 1]);
+        shadow.add(shape);
+        // One turn takes a quarter to half a minute, and no two puffs keep step.
+        const roll = (salt: number) => hash01(43, seed, puffs.length, salt),
+          pace = (salt: number) => turn / (16 + 18 * roll(salt));
+        puffs.push({
+          shape,
+          x,
+          y,
+          stretch,
+          sway: r * (0.1 + 0.08 * roll(1)),
+          rate: [pace(2), pace(3), pace(4)],
+          phase: [roll(5) * turn, roll(6) * turn, roll(7) * turn],
+        });
+      };
       // Each body grows off a random earlier one, so the mass branches into an
       // uneven clump; a chain of large overlapping puffs read as one plain ellipse.
       const bodies: { x: number; y: number; r: number; stretch: number }[] = [],
@@ -283,6 +331,7 @@ export function drift(s: WorldRendererState, climate: Climate, seconds: number):
       }
       shadow.opacity(105);
       const holder = new SceneNode().add(shadow);
+      puffsOf.set(holder, puffs);
       s.clouds.add(holder);
       return holder;
     };
@@ -293,8 +342,8 @@ export function drift(s: WorldRendererState, climate: Climate, seconds: number):
   const shade = f(s.shownShade * f(1 - f(f(0.65) * climate.night)));
   s.clouds.opacity(byte(f(255 * shade)));
   const shown = shade > 0 && s.viewWidth > 0;
-  const windX = f(f(seconds) * 42),
-    windY = f(f(seconds) * 15);
+  const windX = f(f(seconds) * cloudWind.x),
+    windY = f(f(seconds) * cloudWind.y);
   for (const shape of s.cloudShapes) shape.opacity(0);
   if (shown) {
     const halfW = f(f(f(s.viewWidth / 2) / s.view.zoom) + cloudTile),
@@ -312,17 +361,21 @@ export function drift(s: WorldRendererState, climate: Climate, seconds: number):
               (((ty % cloudRows) + cloudRows) % cloudRows) * cloudCols
           ];
         cloud.opacity(255);
+        // Each cloud wanders a little about the wind's line, so the sky is not one sheet sliding by.
+        const strayX = cloudWander.x * Math.sin((seconds / cloudWander.across + hash01(37, tx, ty, 31)) * turn),
+          strayY = cloudWander.y * Math.sin((seconds / cloudWander.down + hash01(37, tx, ty, 32)) * turn);
         cloud.transform([
           1,
           0,
-          f(f(f(tx + hash01(37, tx, ty)) * cloudTile) + windX),
+          f(f(f(f(tx + hash01(37, tx, ty)) * cloudTile) + windX) + strayX),
           0,
           f(0.5),
-          f(f(f(ty + hash01(37, tx, ty, 9)) * cloudTile) + windY),
+          f(f(f(f(ty + hash01(37, tx, ty, 9)) * cloudTile) + windY) + strayY),
           0,
           0,
           1,
         ]);
+        billow(cloud, seconds);
       }
   }
   const mottleShown = shown ? f(s.shownCloudy * clamp(f(f(s.view.zoom - f(0.2)) / f(0.1)), 0, 1)) : 0;

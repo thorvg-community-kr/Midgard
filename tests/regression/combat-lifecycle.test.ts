@@ -222,14 +222,17 @@ describe('combat completion and interrupted orders', () => {
         expect(ctx.controlFaction).toBe(1);
         expect(town.controlFaction).toBe(0);
     });
-    it('does not interrupt stress recovery for combat', () => {
+    it('lets an overwhelmed resident caught outdoors by a foe defend themselves instead of walking to bed', () => {
         const { town, p } = fixture(), foe = enemy(town, p);
         p.stressRecovery = true;
         p.stress = .7;
         p.activity = Activity.Sleeping;
+        expect(town.updateStress(p, .1)).toBe(false);
         town.fight(p, .1);
-        expect(foe.health).toBe(1);
-        expect(p.activity).toBe(Activity.Sleeping);
+        expect(p.activity).toBe(Activity.Fighting);
+        expect(p.foe).toBe(foe.id);
+        expect(p.stressRecovery).toBe(true);
+        expect(p.stress).toBeCloseTo(.7, 5);
     });
     for (const guard of ['stress', 'foreign'] as const)
         it(`rejects attack commands for a ${guard} resident`, () => {

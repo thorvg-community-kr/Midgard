@@ -16,9 +16,10 @@ import { humanoidClips } from './humanoid-rig';
 import { clipStretch, clipTurn } from './rig-clip';
 import { MonsterRank } from '../../engine/src/combat-events';
 import { createEquipment, type HeldTool, type ToolMaterial } from './person-equipment';
-import { equippedItem } from '../../engine/src/equipment';
+import { equippedItem, isShield } from '../../engine/src/equipment';
 import { wearableBack, wearableBody } from './person-wearables';
 import { createWorkProps } from './work-motion';
+import type { WorkPiece } from './work-pieces';
 import {
   garmentBack,
   garmentFront,
@@ -44,6 +45,7 @@ export class PersonParts {
   bow: PaintNode | null = null;
   staff: PaintNode | null = null;
   mace: PaintNode | null = null;
+  shield: SceneNode | null = null;
   lute: PaintNode | null = null;
   /** The bard's lyre held in front to play; hidden while it hangs on the back. */
   luteHeld: PaintNode | null = null;
@@ -70,7 +72,15 @@ export class PersonParts {
   waterDrops: SceneNode | null = null;
   soilDust: SceneNode | null = null;
   sawLog: SceneNode | null = null;
+  billet: SceneNode | null = null;
   workStone: SceneNode | null = null;
+  bread: SceneNode | null = null;
+  cup: SceneNode | null = null;
+  /** A tool turned in the palm for work, returned to its normal grip when the task changes. */
+  workGrip: PaintNode | null = null;
+  workSurface = new SceneNode();
+  workPieces: Partial<Record<WorkPiece, SceneNode>> = {};
+  activePiece: SceneNode | null = null;
   hammer: PaintNode | null = null;
   axe: PaintNode | null = null;
   pickaxe: PaintNode | null = null;
@@ -78,8 +88,8 @@ export class PersonParts {
   sickle: PaintNode | null = null;
   knife: PaintNode | null = null;
   spear: PaintNode | null = null;
-  /** The wood, stone and iron heads of each tool that comes in more than one material. */
-  toolHeads: Partial<Record<HeldTool, Record<ToolMaterial, SceneNode>>> = {};
+  /** Material-specific shapes of a tool or weapon, shown when that make is held. */
+  toolHeads: Partial<Record<HeldTool, Partial<Record<ToolMaterial, SceneNode>>>> = {};
   sack: PaintNode | null = null;
   logs: PaintNode | null = null;
   stone: PaintNode | null = null;
@@ -515,7 +525,7 @@ function figureOf(person: Person, parts: PersonParts): SceneNode {
   let broad = f32(f32(4.2) * (person.customLook?.bodyWidth ?? 1)),
     height = figureHeight(person);
   parts.shadow = oval([0, 0], broad + 1.3, (broad + 1.3) * 0.42, [0, 0, 0, 110]);
-  root.add(parts.shadow).add(sprite);
+  root.add(parts.shadow).add(parts.workSurface).add(sprite);
   // The portrait's own head, seated on the neck: it never moves apart from the body.
   const gear = equippedItem(person, 'head')?.id,
     head = drawHead(
@@ -554,14 +564,12 @@ function figureOf(person: Person, parts: PersonParts): SceneNode {
   wearableBack(sprite, person, height, broad);
   personFigure(sprite, look, wardrobe, height, broad, parts);
   if (injuryOf(person) == Injury.Bandaged) bandagedWrist(parts.arms[person.look % 2]);
-  parts.arms[0].free = equippedItem(person, 'offhand')?.id !== 'shield';
-  parts.arms[1].free = true;
-  // Equipment appears only when a real inventory item occupies the slot.
-  if (equippedItem(person, 'offhand')?.id === 'shield') {
+  if (isShield(equippedItem(person, 'offhand'))) {
     // A round northern shield in the calling's colours, quartered around an iron boss.
-    const centre = point(-f32(4.4), -f32(7.2));
-    sprite.add(oval(centre, f32(3.5), f32(3.9), opaque([92, 70, 52])));
-    sprite.add(oval(centre, f32(3), f32(3.4), opaque(wardrobe.cloth)));
+    const shield = new SceneNode(),
+      centre = point(-f32(4.4), -f32(7.2));
+    shield.add(oval(centre, f32(3.5), f32(3.9), opaque([92, 70, 52])));
+    shield.add(oval(centre, f32(3), f32(3.4), opaque(wardrobe.cloth)));
     const quarter = oval(centre, f32(3), f32(3.4), opaque(dusk(wardrobe.trim, f32(0.2))));
     quarter.clip(
       poly(
@@ -574,16 +582,18 @@ function figureOf(person: Person, parts: PersonParts): SceneNode {
         [0, 0, 0],
       ),
     );
-    sprite.add(quarter);
-    sprite.add(oval(centre, f32(0.95), f32(1.05), opaque([176, 182, 188])));
+    shield.add(quarter);
+    shield.add(oval(centre, f32(0.95), f32(1.05), opaque([176, 182, 188])));
+    sprite.add(shield);
+    parts.shield = shield;
   }
 
   wearableBody(sprite, person, parts, height, broad);
   if (parts.lute) sprite.add((parts.luteHeld = heldLyre(height)));
   sprite.add(head.front);
+  createWorkProps(root, parts);
   for (const arm of parts.arms) sprite.add(arm.lower!);
   createEquipment(parts, person.calling);
-  createWorkProps(root, parts);
   // Loads carried on the back.
   let sack = new SceneNode();
   sack.add(oval([-f32(4.5), -11], f32(3.6), f32(4.2), [176, 150, 96]));

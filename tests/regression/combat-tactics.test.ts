@@ -561,7 +561,7 @@ describe('beyond a gate', () => {
     guardian.angry = true;
     for (let i = 0; i < 100 && guardian.windupUntil < 0; ++i) town.advance(0.1);
     expect(guardian.windupUntil).toBeGreaterThan(town.clock());
-    expect(cues(town, CombatCue.Telegraph).at(-1)).toMatchObject({ creature: guardian.id, radius: rankRules.slamRadius, duration: rankRules.slamWindup });
+    expect(cues(town, CombatCue.Telegraph).at(-1)).toMatchObject({ creature: guardian.id, radius: rankRules.slamRadius, duration: rankRules.firstSlamWindup });
     const center = cues(town, CombatCue.Telegraph).at(-1)!.position;
     const exits = [point(4, 0), point(-4, 0), point(0, 4), point(0, -4)]
       .map((offset) => add(center, offset))
@@ -574,6 +574,8 @@ describe('beyond a gate', () => {
     const since = town.clock();
     town.advance(1);
     expect(town.hits().filter((hit) => hit.onPerson && hit.at > since)).toHaveLength(0);
+    town.advance(rankRules.firstSlamWindup - 1.1);
+    expect(cues(town, CombatCue.Telegraph).at(-1)?.creature).toBe(guardian.id);
     for (let i = 0; i < 30 && guardian.windupUntil >= 0; ++i) town.advance(0.1);
     expect(cues(town, CombatCue.Slam)).toHaveLength(1);
     expect(distance(leave.position, center)).toBeGreaterThan(rankRules.slamRadius);

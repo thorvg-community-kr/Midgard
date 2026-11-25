@@ -2,7 +2,7 @@
 import { point, type Point } from '../../engine/src/geometry';
 import type { AbilityId } from '../../engine/src/combat-events';
 import { humanoidClips } from './humanoid-rig';
-import { poseArm, reachArm, type ArmRig } from './person-arm';
+import { handOf, poseArm, reachArm, type ArmRig } from './person-arm';
 import { clipShift, clipTurn, type RigClip } from './rig-clip';
 import type { Matrix } from './paint';
 import { poseBow, type HeldTool } from './person-equipment';
@@ -56,18 +56,26 @@ function blend(keys: readonly Key[], phase: number, strike: number): ActionPose 
     nod: mix('nod'),
   };
 }
-const restAngle = Math.atan2(-8, 6);
+export const toolRestAngle = Math.atan2(-8, 6);
 const apply = (m: Matrix, p: Point): Point =>
   point(m[0] * p.x + m[1] * p.y + m[2], m[3] * p.x + m[4] * p.y + m[5]);
 /** A point up the shaft from the tool hand, in body space, once that arm is posed. */
-function shaft(rig: ArmRig, reach: number): Point {
-  const grip = point(rig.wrist.x + 0.6 * reach, rig.wrist.y - 0.8 * reach);
+function shaft(rig: ArmRig, reach: number, gripTurn = 0): Point {
+  const grip = point(
+    rig.wrist.x + Math.cos(toolRestAngle + gripTurn) * reach,
+    rig.wrist.y + Math.sin(toolRestAngle + gripTurn) * reach,
+  );
   return apply(rig.forearm!.matrix, apply(rig.hand!.matrix, grip));
 }
 const twoHanded = (tool: HeldTool | null): boolean =>
   tool === 'axe' || tool === 'pickaxe' || tool === 'hoe' || tool === 'shovel' || tool === 'spear';
 /** Sets the body over feet that stay where they stand, the leading foot stepping into the blow. */
-export function stand(parts: PersonParts, pose: ActionPose, spread: number, step = 0): void {
+export function stand(
+  parts: PersonParts,
+  pose: Pick<ActionPose, 'lean' | 'forward' | 'crouch' | 'lift' | 'nod'> | ActionPose,
+  spread: number,
+  step = 0,
+): void {
   const tall = 1 - pose.crouch;
   parts.body?.transform([1, -pose.lean, pose.forward, 0, tall, 0 - pose.lift, 0, 0, 1]);
   parts.feet[0]?.translate(-pose.forward - spread, pose.lift / tall);
@@ -75,14 +83,27 @@ export function stand(parts: PersonParts, pose: ActionPose, spread: number, step
   parts.nod = pose.nod;
 }
 /** Swings the held tool along a pose; the other hand takes the shaft when the tool needs two. */
-export function swing(parts: PersonParts, tool: HeldTool, pose: ActionPose, steady: Point | null): void {
+export function swing(
+  parts: PersonParts,
+  tool: HeldTool,
+  pose: ActionPose,
+  steady: Point | null,
+  gripTurn = 0,
+): void {
   const arm = parts.arms[1],
     other = parts.arms[0];
-  poseArm(arm, pose.upper, pose.elbow, pose.direction - restAngle - pose.upper - pose.elbow);
+  if (gripTurn && parts[tool]) {
+    // Grip the handle crosswise. The wrist only flexes through the small remainder of the stroke.
+    const c = Math.cos(gripTurn),
+      s = Math.sin(gripTurn),
+      { x, y } = arm.wrist;
+    parts.workGrip = parts[tool]!.transform([c, -s, x - c * x + s * y, s, c, y - s * x - c * y, 0, 0, 1]);
+  }
+  poseArm(arm, pose.upper, pose.elbow, pose.direction - toolRestAngle - pose.upper - pose.elbow - gripTurn);
   if (!other.free) poseArm(other);
   else if (twoHanded(tool)) {
     // The second hand keeps the shaft only below the chin; raised past it, it waits at the chest.
-    const grip = shaft(arm, 2.6),
+    const grip = shaft(arm, 2.6, gripTurn),
       chest = parts.neck.y + 1.4;
     reachArm(other, grip.y < chest ? point(Math.min(grip.x, 2.4), chest) : grip, 1, 0, 0);
   } else if (steady) reachArm(other, steady, 1, 0, 0);
@@ -104,7 +125,7 @@ export function poseFromClip(parts: PersonParts, clip: RigClip, frame: number, t
     upper = turn('arm.r.1'),
     elbow = turn('arm.r.2'),
     // The clip aims the tool for a body that turns; a resident's body leans without turning its arms.
-    direction = restAngle + lean + upper + elbow + turn('hand.r'),
+    direction = toolRestAngle + lean + upper + elbow + turn('hand.r'),
     pose: ActionPose = {
       upper,
       elbow,
@@ -116,7 +137,7 @@ export function poseFromClip(parts: PersonParts, clip: RigClip, frame: number, t
       nod: turn('head'),
     },
     other = parts.arms[0];
-  poseArm(parts.arms[1], upper, elbow, direction - restAngle - upper - elbow);
+  poseArm(parts.arms[1], upper, elbow, direction - toolRestAngle - upper - elbow);
   if (!other.free) poseArm(other);
   else if (twoHanded(tool)) {
     // The second hand keeps the shaft only below the chin; raised past it, it waits at the chest.
@@ -315,7 +336,7 @@ export function animateWork(
       0.35,
     );
   } else {
-    swing(parts, tool, pose, tool === 'hammer' ? point(3.6, parts.arms[1].shoulder.y + 5.4) : null);
+    swing(parts, tool, pose, tool === 'hammer' ? point(3.6, parts.arms[1].shoulder.y + 5.4) : null, 1.55);
     stand(parts, pose, 0.45);
   }
   parts.shadow?.transform([1, 0, 0, 0, 1, 0, 0, 0, 1]);
@@ -365,12 +386,28 @@ export function animateTend(parts: PersonParts, seconds: number): void {
   );
 }
 
-/** Eating or drinking in the open: the hand comes up to the mouth and rests again. */
+/** Raise, hold and lower, with a quiet wrist at either end of the arc. */
+function liftBetween(t: number, start: number, raised: number, leave: number, end: number): number {
+  const ease = (v: number) => smooth(Math.max(0, Math.min(1, v)));
+  return ease((t - start) / (raised - start)) * (1 - ease((t - leave) / (end - leave)));
+}
+/** Time since the portion was served. A meal has two bites; a drink tips only after the rim reaches the lips. */
 export function animateSip(parts: PersonParts, seconds: number, drinking: boolean): void {
-  const cycle = (seconds % 1.9) / 1.9,
-    up = smooth(Math.min(1, cycle / 0.3)) * (1 - smooth(Math.max(0, Math.min(1, (cycle - 0.62) / 0.3)))),
+  const up = drinking
+      ? liftBetween(seconds, 0.06, 0.66, 1.38, 1.93)
+      : liftBetween(seconds, 0.04, 0.66, 0.9, 1.45) + liftBetween(seconds, 1.48, 2.04, 2.3, 2.92),
+    tilt = drinking ? liftBetween(seconds, 0.55, 0.98, 1.2, 1.53) : 0,
+    chew = drinking ? 0 : liftBetween(seconds, 0.8, 1, 2.6, 2.94) * (0.5 + 0.5 * Math.cos(seconds * 13)),
     arm = parts.arms[1];
-  reachArm(arm, { x: 1.7, y: parts.neck.y - 1.3 }, up, 0, 0);
+  reachArm(arm, point(drinking ? 3.1 : 2.45, parts.neck.y - (drinking ? 0.65 : 1.45)), up, -0.1, -0.15);
+  if (parts.arms[0].free) poseArm(parts.arms[0], -0.18 * up, -(drinking ? 0.25 : 0.65) * up);
+  const grip = handOf(arm),
+    turn = drinking ? -0.75 * tilt : -0.22 * up,
+    size = drinking || seconds < 0.9 ? 1 : 0.82,
+    c = Math.cos(turn) * size,
+    s = Math.sin(turn) * size;
+  const prop = drinking ? parts.cup : parts.bread;
+  prop?.transform([c, -s, grip.x, s, c, grip.y, 0, 0, 1]).opacity(255);
   stand(
     parts,
     {
@@ -379,10 +416,9 @@ export function animateSip(parts: PersonParts, seconds: number, drinking: boolea
       direction: 0,
       crouch: 0,
       lift: 0,
-      lean: drinking ? -0.02 * up : 0.02 * up,
+      lean: drinking ? -0.03 * tilt : 0.035 * up,
       forward: 0,
-      // A drinker tips the head back; an eater bends to the food.
-      nod: (drinking ? -0.14 : 0.07) * up,
+      nod: drinking ? -0.16 * tilt : 0.1 * up + 0.045 * chew,
     },
     0,
   );

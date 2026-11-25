@@ -25,30 +25,26 @@ export const combatPhrases: Phrases = {
     '선택한 주민이 {0}번 부대가 됩니다 (Ctrl+{1}). {2} 키를 누르면 다시 선택합니다.',
 
   // Key hints beyond a gate
-  'Q / W skills  ·  H hold  ·  S stop  ·  R recall': 'Q / W 기술  ·  H 사수  ·  S 정지  ·  R 소집',
-  'M move past enemies  ·  A attack-move  ·  ` party': 'M 적 무시 이동  ·  A 공격 이동  ·  ` 파티',
+  'Q / W skills  ·  H hold or stop  ·  R recall': 'Q / W 기술  ·  H 사수·정지  ·  R 소집',
+  'Right-click move  ·  A attack-move  ·  ` party': '우클릭 이동  ·  A 공격 이동  ·  ` 파티',
   'Ctrl+1-9 make a group, 1-9 select it': 'Ctrl+1-9 부대 지정, 1-9 부대 선택',
   'Right-click a downed ally to revive  ·  Space pause': '쓰러진 동료 우클릭: 일으키기  ·  Space 일시 정지',
 
   // The orders card
-  'Choose a building for the selected residents to raise.': '선택한 주민이 지을 건물을 고르세요.',
   'Walk to the point you click and ignore enemies on the way. A group arrives in formation: blades in front, bows and staves behind.':
     '클릭한 곳으로 걸어가며 가는 길의 적은 무시합니다. 무리는 대형을 갖춰 도착합니다: 칼날은 앞에, 활과 지팡이는 뒤에 섭니다.',
+  'Choose a building for the selected residents to raise.': '선택한 주민이 지을 건물을 고르세요.',
   'Attack-move': '공격 이동',
   'Walk to the point you click and fight whatever they meet. Click an enemy to make it everyone’s first target.':
     '클릭한 곳으로 걸어가며 마주치는 적과 싸웁니다. 적을 클릭하면 모두가 그 적부터 노립니다.',
   Hold: '사수',
   'Hold position': '위치 사수',
-  'Stand on this spot, strike whatever comes into reach and never chase. Skills on auto still fire. Any other order ends it.':
-    '이 자리에 서서 닿는 적을 치고 절대 쫓지 않습니다. 자동 기술은 그대로 씁니다. 다른 명령을 내리면 풀립니다.',
-  Stop: '정지',
-  'Drop the current order and stand still.': '지금 명령을 거두고 그 자리에 섭니다.',
-  'Fell, mine, build, mend or tend what you click next. Right-click does the same at once.':
-    '다음에 클릭하는 것을 베고, 캐고, 짓고, 고치거나 돌봅니다. 우클릭하면 바로 같은 일을 합니다.',
-  'Demolish a building, a field or a road with these residents.': '이 주민들로 건물, 밭 또는 길을 철거합니다.',
-  'Put the tool down and go back to selecting (Q while a tool is in hand).':
-    '도구를 내려놓고 선택으로 돌아갑니다 (도구를 든 동안 Q).',
-  'Come out of the building they are in.': '들어가 있는 건물에서 나옵니다.',
+  'Drop what they are doing and stand on this spot: strike whatever comes into reach and never chase. Skills on auto still fire. Any other order ends it.':
+    '하던 일을 멈추고 이 자리에 섭니다. 닿는 적은 치지만 절대 쫓지 않습니다. 자동 기술은 그대로 씁니다. 다른 명령을 내리면 풀립니다.',
+  'Fell, mine, build, mend or tend what you tap next.': '다음에 누르는 것을 베고, 캐고, 짓고, 고치거나 돌봅니다.',
+  'Wake everyone': '모두 깨우기',
+  'Resting residents come outside and resume their orders.':
+    '쉬고 있는 주민들이 밖으로 나와 하던 일을 이어갑니다.',
   '{0}  ({1})': '{0}  ({1})',
   'Holding position: strikes what comes into reach, never chases': '위치 사수: 닿는 적을 치고 쫓지 않습니다',
   'No farm stands close enough to work this field': '이 밭을 돌볼 만큼 가까운 농장이 없습니다',

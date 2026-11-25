@@ -16,6 +16,7 @@ import type { RealmReward } from './town-realm';
 import type { ExpeditionRecord, ExpeditionResult } from './expedition-record';
 import { Chronicle, type CombatCue, type CombatEvent, type Fallen } from './combat-events';
 import { CombatState } from './combat-state';
+import { FirstSlam } from './expedition-record';
 import { ThorVisit } from './thor-visit';
 export class TownState {
   /** Scoped settlement planners execute the same rules for their own faction. */
@@ -35,6 +36,7 @@ export class TownState {
   /** Everyone the settlement has lost, oldest first. */
   fallen: Fallen[] = [];
   chronicle = new Chronicle();
+  firstExpedition = { departureSeconds: -1, withdrew: false, slam: FirstSlam.Unseen };
   /** A new game waits for the player: residents stand where they woke until the first order. Not saved. */
   awaiting = false;
   /** Keys of the first-time explanations the player has already been given; never shown twice in one game. */
@@ -51,12 +53,15 @@ export class TownState {
   open: Uint8Array; depth: number[] = []; beasts: Monster[] = []; animals: Monster[] = []; animalCalls: AnimalCall[] = []; nextAnimalCall = 0n; wildlifeDay = -1;
   parties: Expedition[] = []; nextMonster = 0; giantDay = -1; raidedDay = -1; raidCount = 0; raidKills = 0; raidBounty = 0; blows: Hit[] = []; nextBlow = 0n; timberEvents: TreeWorkEvent[] = []; nextTreeEvent = 0n;
   provisions = new CampEconomy(); villages: CampEconomy[] = []; deliveries: CampReceipt[] = []; nextReceipt = 0n; nextId = 0; nextPerson = 0; time = 0; days = 0; walkRevision = 0n; dice: number; notices: string[] = []; changes = 1n; roadChanges = 1n; roadOnlyChanges = 0n;
-  constructor(public world: WorldMap) { this.sky = new Sky(world.seed()); this.dice = (Math.imul(world.seed(), 2246822519) + 7) >>> 0; this.open = new Uint8Array(world.dungeons().length); this.time = TownState.secondsPerDay * .3; }
+  static readonly startingTime = TownState.secondsPerDay * .3;
+  constructor(public world: WorldMap) { this.sky = new Sky(world.seed()); this.dice = (Math.imul(world.seed(), 2246822519) + 7) >>> 0; this.open = new Uint8Array(world.dungeons().length); this.time = TownState.startingTime; }
   map(): WorldMap { return this.world; } roads(): RoadNetwork { return this.network; } walking(): WalkGrid { return this.grid; } buildings(): readonly Building[] { return this.placed; } fields(): readonly Field[] { return this.farmland; } people(): readonly Person[] { return this.folk; }
   building(id: number): Building | null { return this.placed.find(b => b.id === id) ?? null; } person(id: number): Person | null { return this.folk.find(p => p.id === id) ?? null; }
   opened(dungeon: number): boolean { return dungeon >= 0 && dungeon < this.open.length && !!this.open[dungeon]; }
   settlements(): readonly CampEconomy[] { return this.villages; } receipts(): readonly CampReceipt[] { return this.deliveries; } monsters(): readonly Monster[] { return this.beasts; } wildlife(): readonly Monster[] { return this.animals; } wildlifeCalls(): readonly AnimalCall[] { return this.animalCalls; } hits(): readonly Hit[] { return this.blows; } treeEvents(): readonly TreeWorkEvent[] { return this.timberEvents; } expeditions(): readonly Expedition[] { return this.parties; }
   raids(): number { return this.raidCount; } clock(): number { return this.time; } climate() { return this.sky.now(); } weather(): Sky { return this.sky; } isTitleAutoplay(): boolean { return this.titleAutoplay || this.titleShowcase; } titleAutoplaySubject(): Person | null { return this.person(this.titleBuilder); }
+  /** Object revision at which the only new scenery was Fire Mountain. */
+  volcanoRevision = -1n;
   revision(): bigint { return this.changes; } roadRevision(): bigint { return this.roadChanges; } objectRevision(): bigint { return this.changes - this.roadOnlyChanges; }
   roadChanged(onlyRoad = true): void { ++this.changes; ++this.roadChanges; if (onlyRoad) ++this.roadOnlyChanges; }
   notify(text: string): void { this.notices.push(text); }

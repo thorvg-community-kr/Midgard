@@ -16,7 +16,6 @@ function fixture() {
   ) as GameHudApp;
   app.chosen = [0];
   app.residentSelection = () => true;
-  app.shelteredSelection = () => false;
   app.personPanelBounds = personPanelBounds.bind(app);
   app.buildMenuBounds = () => new Rect(0, 0, 400, 150);
   app.rosterBounds = (w, h) => new Rect((w - 700) / 2, (h - 440) / 2, 700, 440);

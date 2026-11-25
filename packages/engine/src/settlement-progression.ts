@@ -1,6 +1,6 @@
 // Native settlement_progression.cpp. Guidance/UI rules are intentionally separate from Town::place.
 import type { Town } from './town';
-import { Product, Structure, structureSpec } from './building-catalog';
+import { Product, Structure, structureSpec, resourceProducts } from './building-catalog';
 import { heldAmount } from './carried-resources';
 import { resourceAmount } from './construction-materials';
 import { Tool, toolStructure } from './game-tools';
@@ -8,7 +8,7 @@ import rows from '../data/settlement-goals.json';
 import { belongsToFaction } from './faction';
 import { sealProgress } from './gate-seals';
 import { Activity, Calling, Role, type Person } from './person';
-import { carriedTools, equippedItem, itemSpec } from './equipment';
+import { carriedTools, equippedItem, itemSpec, madeFrom, productItem, upgradeCost } from './equipment';
 import { stationLevel } from './craft-stations';
 import { craftOrder, orderItem, orderSeconds } from './craft-orders';
 import type { Building } from './town-models';
@@ -147,7 +147,7 @@ export function scoutPoint(town: Town, from: Point): Point | null {
     }
   return null;
 }
-export function completedFacility(town: Town, kind: Structure): boolean {
+export function completedFacility(town: Pick<Town, 'buildings' | 'controlFaction'>, kind: Structure): boolean {
   for (const b of town.buildings())
     if (b.built() && belongsToFaction(b, town.controlFaction))
       for (let stage = kind; stage !== Structure.Count; stage = structureSpec(stage).next)
@@ -163,7 +163,7 @@ export function deedCount(town: Town, deed: DeedKey): number {
           p.role === Role.Resident &&
           p.faction === town.controlFaction &&
           p.health > 0 &&
-          p.calling >= Calling.Warrior,
+          (p.trained || p.calling >= Calling.Warrior),
       ).length;
     case 'floors':
       return town.depth.reduce((sum, floors) => sum + floors, 0);
@@ -241,6 +241,8 @@ function unlockRule(kind: Structure): UnlockRule {
       return set([Structure.Workbench]);
     case Structure.Watchtower:
       return set([Structure.TrainingYard], 0, [raidBeaten]);
+    case Structure.Foundry:
+      return set([Structure.Weaponsmith, Structure.Stoneworks], 6);
     case Structure.Armorer:
       return set([Structure.Weaponsmith], 12, [floorCleared]);
     // The altar asks for a home and a food supply for the newcomer it shapes.
@@ -268,7 +270,10 @@ function unlockRule(kind: Structure): UnlockRule {
  */
 const introductions = new Map<Structure, number>();
 goals.forEach((goal, index) => {
-  if (goal.branch === GoalBranch.Core && goal.kind === GoalKind.Building && !introductions.has(goal.building))
+  // A farm is laid out as a field with its farmhouse: that quest brings the farmhouse.
+  const brings =
+    goal.kind === GoalKind.Building || (goal.kind === GoalKind.Field && goal.building !== Structure.Count);
+  if (goal.branch === GoalBranch.Core && brings && !introductions.has(goal.building))
     introductions.set(goal.building, index);
 });
 function questReached(town: Town, index: number): boolean {
@@ -338,9 +343,9 @@ export function goalComplete(town: Town, goal: SettlementGoal): boolean {
     case GoalKind.Road:
       return roadDone(town);
     case GoalKind.Field:
-      return town.fieldAcres() > 0;
+      return town.fieldAcres() > 0 && (goal.building === Structure.Count || completedFacility(town, goal.building));
     case GoalKind.Population:
-      return town.population() >= goal.count;
+      return town.population() >= goal.count || (goal.branch === GoalBranch.Core && lessonPassed(town, goal));
     case GoalKind.Floor:
       return deedCount(town, 'floors') >= goal.count;
     case GoalKind.Seal: {
@@ -359,7 +364,7 @@ export function goalComplete(town: Town, goal: SettlementGoal): boolean {
       return false;
   }
 }
-/** Gear leaves with its owner; once a later building of the chain stands, the crafting lesson stays learned. */
+/** A later building records an earlier lesson even after a resident or their gear is lost. */
 function lessonPassed(town: Town, goal: SettlementGoal): boolean {
   return goals
     .slice(goals.indexOf(goal) + 1)
@@ -409,11 +414,26 @@ export function goalProgress(town: Town, goal: SettlementGoal): GoalProgress {
       return { have, need: 1, label: have ? 'Road complete' : 'No completed road yet' };
     }
     case GoalKind.Field: {
-      const have = town.fieldAcres() > 0 ? 1 : 0;
-      return { have, need: 1, label: have ? 'Field planted' : 'No field yet' };
+      const planted = town.fieldAcres() > 0 ? 1 : 0;
+      if (goal.building === Structure.Count)
+        return { have: planted, need: 1, label: planted ? 'Field planted' : 'No field yet' };
+      const house = completedFacility(town, goal.building) ? 1 : 0;
+      return {
+        have: house + planted,
+        need: 2,
+        label:
+          house && planted
+            ? 'Farm laid out'
+            : house
+              ? 'No field yet'
+              : staked(town, goal.building)
+                ? 'Under construction'
+                : 'No farm yet',
+      };
     }
     case GoalKind.Population: {
-      const have = town.population();
+      const current = town.population();
+      const have = goal.branch === GoalBranch.Core && lessonPassed(town, goal) ? Math.max(goal.count, current) : current;
       return { have, need: goal.count, label: `${have} / ${goal.count} residents` };
     }
     case GoalKind.Floor:
@@ -460,25 +480,27 @@ function craftProgress(town: Town, goal: SettlementGoal): GoalProgress {
       share = Math.min(1, crafting.craftProgress / orderSeconds(craftOrder(crafting.craftItem)!, null));
     return { have: have + share, need, label: `Crafting ${item.name} · ${Math.trunc(share * 100)}%` };
   }
-  // Point at the cheapest missing recipe and what the camp and the best-stocked resident still lack.
+  // Show the ingredients that can actually be paid from this settlement.
   const camp = town.camp(),
     village = camp ? town.settlementOf(camp) : -1,
     stock = camp ? town.stock(village) : null,
-    missing = goal.items
+    recipes = goal.items
       .filter((id) => itemsOwned(town, [id]) === 0)
       .map((id) => itemSpec(id)!)
-      .sort((a, b) => a.cost.wood + a.cost.stone - (b.cost.wood + b.cost.stone))[0];
+      .map((item) => ({ item, cost: madeFrom(item) ? upgradeCost(item) : item.cost }));
+  const total = (recipe: (typeof recipes)[number]) => resourceProducts.reduce((sum, p) => sum + resourceAmount(recipe.cost, p), 0);
+  const missing = recipes.sort((a, b) => total(a) - total(b))[0];
   const prefix = need > 1 ? `${have} / ${need} crafted · ` : '';
   if (!missing || !stock) return { have, need, label: `${have} / ${need} crafted` };
-  const ready = (product: Product): number =>
-    resourceAmount(stock, product) +
-    Math.max(0, ...ownResidents(town).filter((p) => town.settlementOf(p) === village).map((p) => heldAmount(p, product)));
-  const wood = ready(Product.Wood),
-    stone = ready(Product.Stone);
-  if (wood < missing.cost.wood) return { have, need, label: `${prefix}Wood ${wood} / ${missing.cost.wood} for ${missing.name}` };
-  if (stone < missing.cost.stone)
-    return { have, need, label: `${prefix}Stone ${stone} / ${missing.cost.stone} for ${missing.name}` };
-  return { have, need, label: `${prefix}Ready to craft ${missing.name}` };
+  const residents = ownResidents(town).filter((p) => town.settlementOf(p) === village && !town.inRealm(p.position));
+  for (const product of resourceProducts) {
+    const required = resourceAmount(missing.cost, product);
+    if (!required) continue;
+    const ready = residents.reduce((sum, p) => sum + heldAmount(p, product), resourceAmount(stock, product));
+    if (ready < required)
+      return { have, need, label: `${prefix}${productItem(product)!.name} ${ready} / ${required} for ${missing.item.name}` };
+  }
+  return { have, need, label: `${prefix}Ready to craft ${missing.item.name}` };
 }
 function progressOfDeed(town: Town, deed: DeedKey, need: number): GoalProgress {
   const have = deedCount(town, deed);

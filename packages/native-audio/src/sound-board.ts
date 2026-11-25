@@ -1,11 +1,11 @@
 // Native SoundBoard mixer, with SDL device ownership moved to the browser host.
 import { f32 as f, clamp } from '../../engine/src/numeric';
-import { Ambience, Cue, Sound } from './sound-types';
+import { Ambience, Cue, Sound, isOfferingCue } from './sound-types';
 import { Clip, MusicStream, SoundLibrary, sounds, onsets } from './sound-library';
 import { voiceSample } from './spoken-voice';
 import { EffectManager } from './effect-manager';
 import { Score } from './music-score';
-import { animalCallWindows, workClipWindows, cueClips, swarmBedPrefix } from './sound-catalog';
+import { animalCallWindows, workClipWindows, offeringClipWindows, cueClips, swarmBedPrefix } from './sound-catalog';
 import { ambient, voice, clipEnd, effectDuration, type Voice, type Stereo } from './sound-synthesis';
 export enum Playback {
   Playing,
@@ -27,7 +27,7 @@ const rate = 44100,
   duckRise = f(1 / f(rate * f(1.5)));
 const stingCue = (cue: Cue) => cue === Cue.DenFall || cue === Cue.BroodBreak || cue === Cue.WaveHorn || cue === Cue.Fall,
   interfaceCue = (cue: Cue) =>
-    [Cue.Click, Cue.Order, Cue.Place, Cue.Refuse, Cue.Open, Cue.Notice].includes(cue),
+    isOfferingCue(cue) || [Cue.Click, Cue.Order, Cue.Place, Cue.Refuse, Cue.Open, Cue.Notice].includes(cue),
   thunderCue = (cue: Cue) => cue >= Cue.ThunderCrack && cue <= Cue.ThunderRumble;
 function makeVoice(sound: Sound, age = 0, token = 0n): Voice {
   const angle = f(f(clamp(sound.pan, -1, 1) + 1) * f(0.7853982));
@@ -150,7 +150,7 @@ export class SoundBoard {
         return (this.picking >>> 8) / 16777216;
       },
       group = groups[Math.min(groups.length - 1, Math.trunc(f(next() * groups.length)))],
-      calls = animalCallWindows[sound.cue] ?? workClipWindows[sound.cue],
+      calls = animalCallWindows[sound.cue] ?? workClipWindows[sound.cue] ?? offeringClipWindows[sound.cue],
       takes = calls?.length ?? this.library.count(group);
     if (!takes) return { clip: new Clip(), rate: 1 };
     const key = sound.cue % this.lastTake.length;

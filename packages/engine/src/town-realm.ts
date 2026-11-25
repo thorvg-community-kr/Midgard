@@ -1,18 +1,19 @@
-import type { TownState } from './town-state';
+import { TownState } from './town-state';
 import { Activity, Monster, Person, type Expedition } from './person';
 import { Resources, Structure, describe } from './building-catalog';
 import { Check, type Building } from './town-models';
 import { add, distance, point, rotated, scale, sub, type Point } from './geometry';
 import { f32 as f, hash01, lround } from './numeric';
-import { DungeonKind, type Dungeon } from './world-types';
+import { DungeonKind, World, type Dungeon } from './world-types';
 import { worldName } from './world-map';
 import { breedOf, lairOf, monsterBite, monsterEntrance } from './town-monsters';
 import { CombatCue, MonsterRank } from './combat-events';
 import { choosePrey, rankMonster, rankPace, rankRules, rankWorth, slowedBy, tauntedBy } from './monster-ranks';
 import { huntStep, walkPath } from './monster-navigation';
 import { gateSealed, sealFloors, sealProgress, sealable } from './gate-seals';
+import { gateActive } from './gate-progression';
 import { altarCap, altarCapLine } from './altar-cap';
-import { ExpeditionEnd, beginRecord, finishRecord, joinRecord, type ExpeditionRecord } from './expedition-record';
+import { ExpeditionEnd, FirstSlam, beginRecord, finishRecord, joinRecord, type ExpeditionRecord } from './expedition-record';
 import {
   ChamberKind,
   findRealmArea,
@@ -144,7 +145,7 @@ export function realmDens(this: TownState): Monster[] {
 }
 /** Floors open in order; a cleared floor stays open to be fought again. */
 export function floorOpen(this: TownState, dungeon: number, floor: number): boolean {
-  return Number.isInteger(floor) && floor >= 0 && floor < sealFloors && floor <= (this.depth[dungeon] ?? 0);
+  return gateActive(this, dungeon) && Number.isInteger(floor) && floor >= 0 && floor < sealFloors && floor <= (this.depth[dungeon] ?? 0);
 }
 export function deepestOpenFloor(this: TownState, dungeon: number): number {
   return Math.min(sealFloors - 1, this.depth[dungeon] ?? 0);
@@ -155,6 +156,8 @@ export function expeditionProblem(this: TownState, dungeon: number, floor: numbe
   if (!sealable(site)) return site.kind === DungeonKind.Return ? '' : 'A neutral giant dwelling';
   // Reinforcements may follow a party through the same gate while its guardian lives.
   if (this.realmGate === dungeon) return this.realmCleared ? 'This floor is already cleared' : '';
+  if (gateSealed(this, dungeon)) return 'Sealed: no raid leaves this gate and no party goes through it';
+  if (!gateActive(this, dungeon)) return 'Dormant gate';
   if (!floorOpen.call(this, dungeon, floor)) return 'Clear the floor above first';
   if (this.realmGate >= 0) return 'A party is already beyond another gate';
   if (this.parties.some((party) => party.members.length && party.dungeon !== dungeon))
@@ -198,6 +201,10 @@ function floorDens(plan: RealmPlan, floor: number): number {
   const rooms = plan.chambers.filter((chamber) => chamber.kind === ChamberKind.Den).length;
   return Math.max(realmRules.dens, Math.min(realmRules.mostDens, realmRules.dens + floor, rooms));
 }
+export function realmDenTotal(this: TownState): number {
+  const plan = realmPlan.call(this);
+  return plan ? this.realmRecord?.dens ?? floorDens(plan, this.realmFloor) : 0;
+}
 /** The running record; after a load it is rebuilt from the party as it stands, with what is not saved unknown. */
 function recordOf(town: RealmTown): ExpeditionRecord {
   const record = town.realmRecord;
@@ -207,6 +214,8 @@ function recordOf(town: RealmTown): ExpeditionRecord {
 /** Hands the finished expedition to the HUD; called before the world beyond is sunk. */
 function endRecord(town: RealmTown, end: ExpeditionEnd, kept: boolean): void {
   const site = town.world.dungeons()[town.realmGate];
+  if (town.chronicle.partiesLed === 1) town.firstExpedition.withdrew = end === ExpeditionEnd.Withdrew;
+  if (town.firstExpedition.slam === FirstSlam.Winding) town.firstExpedition.slam = FirstSlam.Unfinished;
   finishRecord(town, recordOf(town), {
     end,
     site: site.name,
@@ -248,6 +257,10 @@ function populate(town: RealmTown, plan: RealmPlan): void {
       .sort((a, b) => distance(b.chamber.center, entry) - distance(a.chamber.center, entry) || a.index - b.index),
     denCount = floorDens(plan, floor),
     sites: { room: (typeof rooms)[number]; den: Monster | null; weight: number }[] = [];
+  if (plan.passage && !plan.passage.snow) {
+    const flank = denRooms.findIndex((room) => room.index === plan.passage!.room);
+    if (flank >= denCount) denRooms.splice(denCount - 1, 0, denRooms.splice(flank, 1)[0]);
+  }
   for (let i = 0; i < denCount; ++i) {
     const room = denRooms.length ? denRooms[i % denRooms.length] : heart,
       shared = sites.filter((other) => other.room === room).length,
@@ -270,8 +283,11 @@ function populate(town: RealmTown, plan: RealmPlan): void {
   sites.forEach((entry, i) => {
     const size = i === sites.length - 1 ? left : Math.min(left, Math.round((budget * entry.weight) / weights));
     left -= size;
-    const center = entry.den?.position ?? entry.room.chamber.center;
-    packRanks(size, floor).forEach((rank, k) =>
+    const center = entry.den?.position ?? entry.room.chamber.center, ranks = packRanks(size, floor);
+    // A snow crossing leads to a ranged position even when this chamber draws only a small pack.
+    if (ranks.length && plan.passage?.snow && plan.passage.room === entry.room.index && !ranks.includes(MonsterRank.Spitter))
+      ranks[ranks.length - 1] = MonsterRank.Spitter;
+    ranks.forEach((rank, k) =>
       spawn(scatter(center, entry.room.chamber.radius, k, size, entry.room.index * 7 + i), rank, entry.den?.id ?? -1),
     );
   });
@@ -321,7 +337,8 @@ function enterRealm(town: RealmTown, party: Expedition, members: Person[]): void
     town.notify(`${members.length} more step through ${site.name} to join the party`);
     return;
   }
-  if (!area || town.realmGate >= 0) return release();
+  if (!area || town.realmGate >= 0 || !gateActive(town, party.dungeon)) return release();
+  if (!town.opened(party.dungeon)) town.open[party.dungeon] = 1;
   town.realmArea = area;
   town.realmGate = party.dungeon;
   town.realmFloor = floor;
@@ -348,6 +365,7 @@ function enterRealm(town: RealmTown, party: Expedition, members: Person[]): void
   populate(town, plan);
   beginRecord(town, members, realmDens.call(town).length);
   arrive(town, members, plan.entry);
+  if (town.chronicle.partiesLed === 0) town.firstExpedition.departureSeconds = Math.max(0, town.time - TownState.startingTime);
   ++town.chronicle.partiesLed;
   town.chronicle.largestParty = Math.max(town.chronicle.largestParty, members.length);
   party.members = [];
@@ -520,6 +538,10 @@ export function realmKill(this: RealmTown, beast: Monster): void {
     party = realmParty.call(this),
     prize = worldHoard(world, floor, first ? 2 : 1),
     lines: string[] = [];
+  // A cleared floor outfits the next expedition even if a local vein is across the sea.
+  prize.ironOre += first ? 4 : 2;
+  if (world === World.Niflheim || world === World.Jotunheim || floor >= 1) prize.frostwood += first ? 4 : 2;
+  if (world === World.Muspelheim || floor >= 1) prize.cinderOre += first ? 4 : 2;
   if (first) this.depth[this.realmGate] = floor + 1;
   for (const p of party) this.rewardExperience(p, 25 * (floor + 1));
   if (first && last) {
@@ -569,9 +591,13 @@ function slam(town: RealmTown, beast: Monster, party: Person[], enraged: boolean
   const center = town.combatState.slamCenter.get(beast.id) ?? { ...beast.position };
   town.combatState.slamCenter.delete(beast.id);
   if (enraged) beast.strength = f(might * realmRules.enrage);
+  let hit = false;
   for (const p of party)
-    if (!p.inside && p.health > 0 && p.downedAt < 0 && distance(p.position, center) <= rankRules.slamRadius)
+    if (!p.inside && p.health > 0 && p.downedAt < 0 && distance(p.position, center) <= rankRules.slamRadius) {
+      hit = true;
       monsterBite(town, beast, p, breed, rankRules.slamPower, true);
+    }
+  if (town.firstExpedition.slam === FirstSlam.Winding) town.firstExpedition.slam = hit ? FirstSlam.Hit : FirstSlam.Evaded;
   beast.strength = might;
   beast.ready = town.time + breed.pause;
   town.emit(CombatCue.Slam, center, { creature: beast.id, radius: rankRules.slamRadius });
@@ -683,13 +709,16 @@ function advanceFoe(town: RealmTown, beast: Monster, party: Person[], dt: number
     const due = town.combatState.slamAt.get(beast.id);
     if (due === undefined) town.combatState.slamAt.set(beast.id, town.time + rankRules.slamFirst);
     else if (town.time >= due) {
-      beast.windupUntil = town.time + rankRules.slamWindup;
+      const first = town.firstExpedition.slam === FirstSlam.Unseen && town.chronicle.guardiansSlain === 0;
+      const duration = first ? rankRules.firstSlamWindup : rankRules.slamWindup;
+      if (first) town.firstExpedition.slam = FirstSlam.Winding;
+      beast.windupUntil = town.time + duration;
       beast.path = [];
       town.combatState.slamCenter.set(beast.id, { ...beast.position });
       town.emit(CombatCue.Telegraph, beast.position, {
         creature: beast.id,
         radius: rankRules.slamRadius,
-        duration: rankRules.slamWindup,
+        duration,
       });
       return;
     }

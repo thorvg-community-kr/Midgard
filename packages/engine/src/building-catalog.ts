@@ -40,10 +40,15 @@ export enum Structure {
   TrainingYard,
   Runestone,
   Workbench,
+  Foundry,
+  Ranch,
   Count,
 }
-export const resourceKeys = ['gold', 'wood', 'stone', 'food', 'mana', 'water', 'planks', 'cutStone', 'bones'] as const;
-export const storedResourceKeys = ['wood', 'stone', 'food', 'water', 'planks', 'cutStone', 'bones'] as const;
+export const craftMaterialKeys = ['hides', 'ironOre', 'cinderOre', 'frostwood', 'ironIngot', 'boundFrostwood', 'embersteel'] as const;
+export const resourceKeys = ['gold', 'wood', 'stone', 'food', 'mana', 'water', 'planks', 'cutStone', 'bones', ...craftMaterialKeys] as const;
+export const storedResourceKeys = ['wood', 'stone', 'food', 'water', 'planks', 'cutStone', 'bones', ...craftMaterialKeys] as const;
+export type ResourceKey = (typeof resourceKeys)[number];
+export const resourceName = (key: ResourceKey): string => key.replace(/[A-Z]/g, (letter) => ' ' + letter.toLowerCase());
 export class Resources {
   constructor(
     public gold = 0,
@@ -55,7 +60,17 @@ export class Resources {
     public planks = 0,
     public cutStone = 0,
     public bones = 0,
+    public hides = 0,
+    public ironOre = 0,
+    public cinderOre = 0,
+    public frostwood = 0,
+    public ironIngot = 0,
+    public boundFrostwood = 0,
+    public embersteel = 0,
   ) {}
+  static from(amounts: Partial<Record<ResourceKey, number>>): Resources {
+    return Object.assign(new Resources(), amounts);
+  }
   covers(cost: Resources): boolean {
     return resourceKeys.every((key) => this[key] >= cost[key]);
   }
@@ -103,7 +118,22 @@ export enum Product {
   Planks,
   CutStone,
   Bones,
+  Hides,
+  IronOre,
+  CinderOre,
+  Frostwood,
+  IronIngot,
+  BoundFrostwood,
+  Embersteel,
 }
+export const productKeys: Readonly<Record<Product, ResourceKey | null>> = {
+  [Product.None]: null, [Product.Goods]: 'gold', [Product.Wood]: 'wood', [Product.Stone]: 'stone',
+  [Product.Food]: 'food', [Product.Mana]: 'mana', [Product.Water]: 'water', [Product.Planks]: 'planks',
+  [Product.CutStone]: 'cutStone', [Product.Bones]: 'bones', [Product.Hides]: 'hides',
+  [Product.IronOre]: 'ironOre', [Product.CinderOre]: 'cinderOre', [Product.Frostwood]: 'frostwood',
+  [Product.IronIngot]: 'ironIngot', [Product.BoundFrostwood]: 'boundFrostwood', [Product.Embersteel]: 'embersteel',
+};
+export const resourceProducts: readonly Product[] = Object.keys(productKeys).map(Number).filter((p) => p !== Product.None);
 export interface StructureSpec {
   name: string;
   description: string;
@@ -123,13 +153,11 @@ export interface StructureSpec {
   beds: number;
   storage: number;
 }
-const resource = (r: Partial<Record<(typeof resourceKeys)[number], number>>): Resources =>
-  new Resources(...resourceKeys.map((key) => r[key] ?? 0));
 const specs: StructureSpec[] = rows.map((row) => ({
   ...row,
   size: f32(row.size),
-  cost: resource(row.cost),
-  upgradeCost: resource(row.upgradeCost),
+  cost: Resources.from(row.cost),
+  upgradeCost: Resources.from(row.upgradeCost),
 }));
 export const structureSpec = (kind: Structure): StructureSpec => specs[kind];
 export const isSeat = (kind: Structure): boolean =>
@@ -192,7 +220,7 @@ export function buildWork(kind: Structure): number {
 export function describe(value: Resources): string {
   const parts: string[] = [];
   for (const key of resourceKeys)
-    if (value[key]) parts.push(`${value[key]} ${key === 'cutStone' ? 'cut stone' : key}`);
+    if (value[key]) parts.push(`${value[key]} ${resourceName(key)}`);
   return parts.join(', ') || 'free';
 }
 export interface Rgb {

@@ -142,7 +142,7 @@ describe('combat text', () => {
     blow(town, hero.position, foe.position, 8, { person: hero.id, attacker: hero.id });
     frame(s, town);
     expect(combatTextOf(s)).toHaveLength(1);
-    expect(combatTextOf(s)[0]).toMatchObject({ value: 20, text: '20', kind: TextKind.Dealt });
+    expect(combatTextOf(s)[0]).toMatchObject({ value: 20, text: '2', kind: TextKind.Dealt });
     advance(town, mergeWindow + 0.05);
     blow(town, hero.position, foe.position, 5, { person: hero.id, attacker: hero.id });
     frame(s, town);
@@ -172,7 +172,7 @@ describe('combat text', () => {
     frame(s, town);
     const byKind = new Map(combatTextOf(s).map((f) => [f.kind, f]));
     const expected: [TextKind, readonly number[], string][] = [
-      [TextKind.Crit, tone.ochre, '30'],
+      [TextKind.Crit, tone.ochre, '3'],
       [TextKind.Taken, tone.rust, '-7'],
       [TextKind.Heal, textStyles[TextKind.Heal].color, '+35'],
       [TextKind.Level, textStyles[TextKind.Level].color, 'Level 5'],
@@ -773,7 +773,7 @@ describe('words in Korean', () => {
       expect(level.text).toBe('레벨 5');
       expect(level.front.font).toBe('NotoSansKR-Bold');
       expect(level.front.size).toBeLessThan(textStyles[TextKind.Level].size);
-      expect(dealt.text).toBe('12');
+      expect(dealt.text).toBe('1.2');
       expect(dealt.front.font).not.toBe('NotoSansKR-Bold');
       // Switching back redraws the live word in English.
       setLocale('ENG');

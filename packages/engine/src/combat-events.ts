@@ -62,6 +62,8 @@ export interface CombatEvent {
   person: number;
   /** Monster or animal concerned, or -1. */
   creature: number;
+  /** The source gate of a raid wave. */
+  gate?: number;
   amount: number;
   /** Ground radius in tiles for area cues, else 0. */
   radius: number;

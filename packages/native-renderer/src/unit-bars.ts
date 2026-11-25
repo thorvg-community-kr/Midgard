@@ -165,9 +165,10 @@ export function updateUnitBars(s: WorldRendererState, town: Town, selected: read
     });
   }
   for (const p of town.people()) {
-    if (!player(p) || p.inside || p.visibility() < 0.5 || s.currentVisibility.sample(p.position) < 119)
+    const arrival = s.figures.get(p.id)?.arrival, at = arrival?.foot ?? p.position;
+    if (!player(p) || arrival?.rising || p.inside || p.visibility() < 0.5 || s.currentVisibility.sample(at) < 119)
       continue;
-    const foot = project(p.position.x, p.position.y);
+    const foot = project(at.x, at.y);
     if (p.downedAt >= 0) {
       const left = town.bleedOutLeft?.(p) ?? Math.max(0, p.downedAt + combatRules.bleedOut - now),
         total = Math.max(0.001, left + Math.max(0, now - p.downedAt)),

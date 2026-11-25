@@ -6,14 +6,17 @@ import { Context, Rect, Key, Cursor } from '../../packages/native-ui/src';
 import { handleTouchEvent } from '../../apps/web/src/native/game-touch';
 import { emptyEvent } from '../../apps/web/src/native/application-contracts';
 import { civicInspector } from '../../apps/web/src/native/game-civic-panel';
-import { closePrayer, renderPrayer } from '../../apps/web/src/native/game-prayer';
+import { closePrayer, handlePrayerEvent, openPrayer, renderPrayer } from '../../apps/web/src/native/game-prayer';
+import { Cue } from '../../packages/native-audio/src/sound-types';
 import { Structure, Resources } from '../../packages/engine/src/building-catalog';
 import { Building } from '../../packages/engine/src/town-models';
 import { Town } from '../../packages/engine/src/town';
 import { Activity, Calling, Role, Person, Race } from '../../packages/engine/src/person';
 import { point } from '../../packages/engine/src/geometry';
 import { GameAppState, DockView } from '../../apps/web/src/native/game-app-state';
-import { addInventory } from '../../packages/engine/src/equipment';
+import { addInventory, attackDamage, itemSpec } from '../../packages/engine/src/equipment';
+import { koreanFont, locale, setLocale, translate } from '../../packages/localization/src';
+import { itemIcon } from '../../apps/web/src/native/game-equipment-panel';
 import {
   updateContextDock,
   renderDockContent,
@@ -29,8 +32,9 @@ import {
   placementPanel,
   placementPanelBounds,
 } from '../../apps/web/src/native/game-hud';
-import { stationCrafter } from '../../apps/web/src/native/craft-station-hud';
 import { objectives } from '../../apps/web/src/native/game-objectives';
+import { skyMural } from '../../apps/web/src/native/game-sky-hud';
+import { wakeEveryone, type GameCommandApp } from '../../apps/web/src/native/game-commands';
 import * as input from '../../apps/web/src/native/game-input';
 import { PointerButton, Tool, Order } from '../../packages/engine/src/game-tools';
 import { actionButton } from '../../apps/web/src/native/hud-actions';
@@ -43,8 +47,8 @@ import {
   personPanel,
   personPanelBounds,
   residentSelection,
-  shelteredSelection,
 } from '../../apps/web/src/native/game-unit-panel';
+import { unitOrderRail } from '../../apps/web/src/native/unit-orders-card';
 import type { GameHudApp } from '../../apps/web/src/native/game-hud-contract';
 class Pixels {
   constructor(
@@ -89,10 +93,12 @@ function fixture(width = 880, height = 600) {
     height,
     enableDevicePixelRatio: false,
   });
-  for (const font of ['DejaVuSans', 'DejaVuSans-Bold'])
+  const fonts = ['DejaVuSans', 'DejaVuSans-Bold'];
+  if (locale() === 'KR') fonts.push(koreanFont, `${koreanFont}-Bold`);
+  for (const font of fonts)
     tvg.Font.load(font, new Uint8Array(readFileSync(`public/assets/native-fonts/${font}.ttf`)));
   const metrics = Object.fromEntries(
-    ['DejaVuSans', 'DejaVuSans-Bold'].map((font) => [
+    fonts.map((font) => [
       font,
       parseFontMetrics(new Uint8Array(readFileSync(`public/assets/native-fonts/${font}.ttf`))),
     ]),
@@ -104,7 +110,6 @@ function fixture(width = 880, height = 600) {
   app.toggleAuto = vi.fn();
   app.commandCard = vi.fn();
   app.residentSelection = residentSelection.bind(app);
-  app.shelteredSelection = shelteredSelection.bind(app);
   const controls = vi.spyOn(context, 'control'),
     labels = vi.spyOn(context, 'text');
   canvas.add(context.scene());
@@ -114,6 +119,7 @@ function fixture(width = 880, height = 600) {
     context,
     controls,
     labels,
+    memory,
     capture(name: string) {
       const directory = process.env.GOLDFANTASY_UI_CAPTURE;
       if (!directory) return;
@@ -171,19 +177,45 @@ it.each([
     ui.context.pointerUp(confirm.x + 10, confirm.y + 10);
     expect(ui.app.confirmTouchPlacement).toHaveBeenCalledOnce();
     ui.app.chosen = [ui.town.folk[0].id];
-    ui.app.commandCard = commandCard.bind(ui.app);
+    ui.app.personPanelBounds = personPanelBounds.bind(ui.app);
+    ui.app.tool = Tool.Select;
+    ui.app.dockView = DockView.Unit;
     const selected = personPanelBounds.call(ui.app, width, height, true);
-    ui.draw(() => personPanel.call(ui.app, selected));
+    ui.draw(() => {
+      personPanel.call(ui.app, selected);
+      unitOrderRail(ui.app, width, height);
+    });
     expect(selected.y + selected.h).toBe(height - 12);
     const actions = ui.controls.mock.calls.filter(([id]) => id.startsWith('unit/card-'));
-    // Build, Move, Attack, Hold, Stop, Work, Clear, Select.
-    expect(actions).toHaveLength(8);
-    for (const [, r] of actions) {
-      expect(r.w).toBeGreaterThanOrEqual(44);
-      expect(r.h).toBeGreaterThanOrEqual(44);
-      expect(r.y).toBeGreaterThanOrEqual(selected.y + 100);
-      expect(r.y + r.h).toBeLessThanOrEqual(selected.y + selected.h);
+    // Build, and since a finger has no right button: Move, Attack, Hold, Work, in a rail on the right edge.
+    expect(actions.map(([id]) => id)).toEqual([
+      'unit/card-build',
+      'unit/card-move',
+      'unit/card-attack',
+      'unit/card-hold',
+      'unit/card-work',
+    ]);
+    for (const [id, r] of actions) {
+      expect(r.w, id).toBeGreaterThanOrEqual(44);
+      expect(r.h, id).toBeGreaterThanOrEqual(44);
+      expect(r.x, id).toBeGreaterThan(width / 2);
+      expect(r.x + r.w, id).toBeLessThanOrEqual(width - 12);
+      expect(r.y, id).toBeGreaterThanOrEqual(64);
+      expect(r.y + r.h, id).toBeLessThanOrEqual(height - 12);
+      // Above the panel in an upright view, beside it in a low one: never on it.
+      if (height >= 500) expect(r.y + r.h, id).toBeLessThanOrEqual(selected.y);
+      else expect(r.x, id).toBeGreaterThanOrEqual(selected.x + selected.w);
     }
+    if (width === 390) expect(actions.map(([, r]) => [r.x, r.y])).toEqual([424, 478, 532, 586, 640].map((y) => [320, y]));
+    if (width === 844) expect(actions.map(([, r]) => [r.x, r.y])).toEqual([108, 162, 216, 270, 324].map((y) => [774, y]));
+    // The lit order of an aim stays in the rail while the panel has given way to the cancel dock.
+    ui.app.pending = Order.Attack;
+    ui.app.dockView = DockView.Handle;
+    ui.draw(() => unitOrderRail(ui.app, width, height));
+    const aimed = ui.controls.mock.calls.filter(([id]) => id.startsWith('unit/card-'));
+    expect(aimed.map(([, r]) => [r.x, r.y])).toEqual(actions.map(([, r]) => [r.x, r.y]));
+    expect(ui.labels.mock.calls.find((call) => call[1] === 'Attack')![2]).toEqual(ui.app.theme.accentText);
+    expect(ui.labels.mock.calls.find((call) => call[1] === 'Hold')![2]).toEqual(ui.app.theme.text);
   } finally {
     ui.dispose();
   }
@@ -356,6 +388,8 @@ it('keeps Unit management open while equipping its selected resident without sel
   const ui = fixture();
   try {
     const p = ui.town.folk[0];
+    p.birthStrength = 1;
+    p.birthVitality = 2;
     // Tools work from the pack; what goes in a slot is held or worn, like a shield.
     addInventory(p, 'shield');
     ui.app.rosterOpen = true;
@@ -368,6 +402,7 @@ it('keeps Unit management open while equipping its selected resident without sel
       ui.context.pointerUp(bounds.x + bounds.w / 2, bounds.y + bounds.h / 2);
     };
     draw();
+    expect(ui.labels.mock.calls.some(([, label]) => label === 'STR 3 · DEX 2 · INT 1 · Vitality +2')).toBe(true);
     expect(ui.controls.mock.calls.filter(([id]) => id.startsWith('inventory-slot-'))).toHaveLength(16);
     click('inventory-slot-1');
     draw();
@@ -381,13 +416,91 @@ it('keeps Unit management open while equipping its selected resident without sel
     expect(p.equipment.offhand).toBe(1);
     expect(ui.app.chosen).toEqual([ui.town.folk[1].id]);
     expect(ui.app.selectPeople).not.toHaveBeenCalled();
-    // Crafting is done at a workbench in the world; the unit window only leads there.
-    draw();
-    expect(ui.controls.mock.calls.some(([id]) => id === 'equipment-workbench')).toBe(true);
-    expect(ui.controls.mock.calls.some(([id]) => id.startsWith('craft-item-'))).toBe(false);
+    const worker = ui.town.folk[1], camp = new Building(0, Structure.Camp, point(8, 8), 0, 0);
+    const smith = new Building(1, Structure.Weaponsmith, point(14, 12), 0, 0);
+    const guild = new Building(2, Structure.Guild, point(18, 12), 0, 0);
+    const school = new Building(3, Structure.TrainingYard, point(20, 15), 0, 0);
+    ui.town.placed = [camp, smith, guild, school];
+    for (const b of ui.town.placed) b.village = 0;
+    worker.village = worker.home = 0; worker.level = 4; worker.position = smith.door();
+    ui.town.migrateSettlements(); ui.town.stock(0).wood = 20;
+    ui.town.changes++; ui.town.tick(0);
+    draw(); click('equipment-workbench'); draw();
+    click('resident-choice-wooden-sword'); draw(); click('resident-service-order');
+    expect([worker.craftWorkshop, worker.craftItem]).toEqual([smith.id, 'wooden-sword']);
+    draw(); click('resident-cancel-craft'); draw();
+    click('equipment-tab-guild'); draw(); click('resident-choice-' + Calling.Warrior); draw(); click('resident-service-order');
+    expect([worker.task, worker.taskSite, worker.trainingCalling]).toEqual([Activity.Training, guild.id, Calling.Warrior]);
+    expect(ui.app.rosterSelected).toBe(`units:${worker.id}`);
     expect(ui.app.rosterOpen).toBe(true);
+    draw(); click('resident-cancel-training');
+    expect(worker.task).not.toBe(Activity.Training);
   } finally {
     ui.dispose();
+  }
+});
+
+it.each([
+  ['ENG', 1280, 800], ['KR', 1280, 800], ['KR', 360, 740], ['KR', 640, 360],
+  ['KR', 320, 568], ['ENG', 568, 320], ['KR', 720, 540],
+] as const)('shows the same complete gear stats in recipes and inventory in %s at %ix%i', (language, width, height) => {
+  const previous = locale();
+  setLocale(language);
+  const ui = fixture(width, height);
+  try {
+    const [resident, other] = ui.town.folk;
+    resident.name = 'Bryn'; other.name = 'Signe';
+    const camp = new Building(0, Structure.Camp, point(5, 5), 0, 0),
+      bench = new Building(1, Structure.Workbench, point(12, 8), 0, 0),
+      smith = new Building(2, Structure.Weaponsmith, point(14, 12), 0, 0);
+    ui.town.placed = [camp, bench, smith];
+    for (const b of ui.town.placed) b.village = camp.id;
+    for (const p of [resident, other]) p.home = p.village = camp.id;
+    resident.level = 5;
+    resident.position = smith.door();
+    ui.town.migrateSettlements();
+    ui.town.stock(camp.id).wood = 40;
+    ui.app.rosterOpen = true;
+    ui.app.rosterSelected = `units:${resident.id}`;
+    const board = rosterBounds.call(ui.app, width, height);
+    const draw = () => ui.draw(() => rosterPanel.call(ui.app, board));
+    const shown = (stats: string[], bounds: Rect) => {
+      for (const stat of stats) {
+        const target = translate(stat);
+        if (language === 'KR') expect(target, stat).not.toMatch(/[A-Za-z]{2}/);
+        const row = ui.labels.mock.calls.find(([box, text]) => translate(text).split(' · ').includes(target)
+          && box.x >= bounds.x && box.y >= bounds.y && box.x + box.w <= bounds.x + bounds.w + 0.01
+          && box.y + box.h <= bounds.y + bounds.h + 0.01);
+        expect(row, stat).toBeDefined();
+        expect(ui.context.textWidth(translate(row![1]), row![3], row![4]), stat).toBeLessThanOrEqual(row![0].w + 0.01);
+      }
+    };
+    for (const [station, id, stats] of [
+      [smith, 'wooden-spear', ['Melee attack +1', 'DEX scaling +3', 'STR scaling +2', 'Reach +0.5', 'Pierces', 'Two-handed']],
+      [bench, 'wooden-mallet', ['Building efficiency +1', 'Crafting efficiency +1', 'Attack as a weapon +1']],
+    ] as const) {
+      const item = itemSpec(id)!;
+      const expected = [...stats, ...(item.scaling ? [`Attack if equipped ${attackDamage(resident)} → ${attackDamage(resident, item)}`] : [])];
+      ui.app.equipmentTab = 'craft';
+      ui.app.craftWorkshopFilter = station.kind;
+      ui.app.craftPage = ui.town.craftOptions(resident.id, station.id).filter(({ item }) => item.stationLevel === 1).findIndex(o => o.item.id === id);
+      draw();
+      shown(expected, board);
+      addInventory(resident, id);
+      ui.app.equipmentTab = 'equipment';
+      ui.app.inventorySelected = resident.inventory.findIndex(s => s?.item === id) + 1;
+      draw();
+      shown(expected, board);
+    }
+    // A proper name outside the phrase book must not turn its neighbouring stats back into English.
+    const stationBoard = new Rect(20, 12, Math.min(width - 40, 620), height - 24);
+    ui.app.selected = smith.id;
+    ui.draw(() => inspector.call(ui.app, stationBoard, true));
+    const sword = itemSpec('wooden-sword')!, who = ui.town.craftOffers(smith.id).find(o => o.item.id === sword.id)!.who!;
+    shown(['STR scaling +3', 'DEX scaling +1', `Attack if equipped ${attackDamage(who)} → ${attackDamage(who, sword)}`], stationBoard);
+  } finally {
+    ui.dispose();
+    setLocale(previous);
   }
 });
 
@@ -599,12 +712,12 @@ it('keeps overwhelmed player residents in Units while excluding defectors and gu
     expect(
       ui.controls.mock.calls.filter((call) => call[0].startsWith('roster-person-')).map((call) => call[0]),
     ).toEqual([`roster-person-units:${player.id}`]);
-    expect(ui.labels.mock.calls.some((call) => String(call[1]).includes('Overwhelmed'))).toBe(true);
+    expect(ui.labels.mock.calls.some((call) => String(call[1]).includes('Exhausted'))).toBe(true);
     ui.app.chosen = [player.id];
     ui.draw(() => personPanel.call(ui.app, personPanelBounds.call(ui.app, 880, 600, false)));
     expect(ui.controls.mock.calls.some((call) => call[0] === 'unit-auto')).toBe(false);
     expect(ui.app.commandCard).not.toHaveBeenCalled();
-    expect(ui.labels.mock.calls.some((call) => String(call[1]).includes('Overwhelmed'))).toBe(true);
+    expect(ui.labels.mock.calls.some((call) => String(call[1]).includes('Exhausted'))).toBe(true);
   } finally {
     ui.dispose();
   }
@@ -637,7 +750,8 @@ it('opens resource offerings from the altar without choosing or ordering a resid
     ui.app.prayer!.inputs.food.value = '0';
     ui.context.pointerDown(confirm[1].x + 10, confirm[1].y + 10);
     ui.context.pointerUp(confirm[1].x + 10, confirm[1].y + 10);
-    expect(ui.app.prayer!.started).toBe(-1);
+    expect(ui.app.prayer?.altar).toBe(altar.id);
+    expect(ui.app.residentArrival).toBeNull();
     ui.draw(() => renderPrayer.call(ui.app, 880, 600));
     expect(ui.controls.mock.calls.find((call) => call[0] === 'prayer-confirm')![3]).toBe(false);
     ui.app.prayer!.inputs.food.value = '4';
@@ -661,11 +775,84 @@ it('opens resource offerings from the altar without choosing or ordering a resid
     pending?.adapter.dispose();
   }
 });
-it('previews class stats without mutating the resident and disables a second profession', () => {
+it('keeps an altar draft across editor visits and applies it once with the final offering', () => {
+  const ui = fixture(390, 720);
+  const { altar } = civicTown(ui.town);
+  const draw = () => ui.draw(() => renderPrayer.call(ui.app, 390, 720));
+  const click = (id: string) => {
+    const control = ui.controls.mock.calls.find(([name]) => name === id);
+    expect(control?.[3], id).toBe(true);
+    const r = control![1];
+    ui.context.pointerDown(r.x + r.w / 2, r.y + r.h / 2);
+    ui.context.pointerUp(r.x + r.w / 2, r.y + r.h / 2);
+  };
+  try {
+    ui.town.folk[0].level = 9;
+    const dice = ui.town.dice, stock = ui.town.stock(0), before = stock.food;
+    openPrayer.call(ui.app, altar.id);
+    draw();
+    click('offering-bundle-food');
+    click('offering-less-food');
+    click('offering-food');
+    handlePrayerEvent.call(ui.app, { ...emptyEvent('KeyDown'), key: Key.Backspace });
+    handlePrayerEvent.call(ui.app, { ...emptyEvent('KeyDown'), key: Key.Delete });
+    handlePrayerEvent.call(ui.app, { ...emptyEvent('Text'), text: '8' });
+    const editCues = [Cue.OfferFood, Cue.OfferTakeFood, Cue.OfferTakeFood, Cue.OfferFood];
+    click('prayer-customize');
+    draw();
+    click('prayer-look-random');
+    draw();
+    click('prayer-tab-face');
+    draw();
+    click('prayer-eyes-next');
+    click('prayer-tab-clothing');
+    draw();
+    click('prayer-cloth-tone-3');
+    click('prayer-name');
+    const draft = ui.app.prayer!.draft;
+    draft.name.value = '';
+    draft.name.cursor = 0;
+    const name = 'Runa';
+    handlePrayerEvent.call(ui.app, { ...emptyEvent('Text'), text: name });
+    expect(draft.name.value).toBe(name);
+    handlePrayerEvent.call(ui.app, { ...emptyEvent('KeyDown'), key: Key.Escape });
+    draw();
+    expect(ui.app.prayer!.editing).toBe(false);
+    expect(ui.app.prayer!.offering.food).toBe(8);
+    expect(ui.controls.mock.calls.some(([id]) => id === 'prayer-name')).toBe(false);
+    expect(ui.town.dice).toBe(dice);
+    expect(stock.food).toBe(before);
+    expect(ui.app.cues.map((s) => s.cue)).toEqual(editCues);
+    click('prayer-confirm');
+    click('prayer-confirm');
+    expect(ui.app.cues.map((s) => s.cue)).toEqual([...editCues, Cue.OfferFood, Cue.OfferAccepted]);
+    expect(ui.app.cues.at(-1)!.delay).toBeGreaterThan(ui.app.cues.at(-2)!.delay);
+    const born = ui.town.people().at(-1)!;
+    expect(ui.town.people()).toHaveLength(2);
+    expect(stock.food).toBe(before - 8);
+    expect(born).toMatchObject({ name, calling: Calling.Settler, level: 4, customLook: draft.identity().look });
+    expect(born.birthStrength + born.birthVitality).toBe(2);
+    expect(ui.app.selectPeople).toHaveBeenCalledWith([born.id]);
+    expect(ui.app.heardChosen).toEqual([born.id]);
+    expect(ui.app.prayer).toBeNull();
+    expect(ui.app.residentArrival?.person).toBe(born.id);
+    expect(ui.town.notices.at(-1)).toContain('Runa joins the settlement · Level 4');
+    if (born.birthStrength) expect(ui.town.notices.at(-1)).toContain('Strength +' + born.birthStrength);
+    if (born.birthVitality) expect(ui.town.notices.at(-1)).toContain('Vitality +' + born.birthVitality);
+    ui.draw(() => {});
+  } finally {
+    closePrayer.call(ui.app);
+    ui.draw(() => {});
+    ui.dispose();
+  }
+});
+it('previews class stats and lets a trained resident choose a different open profession', () => {
   const ui = fixture();
   try {
     const { guild } = civicTown(ui.town),
       resident = ui.town.folk[0];
+    resident.level = 3;
+    ui.town.placed.push(new Building(8, Structure.Watchtower, point(16, 13), 0, 0));
     ui.app.viewHeight = 390;
     ui.app.inspectorPerson = resident.id;
     const train = vi.spyOn(ui.town, 'orderTrainAtGuild').mockReturnValue(true);
@@ -689,10 +876,14 @@ it('previews class stats without mutating the resident and disables a second pro
     resident.taskSite = guild.id;
     resident.trainingCalling = Calling.Ranger;
     draw();
-    expect(ui.labels.mock.calls.some((call) => call[1] === 'Training in progress')).toBe(true);
+    expect(ui.labels.mock.calls.some((call) => call[1] === 'Changing calling')).toBe(true);
     expect(ui.controls.mock.calls.find((call) => call[0] === 'guild-train')![3]).toBe(false);
     resident.task = Activity.Idle;
     resident.trained = true;
+    resident.calling = Calling.Warrior;
+    draw();
+    expect(ui.controls.mock.calls.find((call) => call[0] === 'guild-train')![3]).toBe(true);
+    resident.calling = Calling.Ranger;
     draw();
     expect(ui.controls.mock.calls.find((call) => call[0] === 'guild-train')![3]).toBe(false);
   } finally {
@@ -711,6 +902,34 @@ function civicTown(town: Town) {
   town.stock(0).add(new Resources(100, 100, 100, 100));
   return { camp, altar, guild };
 }
+
+it('draws every staff with a distinct silhouette and the same ink as the other weapons in each slot state', () => {
+  const ui = fixture(28, 28), slot = new Rect(0, 0, 28, 28);
+  try {
+    for (const [muted, selected] of [[false, false], [true, false], [false, true]]) {
+      const draw = (id: string) => {
+        ui.draw(() => itemIcon(ui.context, slot, itemSpec(id), muted, selected));
+        return ui.memory.pixels.slice();
+      };
+      const staff = draw('wooden-staff'), club = draw('wooden-club');
+      expect(staff).not.toEqual(club);
+      const theme = ui.app.theme, ink = selected ? theme.accentText : muted ? theme.muted : theme.accent;
+      for (const pixels of [staff, club]) {
+        let solid = 0, error = 0;
+        for (let i = 0; i < pixels.length; i += 4) {
+          if (pixels[i + 3] !== 255) continue;
+          ++solid;
+          error = Math.max(error, Math.abs(pixels[i] - ink.r), Math.abs(pixels[i + 1] - ink.g), Math.abs(pixels[i + 2] - ink.b));
+        }
+        expect(solid).toBeGreaterThan(0);
+        expect(error).toBeLessThanOrEqual(1);
+      }
+      for (const id of ['staff', 'seer-staff', 'frostwood-staff']) expect(draw(id)).toEqual(staff);
+    }
+  } finally {
+    ui.dispose();
+  }
+});
 
 it('equips the selected real inventory stack through the centered gear grid without creating items', () => {
   const ui = fixture();
@@ -837,38 +1056,80 @@ it.each([
   [2, false],
   [2, true],
 ] as const)(
-  'keeps touch commands at full height for %s selected residents, sheltered=%s',
+  'sets the orders of a mouse in the title row for %s selected residents, sheltered=%s',
   (count, sheltered) => {
-    const ui = fixture(390, 844);
+    const ui = fixture(1280, 720);
     try {
       ui.app.chosen = ui.town.folk.slice(0, count).map((p) => p.id);
       ui.town.folk[0].inside = sheltered;
-      ui.app.commandCard = commandCard.bind(ui.app);
-      const panel = personPanelBounds.call(ui.app, 390, 844, true);
+      const panel = personPanelBounds.call(ui.app, 1280, 720, true);
       ui.draw(() => personPanel.call(ui.app, panel));
-      if (count === 1 && !sheltered) ui.capture('selection-bottom-390x844');
-      const commands = ui.controls.mock.calls.filter(([id]) => id.startsWith('unit/card-'));
-      expect(commands).toHaveLength(sheltered ? 9 : 8);
-      for (const [id, bounds] of commands) {
-        expect(bounds.h, id).toBeGreaterThanOrEqual(28);
-        expect(bounds.y, id).toBeGreaterThanOrEqual(panel.y + panel.h - 42 - 0.001);
-        expect(bounds.y + bounds.h, id).toBeLessThanOrEqual(panel.y + panel.h);
-        expect(bounds.x, id).toBeGreaterThanOrEqual(panel.x);
-        expect(bounds.x + bounds.w, id).toBeLessThanOrEqual(panel.x + panel.w + 0.001);
+      const byX = (ids: (id: string) => boolean) =>
+          ui.controls.mock.calls.filter(([id]) => ids(id)).sort((a, b) => a[1].x - b[1].x),
+        commands = byX((id) => id.startsWith('unit/card-')),
+        row = byX((id) => id.startsWith('unit/card-') || id === 'unit-workbench' || id === 'unit-management');
+      // With a mouse the right button moves and works: Build, Attack and Hold, indoors or out, and no order row.
+      expect(commands.map(([id]) => id)).toEqual(['unit/card-build', 'unit/card-attack', 'unit/card-hold']);
+      expect(row.map(([id]) => id)).toEqual([
+        'unit/card-build',
+        'unit/card-attack',
+        'unit/card-hold',
+        ...(count === 1 ? ['unit-workbench'] : []),
+        'unit-management',
+      ]);
+      // One line, right-aligned to the panel's margin, with no hole where an opener is missing.
+      for (const [id, bounds] of row) {
+        expect(bounds.y, id).toBe(panel.y + 6);
+        expect(bounds.h, id).toBe(28);
       }
+      const last = row.at(-1)![1];
+      expect(last.x + last.w).toBe(panel.x + panel.w - 12);
+      const gaps = row.slice(1).map(([, bounds], i) => Math.round(bounds.x - row[i][1].x - row[i][1].w));
+      expect(gaps).toEqual(count === 1 ? [4, 4, 13, 4] : [4, 4, 13]);
       const content = ui.controls.mock.calls.filter(
-        ([id]) =>
-          id.startsWith('pick-person-') ||
-          id.startsWith('inventory-slot-') ||
-          id.startsWith('equipment-slot-'),
+        ([id]) => id.startsWith('pick-person-') || id.startsWith('ability-') || id.startsWith('skill-'),
       );
-      for (const [id, bounds] of content)
-        expect(bounds.y + bounds.h, id).toBeLessThanOrEqual(commands[0][1].y);
+      for (const [id, bounds] of content) expect(bounds.y, id).toBeGreaterThanOrEqual(panel.y + 6 + 27);
+      expect(panel.h).toBe(count === 1 ? 144 : 102);
     } finally {
       ui.dispose();
     }
   },
 );
+it('folds the panel of a mouse to its title row while an attack is aimed, with the order lit', () => {
+  const ui = fixture(1280, 720);
+  try {
+    const app = ui.app;
+    app.reducedMotion = () => true;
+    app.animatingUi = () => false;
+    app.buildMenuBounds = () => new Rect(100, 200, 600, 250);
+    app.personPanelBounds = personPanelBounds.bind(app);
+    app.personPanel = personPanel.bind(app);
+    app.mouse = point(-1, -1);
+    app.chosen = ui.town.folk.slice(0, 2).map((p) => p.id);
+    app.pending = Order.Attack;
+    ui.draw(() => {
+      updateContextDock.call(app, 1280, 720);
+      app.personPanel(app.dockTarget);
+    });
+    expect(app.dockView).toBe(DockView.Unit);
+    expect([app.dockTarget.x, app.dockTarget.y, app.dockTarget.w, app.dockTarget.h]).toEqual([280, 668, 720, 40]);
+    const attack = ui.controls.mock.calls.find(([id]) => id === 'unit/card-attack')![1];
+    expect(attack.y).toBe(674);
+    expect(attack.y + attack.h).toBeLessThanOrEqual(708);
+    expect(ui.labels.mock.calls.find((call) => call[1] === 'Attack')![2]).toEqual(app.theme.accentText);
+    expect(ui.labels.mock.calls.find((call) => call[1] === 'Build')![2]).toEqual(app.theme.text);
+    expect(ui.controls.mock.calls.some(([id]) => id.startsWith('pick-person-'))).toBe(false);
+    // A selection that takes no orders has no legend, and its aim folds nothing.
+    app.pending = Order.None;
+    ui.town.folk[0].faction = 8;
+    app.chosen = [ui.town.folk[0].id];
+    ui.draw(() => personPanel.call(app, personPanelBounds.call(app, 1280, 720, false)));
+    expect(ui.controls.mock.calls.filter(([id]) => /^unit[-/]/.test(id)).map(([id]) => id)).toEqual(['unit-management']);
+  } finally {
+    ui.dispose();
+  }
+});
 
 it.each([
   [Structure.Weaponsmith, 'none'],
@@ -877,7 +1138,7 @@ it.each([
   [Structure.Workbench, 'none'],
   [Structure.Workbench, 'foreign'],
   [Structure.Workbench, 'local'],
-] as const)('chooses a workshop %s resident from its own camp with %s selection', (kind, selected) => {
+] as const)('gives a workshop %s item to a resident of its own camp with %s selection', (kind, selected) => {
   const ui = fixture();
   try {
     const first = new Building(0, Structure.Camp, point(5, 5), 0, 0),
@@ -908,17 +1169,46 @@ it.each([
     expect(ui.town.settlementOf(smith)).toBe(10);
     ui.app.selected = smith.id;
     ui.app.chosen = selected === 'none' ? [] : [selected === 'local' ? preferred.id : foreign.id];
-    // The station's own panel names the crafter: someone of its camp, the selected one first.
-    const expected = selected === 'local' ? preferred : local;
-    expect(stationCrafter(ui.app, smith)?.id).toBe(expected.id);
-    expect(ui.town.craftReason(expected.id, smith.id, kind === Structure.Weaponsmith ? 'wooden-sword' : 'wooden-axe')).toBe(
-      '',
-    );
+    // The station gives to the nearest of its own camp, whoever is selected and whoever stands at its door.
+    const made = kind === Structure.Weaponsmith ? 'wooden-sword' : 'wooden-axe';
+    expect(ui.town.craftOffers(smith.id).find((offer) => offer.item.id === made)).toMatchObject({ who: local, reason: '' });
     ui.draw(() => inspector.call(ui.app, new Rect(100, 100, 620, 420), true));
     expect(ui.controls.mock.calls.some(([id]) => id === 'workshop-craft')).toBe(false);
     expect(ui.controls.mock.calls.some(([id]) => String(id).startsWith('station-craft-'))).toBe(true);
     local.faction = preferred.faction = 1;
-    expect(stationCrafter(ui.app, smith)).toBeNull();
+    expect(ui.town.craftOffers(smith.id)).toEqual([]);
+  } finally {
+    ui.dispose();
+  }
+});
+it.each([
+  [880, false],
+  [390, true],
+])('shows the wake button beside the sky only while someone is abed (%i px, touch=%s)', (width, touch) => {
+  const ui = fixture(width, 700);
+  try {
+    ui.app.touchMode = touch;
+    ui.app.reducedMotion = () => true;
+    ui.app.wakeEveryone = wakeEveryone.bind(ui.app as unknown as GameCommandApp);
+    (ui.app as unknown as GameCommandApp).cue = vi.fn();
+    const wake = () => ui.controls.mock.calls.find(([id]) => id === 'wake-everyone')?.[1];
+    ui.draw(() => skyMural.call(ui.app, width));
+    expect(wake()).toBeUndefined();
+    ui.town.folk[0].activity = ui.town.folk[1].activity = Activity.Sleeping;
+    const woken = vi.spyOn(ui.town, 'wakeAll');
+    ui.draw(() => skyMural.call(ui.app, width));
+    const r = wake()!,
+      size = touch ? 44 : 36;
+    expect([r.w, r.h]).toEqual([size, size]);
+    // Clear of the top-left button and of the sky itself.
+    expect(r.x).toBeGreaterThanOrEqual(12 + size + 8);
+    expect(r.x + r.w).toBeLessThanOrEqual(ui.app.skyBounds.x);
+    ui.context.pointerDown(r.x + 10, r.y + 10);
+    ui.context.pointerUp(r.x + 10, r.y + 10);
+    ui.draw(() => skyMural.call(ui.app, width));
+    expect(woken).toHaveBeenCalledOnce();
+    expect(ui.town.folk.some((p) => p.activity === Activity.Sleeping)).toBe(false);
+    expect(wake()).toBeUndefined();
   } finally {
     ui.dispose();
   }

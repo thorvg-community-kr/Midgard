@@ -236,6 +236,6 @@ export function founderAppearance(person: Person, type: BodyType): Appearance {
   a.mouthStyle = MouthStyle.Neutral;
   a.old = a.pointedEars = a.slitPupils = a.eyepatch = a.warpaint = a.scar = false;
   a.whiskers = Whiskers.None;
-  a.freckles = !male;
+  a.freckles = false;
   return a;
 }

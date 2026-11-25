@@ -213,7 +213,7 @@ describe('an admitted road remains a construction transaction', () => {
     expect(p.stressRecovery).toBe(false);
     const trace = step(app, 2);
     expect(p.stressRecovery, JSON.stringify(trace)).toBe(true);
-    expect(p.task).toBe(Activity.Idle);
+    expect(p.taskSite).toBe(road.id);
     expect(p.activity).toBe(Activity.Sleeping);
   });
   it('resumes the same road from a saved automatic sleep interruption', () => {
@@ -249,7 +249,7 @@ describe('an admitted road remains a construction transaction', () => {
     expect(road.built, JSON.stringify(snapshot(town))).toBe(1);
     const trace = step(app, 2);
     expect(p.activity, JSON.stringify(trace)).toBe(Activity.Sleeping);
-    expect(p.recoveringRest).toBe(true);
+    expect(p.stressRecovery || p.recoveringRest).toBe(true);
   });
   it('does not exchange a started road for a later global building request or assigned workplace', () => {
     const { town, app, p, road } = started(),

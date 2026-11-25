@@ -1,7 +1,7 @@
 import type { TownState } from './town-state';
 import { sealFloors, sealable } from './gate-seals';
 
-/** Residents Odin sends before any floor beyond a gate is cleared: a working settlement with a first party to spare. */
+/** Population limit before any floor beyond a gate is cleared: a working settlement with a first party to spare. */
 export const altarBaseCap = 8;
 /** Added for each floor cleared for the first time, and again for each gate sealed. */
 export const altarFloorBonus = 4;
@@ -26,5 +26,5 @@ export function altarCap(town: TownState): number {
   return altarBaseCap + altarFloorBonus * floors + altarSealBonus * seals;
 }
 
-export const altarCapReason = 'Odin sends no more until another floor beyond a gate is cleared.';
-export const altarCapLine = (cap: number): string => `Odin will now send up to ${cap} residents.`;
+export const altarCapReason = 'Clear another floor beyond a gate to make room for more residents.';
+export const altarCapLine = (cap: number): string => `Your settlement can now grow to ${cap} residents.`;

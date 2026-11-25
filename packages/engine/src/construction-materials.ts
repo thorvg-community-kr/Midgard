@@ -1,5 +1,5 @@
 // Literal translation of construction_materials.h from the 2026-11-09 tellin snapshot.
-import { Product, Resources } from './building-catalog';
+import { Product, Resources, productKeys } from './building-catalog';
 import { clamp, f32 } from './numeric';
 export const constructionProducts = [
   Product.Wood,
@@ -12,63 +12,12 @@ export const constructionProducts = [
   Product.Bones,
 ] as const;
 export function resourceAmount(resources: Resources, product: Product): number {
-  switch (product) {
-    case Product.Wood:
-      return resources.wood;
-    case Product.Stone:
-      return resources.stone;
-    case Product.Food:
-      return resources.food;
-    case Product.Water:
-      return resources.water;
-    case Product.Mana:
-      return resources.mana;
-    case Product.Planks:
-      return resources.planks;
-    case Product.CutStone:
-      return resources.cutStone;
-    case Product.Bones:
-      return resources.bones;
-    case Product.Goods:
-      return resources.gold;
-    case Product.None:
-      return 0;
-  }
-  return 0;
+  const key = productKeys[product];
+  return key ? resources[key] : 0;
 }
 export function resourceBundle(product: Product, amount: number): Resources {
-  const result = new Resources();
-  switch (product) {
-    case Product.Wood:
-      result.wood = amount;
-      break;
-    case Product.Stone:
-      result.stone = amount;
-      break;
-    case Product.Food:
-      result.food = amount;
-      break;
-    case Product.Water:
-      result.water = amount;
-      break;
-    case Product.Mana:
-      result.mana = amount;
-      break;
-    case Product.Planks:
-      result.planks = amount;
-      break;
-    case Product.CutStone:
-      result.cutStone = amount;
-      break;
-    case Product.Bones:
-      result.bones = amount;
-      break;
-    case Product.Goods:
-      result.gold = amount;
-      break;
-    case Product.None:
-      break;
-  }
+  const result = new Resources(), key = productKeys[product];
+  if (key) result[key] = amount;
   return result;
 }
 export class ConstructionMaterials {

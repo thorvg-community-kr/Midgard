@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import ThorVG, { type ThorVGNamespace } from '@thorvg/webcanvas';
 import { Person, Calling, Role, Race, Activity, type Hit } from '../../packages/engine/src/person';
-import { point } from '../../packages/engine/src/geometry';
+import { point, project } from '../../packages/engine/src/geometry';
 import { Traffic } from '../../packages/engine/src/traffic';
 import type { Town } from '../../packages/engine/src/town';
 import { SceneNode, ShapeNode, AnimationNode } from '../../packages/native-renderer/src/paint';
@@ -13,8 +13,10 @@ import { riseAnimation } from '../../packages/native-renderer/src/building-asset
 import { WorldRendererState } from '../../packages/native-renderer/src/world-renderer-state';
 import { PersonParts, personSprite } from '../../packages/native-renderer/src/world-sprites';
 import { moveAgents } from '../../packages/native-renderer/src/world-people';
+import { pickSource } from '../../packages/native-renderer/src/world-pick-registry';
+import { barShapesOf, updateUnitBars } from '../../packages/native-renderer/src/unit-bars';
 import { WebCanvasAdapter } from '../../packages/native-renderer/src/webcanvas-adapter';
-import { showEquipment } from '../../packages/native-renderer/src/person-equipment';
+import { heldTools, showEquipment } from '../../packages/native-renderer/src/person-equipment';
 import { animateWork } from '../../packages/native-renderer/src/action-motion';
 
 class Pixels {
@@ -106,11 +108,17 @@ function scene(person: Person, hits: Hit[] = []) {
     devotionEvents: () => [],
     creatureTarget: () => foe,
     clock: () => time,
-    map: () => ({ giant: () => null, volcano: () => null }),
+    map: () => ({ width: () => 32, giant: () => null, volcano: () => null }),
+    roads: () => ({ road: () => null }),
   } as unknown as Town;
   return {
     s,
     town,
+    drawGear() {
+      moveAgents(s, town, new Traffic(5), time, []);
+      const parts = s.figures.get(person.id)!.parts;
+      return [...heldTools, 'shield' as const].filter((name) => parts[name]?.alpha);
+    },
     setTime: (value: number) => {
       time = value;
     },
@@ -199,6 +207,100 @@ it('shows only actually equipped tools and keeps a real chase walking', () => {
     view.dispose();
   }
 });
+it('puts tools away in transit and swaps work gear for the equipped weapon and shield in a fight', () => {
+  const p = actor(),
+    { s, drawGear } = scene(p);
+  p.inventory[0] = { item: 'wooden-sword', quantity: 1 };
+  p.inventory[1] = { item: 'shield', quantity: 1 };
+  p.inventory[2] = { item: 'wooden-mallet', quantity: 1 };
+  p.equipment.weapon = 1;
+  p.equipment.offhand = 2;
+  p.equipment.tool1 = 3;
+  try {
+    for (const activity of [Activity.Idle, Activity.Guarding, Activity.Holding, Activity.Relaxing]) {
+      p.activity = activity;
+      expect(drawGear()).toEqual([]);
+    }
+    p.activity = Activity.Roadwork;
+    p.path = [point(7, 6)];
+    expect(drawGear()).toEqual([]);
+    p.path = [];
+    expect(drawGear()).toEqual(['hammer']);
+    const parts = s.figures.get(p.id)!.parts;
+    expect(parts.arms[0].free).toBe(true);
+    p.activity = Activity.Fighting;
+    expect(drawGear()).toEqual(['sword', 'shield']);
+    expect(parts.arms[0].free).toBe(false);
+    p.activity = Activity.Moving;
+    p.path = [point(6, 7)];
+    expect(drawGear()).toEqual([]);
+    expect(parts.arms[0].free).toBe(true);
+    expect(p.equipment.weapon).toBe(1);
+  } finally {
+    s.adapter.dispose();
+  }
+});
+it('keeps a weapon drawn beyond the gate between fights and puts it away for mining or rescue', () => {
+  const p = actor(),
+    { s, town, drawGear } = scene(p);
+  p.inventory[0] = { item: 'short-bow', quantity: 1 };
+  p.inventory[1] = { item: 'shield', quantity: 1 };
+  p.inventory[2] = { item: 'stone-pick', quantity: 1 };
+  p.equipment.weapon = 1;
+  p.equipment.offhand = 2;
+  town.realmArea = { x: 10, y: 4, size: 6 };
+  try {
+    p.activity = Activity.Expedition;
+    p.path = [point(7, 6)];
+    expect(drawGear()).toEqual([]);
+    p.position = point(12, 6);
+    p.path = [];
+    p.activity = Activity.Holding;
+    expect(drawGear()).toEqual(['bow']);
+    p.activity = Activity.Moving;
+    p.path = [point(13, 6)];
+    expect(drawGear()).toEqual(['bow']);
+    p.path = [];
+    p.activity = Activity.Mining;
+    p.tree = 6 * town.map().width() + 13;
+    expect(drawGear()).toEqual(['pickaxe']);
+    p.activity = Activity.Collecting;
+    expect(drawGear()).toEqual([]);
+    p.activity = Activity.Tending;
+    expect(drawGear()).toEqual([]);
+    p.activity = Activity.Idle;
+    expect(drawGear()).toEqual(['bow']);
+    p.position = point(6, 6);
+    expect(drawGear()).toEqual([]);
+    p.equipment.weapon = -1;
+    p.activity = Activity.Fighting;
+    expect(drawGear()).toEqual(['pickaxe']);
+    expect(s.figures.get(p.id)!.parts.toolHeads.pickaxe!.stone!.alpha).toBe(255);
+  } finally {
+    s.adapter.dispose();
+  }
+});
+it('draws the bow for a stationary skill or a drill in town and stows it when the action ends', () => {
+  const p = actor(),
+    { s, setTime, drawGear } = scene(p);
+  p.inventory[0] = { item: 'short-bow', quantity: 1 };
+  p.equipment.weapon = 1;
+  try {
+    p.activity = Activity.Holding;
+    p.cast = 'aimed';
+    p.castAt = 0.1;
+    p.castUntil = 0.6;
+    expect(drawGear()).toEqual(['bow']);
+    setTime(0.6);
+    expect(drawGear()).toEqual([]);
+    p.activity = Activity.Training;
+    expect(drawGear()).toEqual(['bow']);
+    p.activity = Activity.Idle;
+    expect(drawGear()).toEqual([]);
+  } finally {
+    s.adapter.dispose();
+  }
+});
 it('uses the resident attacker on a person hit, without animating the victim as the striker', () => {
   const view = surface(100, 100),
     p = actor();
@@ -213,11 +315,15 @@ it('uses the resident attacker on a person hit, without animating the victim as 
     person: 99,
     attacker: p.id,
   };
-  const { s, town } = scene(p, [hit]);
+  const { s, setTime, drawGear } = scene(p, [hit]);
+  p.inventory[0] = { item: 'wooden-sword', quantity: 1 };
+  p.equipment.weapon = 1;
   p.ready = 1.15;
   try {
-    moveAgents(s, town, new Traffic(5), 0.2, []);
+    expect(drawGear()).toEqual(['sword']);
     expect(s.figures.get(p.id)!.parts.body!.matrix[4]).toBeLessThan(1);
+    setTime(0.41);
+    expect(drawGear()).toEqual([]);
   } finally {
     s.adapter.dispose();
     view.dispose();
@@ -260,53 +366,130 @@ it('bows outdoors with joined hands and grounded feet for the real altar ceremon
     view.dispose();
   }
 });
-it('reveals only a real visible arrival and releases its native paints after the short effect', () => {
-  const view = surface(240, 220),
-    p = actor(),
-    { s, town, setTime } = scene(p);
+it('opens the earth beneath the actual resident, even on a paused clock, and cleans up the world layers', () => {
+  const view = surface(240, 220), p = actor(), { s, town, setTime } = scene(p);
   const events: DevotionEvent[] = [];
   town.devotionEvents = () => events;
   const group = new SceneNode().transform([3, 0, 120, 0, 3, -390, 0, 0, 1]);
+  group.add(s.combatGround);
   for (const row of s.rows) group.add(row);
   group.add(s.combat);
   view.root.add(group);
-  const render = (time: number) => {
-    setTime(time);
-    moveAgents(s, town, new Traffic(5), time, []);
-    view.draw(`arrival-${time.toFixed(2)}`);
+  const render = (age: number) => {
+    s.arrivalSeconds = age;
+    moveAgents(s, town, new Traffic(5), 1, []);
+    view.draw(`arrival-${age.toFixed(2)}`);
   };
   try {
+    setTime(1);
     render(0);
-    expect(s.combat.children).toHaveLength(0);
-    const count = view.adapter.retainedPaintCount;
+    const count = view.adapter.retainedPaintCount, figure = s.figures.get(p.id)!;
+    const normalHeight = figure.parts.body!.matrix[5];
+    expect(s.combatGround.children).toHaveLength(0);
     events.push({ serial: 0n, altar: 12, person: p.id, at: 1, position: { ...p.position } });
     render(1);
-    expect(s.combat.children).toHaveLength(1);
-    expect(s.figures.get(p.id)!.paint.alpha).toBe(0);
-    expect(view.adapter.retainedPaintCount).toBeGreaterThan(count);
-    render(1.35);
-    expect(s.figures.get(p.id)!.paint.alpha).toBeGreaterThan(0);
-    expect(s.figures.get(p.id)!.paint.alpha).toBeLessThan(255);
-    render(1.8);
-    expect(s.figures.get(p.id)!.paint.alpha).toBe(255);
+    expect(s.combatGround.children).toHaveLength(1);
+    expect(s.combat.children).toHaveLength(0);
+    expect(figure.paint.alpha).toBe(0);
+    const soil = s.rows.flatMap((row) => row.children).filter((node) => node !== figure.paint);
+    expect(soil).toHaveLength(1);
+    render(1.56);
+    expect(figure.paint.alpha).toBe(255);
+    expect(figure.parts.body!.matrix[5]).toBeGreaterThan(normalHeight + 3);
+    const opened = view.target.pixels.slice();
+    figure.paint.opacity(0);
+    view.draw('arrival-ground-alone');
+    const groundY = group.matrix[4] * figure.paint.matrix[5] + group.matrix[5];
+    const bodyRows = new Set<number>();
+    for (let i = 0; i < opened.length; i += 4) {
+      if (opened[i] !== view.target.pixels[i]) bodyRows.add(Math.floor(i / (view.target.width * 4)));
+    }
+    // The emerging head is visible above the earth. Its lowered legs do not draw below the seam.
+    expect(Math.min(...bodyRows)).toBeLessThan(groundY - 12);
+    expect(Math.max(...bodyRows)).toBeLessThanOrEqual(groundY + 4);
+    render(2.07);
+    expect(figure.paint.children).toContain(figure.parts.body);
+    expect(figure.parts.body!.matrix[5]).toBeCloseTo(normalHeight);
+    expect(view.target.pixels).not.toEqual(opened);
     render(2.6);
-    expect(s.combat.children).toHaveLength(0);
+    expect(s.combatGround.children).toHaveLength(0);
+    expect(s.rows.flatMap((row) => row.children)).toEqual([figure.paint]);
     expect(view.adapter.retainedPaintCount).toBe(count);
-    // Event history cannot replay an already consumed birth.
     render(2.7);
-    expect(s.combat.children).toHaveLength(0);
+    expect(s.combatGround.children).toHaveLength(0);
     s.currentVisibility.sample = () => 0;
-    events.push({ serial: 1n, altar: 12, person: p.id, at: 3, position: { ...p.position } });
+    events.push({ serial: 1n, altar: 12, person: p.id, at: 1, position: { ...p.position } });
     render(3.1);
-    expect(s.combat.children).toHaveLength(0);
-    expect(s.figures.get(p.id)!.paint.alpha).toBe(0);
+    expect(s.combatGround.children).toHaveLength(0);
+    expect(figure.paint.alpha).toBe(0);
     s.currentVisibility.sample = () => 255;
     render(3.2);
-    expect(s.combat.children).toHaveLength(0);
-    expect(s.figures.get(p.id)!.paint.alpha).toBe(255);
+    expect(s.combatGround.children).toHaveLength(0);
+    expect(figure.paint.alpha).toBe(255);
+
+    s.reducedMotion = true;
+    events.push({ serial: 2n, altar: 12, person: p.id, at: 1, position: { ...p.position } });
+    render(4);
+    expect(figure.paint.alpha).toBe(255);
+    expect(figure.paint.children).toContain(figure.parts.body);
+    expect(figure.parts.body!.matrix[5]).toBeCloseTo(normalHeight);
+    expect(s.rows.flatMap((row) => row.children)).toEqual([figure.paint]);
+    const sign = s.combatGround.children[0], matrix = sign.matrix, alpha = sign.alpha;
+    render(4.65);
+    expect(sign.matrix).toEqual(matrix);
+    expect(sign.alpha).toBe(alpha);
+    render(5.6);
+    expect(s.combatGround.children).toHaveLength(0);
+
+    s.reducedMotion = false;
+    events.push({ serial: 3n, altar: 12, person: p.id, at: 1, position: { ...p.position } });
+    render(6);
+    p.ordered = true;
+    p.position = point(7, 6);
+    render(6.3);
+    expect(figure.paint.alpha).toBe(255);
+    expect(figure.paint.children).toContain(figure.parts.body);
   } finally {
     s.adapter.dispose();
     view.dispose();
+  }
+});
+it.each([0.638, 3.19])('keeps a worker at the opening while the simulation walks %s tiles', (walk) => {
+  const p = actor(), { s, town } = scene(p);
+  const origin = { ...p.position };
+  const event = { serial: 0n, altar: 12, person: p.id, at: town.clock(), position: origin };
+  town.devotionEvents = () => [event];
+  const frame = (age: number) => {
+    s.arrivalSeconds = age;
+    moveAgents(s, town, new Traffic(5), town.clock(), []);
+    return s.figures.get(p.id)!;
+  };
+  try {
+    frame(0);
+    p.position = point(origin.x + walk, origin.y);
+    p.path = [point(origin.x + 6, origin.y)];
+    const figure = frame(0.58), foot = project(origin.x, origin.y);
+    expect(figure.paint.children).not.toContain(figure.parts.body);
+    expect(figure.paint.matrix[2]).toBe(foot.x);
+    expect(figure.paint.matrix[5]).toBe(foot.y);
+    expect(figure.striding).toBe(false);
+    expect(pickSource(figure.paint)?.foot).toEqual(origin);
+    updateUnitBars(s, town, [p.id]);
+    expect(barShapesOf(s)!.friend.commands).toHaveLength(0);
+    frame(1);
+    expect(figure.paint.children).not.toContain(figure.parts.body);
+    frame(1.25);
+    expect(figure.paint.children).toContain(figure.parts.body);
+    const mid = pickSource(figure.paint)!.foot;
+    expect(mid.x).toBeGreaterThan(origin.x);
+    expect(mid.x).toBeLessThan(p.position.x);
+    updateUnitBars(s, town, [p.id]);
+    expect(barShapesOf(s)!.friend.commands[0][1]).toBeCloseTo(project(mid.x, mid.y).x - 7);
+    frame(1.5);
+    expect(pickSource(figure.paint)?.foot).toEqual(p.position);
+    expect(figure.striding).toBe(true);
+  } finally {
+    s.adapter.dispose();
   }
 });
 it('renders real wearable accents only while equipped and restores the untouched clothing preset on removal', () => {
@@ -330,10 +513,11 @@ it('renders real wearable accents only while equipped and restores the untouched
       p.inventory[0] = { item, quantity: 1 };
       const holder = new SceneNode();
       view.root.add(holder);
-      const render = () => {
+      const render = (shieldReady = false) => {
         holder.remove();
         const parts = new PersonParts(),
           sprite = personSprite(p, parts);
+        showEquipment(parts, null, 'iron', shieldReady);
         sprite.transform([5, 0, 60, 0, 5, 135, 0, 0, 1]);
         holder.add(sprite);
         view.draw('wearable-check');
@@ -341,10 +525,12 @@ it('renders real wearable accents only while equipped and restores the untouched
       };
       const without = render();
       p.equipment[slot] = 1;
-      const withItem = render();
+      if (slot === 'offhand') expect(render()).toEqual(without);
+      const withItem = render(true);
       expect(withItem).not.toEqual(without);
       const parts = new PersonParts(),
         sprite = personSprite(p, parts);
+      showEquipment(parts, null, 'iron', true);
       sprite.transform([5, 0, i * 120 + 60, 0, 5, 135, 0, 0, 1]);
       montage.root.add(sprite);
       p.equipment[slot] = -1;

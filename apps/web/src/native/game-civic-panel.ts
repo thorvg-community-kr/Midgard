@@ -1,5 +1,6 @@
 import { Rect, ButtonStyle, button, type Color } from '../../../../packages/native-ui/src';
-import { Structure, describe, structureSpec } from '../../../../packages/engine/src/building-catalog';
+import { Structure, structureSpec } from '../../../../packages/engine/src/building-catalog';
+import { guildLevel } from '../../../../packages/engine/src/progression-rules';
 import { Activity, callingName } from '../../../../packages/engine/src/person';
 import {
   isPlayerResident,
@@ -21,8 +22,11 @@ export function civicInspector(this: GameHudApp, building: Building, panel: Rect
     t = this.theme;
   if (building.kind === Structure.Shrine) return altarInspector.call(this, building, panel, draw);
   const compact = this.viewHeight < 560;
-  const h = compact ? 204 : 286;
-  const residents = this.town.people().filter(isPlayerResident);
+  const h = compact ? 235 : 318;
+  const village = this.town.settlementOf(building),
+    inRealm = this.town.inRealm(building.center);
+  const residents = this.town.people().filter(p => isPlayerResident(p) && this.town.settlementOf(p) === village &&
+    this.town.inRealm(p.position) === inRealm);
   if (!residents.some((p) => p.id === this.inspectorPerson)) this.inspectorPerson = residents[0]?.id ?? -1;
   const selected = residents.findIndex((p) => p.id === this.inspectorPerson);
   const person = residents[selected];
@@ -35,7 +39,7 @@ export function civicInspector(this: GameHudApp, building: Building, panel: Rect
   line(9, structureSpec(building.kind).name, t.text, 17, true);
   line(
     compact ? 30 : 34,
-    `Choose one class · ${building.trainingCount} residents trained`,
+    `Change calling from level ${guildLevel} · ${building.trainingCount} residents trained`,
     t.muted,
     compact ? 10 : 12,
   );
@@ -116,13 +120,13 @@ export function civicInspector(this: GameHudApp, building: Building, panel: Rect
   const option = options.find((option) => option.calling === this.inspectorCalling) ?? options[0];
   if (option) this.inspectorCalling = option.calling;
   const tabsY = compact ? 103 : 139,
-    tabW = (w - 16) / 5;
+    tabW = (w - 8) / 3;
   for (let i = 0; i < options.length; ++i) {
     const choice = options[i];
     button(
       c,
       `guild-class-${choice.calling}`,
-      new Rect(x + i * (tabW + 4), y + tabsY, tabW, 25),
+      new Rect(x + (i % 3) * (tabW + 4), y + tabsY + Math.floor(i / 3) * 30, tabW, 26),
       choice.name,
       () => {
         this.inspectorCalling = choice.calling;
@@ -136,28 +140,28 @@ export function civicInspector(this: GameHudApp, building: Building, panel: Rect
     const preview = copyNative(person);
     preview.calling = option.calling;
     line(
-      compact ? 131 : 171,
+      compact ? 162 : 202,
       `Power ${this.town.power(preview).toFixed(1)} · Reach ${reachOf(preview).toFixed(1)} · Vitality ${preview.vitalityMultiplier().toFixed(1)}x`,
       t.accent,
       compact ? 10 : 12,
       true,
     );
-    if (!compact) line(195, option.description, t.muted, 11);
+    if (!compact) line(226, option.description, t.muted, 11);
     const training = person.task === Activity.Training && person.taskSite === building.id;
     const reason = option.reason;
     line(
-      compact ? 147 : 220,
+      compact ? 179 : 251,
       training
-        ? `Training ordered: ${callingName(person.trainingCalling)}`
-        : reason || `${describe(option.cost)} · permanent class choice`,
-      reason ? t.danger : t.muted,
+        ? `New calling · ${callingName(person.trainingCalling)}`
+        : reason || 'Free training · Keeps level and equipment',
+      reason && person.calling !== option.calling && !training ? t.danger : t.muted,
       compact ? 9 : 11,
     );
     button(
       c,
       'guild-train',
       new Rect(x, y + h - 39, w, 28),
-      training ? 'Training in progress' : `Train as ${option.name}`,
+      training ? 'Changing calling' : `Become a ${option.name}`,
       () => {
         if (
           canControl(this.town.person(person.id)) &&

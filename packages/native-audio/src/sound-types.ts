@@ -78,8 +78,20 @@ export enum Cue {
   Downed,
   /** A bard's lyre phrase; `take` names the phrase. */
   Lyre,
+  OfferFood,
+  OfferWater,
+  OfferBones,
+  OfferGold,
+  OfferStone,
+  OfferAccepted,
+  OfferTakeFood,
+  OfferTakeWater,
+  OfferTakeBones,
+  OfferTakeGold,
+  OfferTakeStone,
   Count,
 }
+export const isOfferingCue = (cue: Cue): boolean => cue >= Cue.OfferFood && cue <= Cue.OfferTakeStone;
 export enum SpeechChannel {
   Selected,
   Nearby,

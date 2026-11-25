@@ -54,7 +54,7 @@ const free = new Set([
 export function mayPlay(town: BardTown, p: Person): boolean {
   if (p.calling !== Calling.Bard || p.health <= 0 || p.downedAt >= 0 || p.inside || p.crossingDoorway())
     return false;
-  if (!free.has(p.activity) || p.holding || p.aggressive || p.foe >= 0 || p.stressRecovery) return false;
+  if (!free.has(p.activity) || p.clearing >= 0 || p.holding || p.aggressive || p.foe >= 0 || p.stressRecovery) return false;
   if (town.raiding() || town.inRealm(p.position)) return false;
   return !town
     .monsters()

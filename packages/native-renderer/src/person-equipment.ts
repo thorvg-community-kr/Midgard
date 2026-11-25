@@ -1,9 +1,10 @@
-import { Calling, type Person } from '../../engine/src/person';
+import { Calling } from '../../engine/src/person';
 import { Structure } from '../../engine/src/building-catalog';
-import { combatItem, equippedItem, type ItemSpec } from '../../engine/src/equipment';
+import type { ItemMaterial, ItemSpec } from '../../engine/src/equipment';
 import { add, point } from '../../engine/src/geometry';
 import { SceneNode, ShapeNode } from './paint';
 import { poly, oval, stroke } from './sprite-primitives';
+import { staffCrook } from './staff-art';
 import type { PersonParts } from './world-sprites';
 
 export const heldTools = [
@@ -24,9 +25,13 @@ export const heldTools = [
 ] as const;
 export type HeldTool = (typeof heldTools)[number];
 /** What a tool's head or blade is made of; the haft is always wood. */
-export type ToolMaterial = 'wood' | 'stone' | 'iron';
-const materials: readonly ToolMaterial[] = ['wood', 'stone', 'iron'];
+export type ToolMaterial = ItemMaterial;
+const materials: readonly ToolMaterial[] = ['wood', 'stone', 'iron', 'embersteel', 'frostwood'];
 const isMaterial = (value: unknown): value is ToolMaterial => materials.some((m) => m === value);
+const woodenHead = { base: 5.8, top: 8.6, half: 3.4 },
+  narrowHead = { base: 5.8, top: 8, half: 2.7 };
+/** Dimensions along and across the haft, shared by the drawing and its point of contact. */
+export const hammerHead = (material: ToolMaterial) => (material === 'wood' ? woodenHead : narrowHead);
 
 /** An item's material: its own `material` once the catalogue states one, otherwise read from its id. */
 export function materialOf(item: ItemSpec | null): ToolMaterial {
@@ -35,15 +40,6 @@ export function materialOf(item: ItemSpec | null): ToolMaterial {
   if (item.id.startsWith('wooden-') || item.workshop === Structure.Camp) return 'wood';
   if (item.id.startsWith('stone-')) return 'stone';
   return item.visual === 'bow' || item.visual === 'staff' ? 'wood' : 'iron';
-}
-/** The material of whichever equipped item is drawn as `tool`. */
-export function heldMaterial(person: Person, tool: HeldTool | null): ToolMaterial {
-  if (!tool) return 'iron';
-  for (const slot of ['weapon', 'tool1', 'tool2'] as const) {
-    const item = equippedItem(person, slot);
-    if (item?.visual === tool) return materialOf(item);
-  }
-  return 'iron';
 }
 
 export function callingEquipment(calling: Calling): HeldTool | null {
@@ -62,11 +58,6 @@ export function callingEquipment(calling: Calling): HeldTool | null {
   }
 }
 
-/** Work and combat display the item actually equipped in the resident's inventory. */
-export function combatEquipment(person: Person, _workplace?: Structure): HeldTool | null {
-  return combatItem(person)?.visual ?? null;
-}
-
 /**
  * Every tool is authored around its grip and belongs to the hand, never to the world. A tool
  * whose head can be wood, stone or iron carries one head per material; showEquipment picks.
@@ -82,6 +73,7 @@ export function createEquipment(parts: PersonParts, calling: Calling): void {
     grain = [136, 102, 66] as const,
     flint = [136, 136, 132] as const,
     flintDark = [98, 98, 100] as const,
+    frostwood = [182, 200, 187] as const,
     cord = [206, 182, 132] as const;
   const attach = (tool: HeldTool, paint: SceneNode) => {
     paint.opacity(0);
@@ -99,12 +91,14 @@ export function createEquipment(parts: PersonParts, calling: Calling): void {
       edge: readonly [number, number, number],
     ) => SceneNode,
   ) => {
-    const made = {
+    const made: Partial<Record<ToolMaterial, SceneNode>> = {
       wood: head('wood', carved, grain, grain),
       stone: head('stone', flint, flintDark, flintDark),
       iron: head('iron', steel, [91, 96, 106], bright),
     };
-    for (const material of materials) paint.add(made[material].opacity(material === 'iron' ? 255 : 0));
+    if (['axe', 'pickaxe', 'hammer', 'sword', 'spear', 'mace'].includes(tool))
+      made.embersteel = head('iron', [157, 108, 94], [96, 73, 82], [222, 163, 121]);
+    for (const material of materials) if (made[material]) paint.add(made[material]!.opacity(material === 'iron' ? 255 : 0));
     parts.toolHeads[tool] = made;
     attach(tool, paint);
   };
@@ -166,19 +160,18 @@ export function createEquipment(parts: PersonParts, calling: Calling): void {
   heads('hammer', hammer, (material, fill, shade, edgeColor) => {
     const scene = new SceneNode(),
       // A wooden mallet has a fat head; stone and iron are narrower and heavier-looking.
-      half = material === 'wood' ? 3.4 : 2.7,
-      top = material === 'wood' ? 8.6 : 8;
+      { base, half, top } = hammerHead(material);
     scene.add(
       poly(
-        [along(5.8, -half), along(5.8, half), along(top, half), along(top, -half)],
+        [along(base, -half), along(base, half), along(top, half), along(top, -half)],
         material === 'iron' ? [120, 120, 130] : fill,
       ),
     );
     scene.add(
-      poly([along(5.8, half - 0.8), along(5.8, half), along(top, half), along(top, half - 0.8)], shade),
+      poly([along(base, half - 0.8), along(base, half), along(top, half), along(top, half - 0.8)], shade),
     );
     if (material === 'wood') {
-      scene.add(oval(along((5.8 + top) / 2, -half), 0.5, 1.2, shade));
+      scene.add(oval(along((base + top) / 2, -half), 0.5, 1.2, shade));
       scene.add(stroke(along(6.6, -half + 0.6), along(6.6, half - 1), 0.35, shade));
     } else if (material === 'stone') lashing(scene, 6.2);
     else scene.add(stroke(along(top, -half), along(top, half), 0.55, edgeColor));
@@ -187,11 +180,11 @@ export function createEquipment(parts: PersonParts, calling: Calling): void {
 
   const sword = new SceneNode();
   sword.add(stroke(p(-0.7, 1), p(1.3, -2), 1.3, [92, 68, 48]));
-  heads('sword', sword, (material, fill, shade) => {
+  heads('sword', sword, (material, fill, shade, edgeColor) => {
     const scene = new SceneNode();
     if (material === 'iron') {
-      scene.add(poly([p(0.6, -3), p(7.6, -13.4), p(7.8, -10.5), p(2.2, -1.8)], bright));
-      scene.add(poly([p(1.5, -2.3), p(7.6, -13.4), p(7.8, -10.5), p(2.2, -1.8)], steel));
+      scene.add(poly([p(0.6, -3), p(7.6, -13.4), p(7.8, -10.5), p(2.2, -1.8)], edgeColor));
+      scene.add(poly([p(1.5, -2.3), p(7.6, -13.4), p(7.8, -10.5), p(2.2, -1.8)], fill));
       scene.add(stroke(p(-0.5, -3.2), p(3.6, -0.5), 1.2, [174, 142, 83]));
     } else {
       // A practice blade: one thick lath with a rounded point and a plain cross-piece.
@@ -223,22 +216,23 @@ export function createEquipment(parts: PersonParts, calling: Calling): void {
     return scene;
   });
 
-  const staff = new SceneNode();
-  staff.add(stroke(p(-1.4, 4), p(5.5, -15), 1.3, wood));
-  if (calling === Calling.Mage) {
-    staff.add(oval(p(5.5, -15.8), 2.1, 2.4, [180, 156, 210]));
-    staff.add(poly([p(5.5, -18.2), p(7, -15.8), p(5.5, -14), p(4.4, -15.8)], [226, 208, 243]));
-  }
+  const staff = new SceneNode(), frostStaff = new SceneNode().opacity(0);
+  staff.add(staffCrook().strokeWidth(1.5).strokeFill(...wood).translate(wrist.x, wrist.y));
+  frostStaff.add(staffCrook().strokeWidth(1.5).strokeFill(...frostwood).translate(wrist.x, wrist.y));
+  staff.add(frostStaff);
+  staff.add(stroke(p(2.7, -7.6), p(4.2, -6.9), 0.8, calling === Calling.Mage ? [154, 137, 155] : cord));
+  parts.toolHeads.staff = { frostwood: frostStaff };
   attach('staff', staff);
 
   const bow = new SceneNode(),
-    bowWood = new ShapeNode(),
     string = new ShapeNode();
-  bowWood.moveTo(wrist.x - 1, wrist.y - 8);
-  bowWood.cubicTo(wrist.x + 6, wrist.y - 5, wrist.x + 6, wrist.y + 5, wrist.x - 1, wrist.y + 8);
-  bowWood.strokeWidth(1.3);
-  bowWood.strokeFill(92, 68, 48);
-  bow.add(bowWood).add(string);
+  const limb = () => new ShapeNode().moveTo(wrist.x - 1, wrist.y - 8)
+    .cubicTo(wrist.x + 6, wrist.y - 5, wrist.x + 6, wrist.y + 5, wrist.x - 1, wrist.y + 8);
+  const frostBow = new SceneNode().opacity(0);
+  frostBow.add(limb().strokeWidth(1.65).strokeFill(...frostwood));
+  frostBow.add(stroke(p(4.1, -1.4), p(4.1, 1.4), 1.7, grain));
+  parts.toolHeads.bow = { frostwood: frostBow };
+  bow.add(limb().strokeWidth(1.3).strokeFill(92, 68, 48)).add(frostBow).add(string);
   parts.bowString = string;
   const arrow = new SceneNode();
   arrow.add(stroke(p(-4, 0), p(9, 0), 0.65, [192, 174, 138]));
@@ -360,8 +354,10 @@ export function createEquipment(parts: PersonParts, calling: Calling): void {
   attach('saw', saw);
   const chisel = new SceneNode(),
     left = parts.arms[0].wrist;
-  chisel.add(stroke(left, add(left, point(5, 3)), 0.9, steel));
-  chisel.add(stroke(add(left, point(-1, -0.6)), add(left, point(1, 0.6)), 1.6, wood));
+  // Gripped across the palm, the chisel points at the stone with a relaxed wrist.
+  const alongChisel = (n: number) => add(left, point(-0.07 * n, n));
+  chisel.add(stroke(left, alongChisel(5.8), 0.9, steel));
+  chisel.add(stroke(alongChisel(-1.15), alongChisel(1.15), 1.6, wood));
   chisel.opacity(0);
   parts.arms[0].hand!.add(chisel);
   parts.chisel = chisel;
@@ -373,10 +369,15 @@ export function showEquipment(
   parts: PersonParts,
   tool: HeldTool | null,
   material: ToolMaterial = 'iron',
+  shieldReady = false,
 ): void {
+  if (parts.shield) {
+    parts.shield.opacity(shieldReady ? 255 : 0);
+    parts.arms[0].free = !shieldReady;
+  }
   for (const name of heldTools) parts[name]?.opacity(name === tool ? 255 : 0);
   const made = tool ? parts.toolHeads[tool] : undefined;
-  if (made) for (const name of materials) made[name].opacity(name === material ? 255 : 0);
+  if (made) for (const name of materials) made[name]?.opacity(name === material ? 255 : 0);
 }
 
 export function poseBow(parts: PersonParts, draw: number): void {

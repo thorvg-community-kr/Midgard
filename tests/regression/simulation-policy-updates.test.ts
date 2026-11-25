@@ -371,11 +371,11 @@ describe('local persistent work and replenishment', () => {
         expect(harvestDuration(p)).toBe(15);
         expect(harvestDuration(p, true)).toBe(15);
         equip(p, 'axe');
-        expect(harvestDuration(p)).toBe(6);
+        expect(harvestDuration(p)).toBeCloseTo(15 / 1.75);
         expect(harvestDuration(p, true)).toBe(15);
         equip(p, 'pickaxe');
         expect(harvestDuration(p)).toBe(15);
-        expect(harvestDuration(p, true)).toBe(6);
+        expect(harvestDuration(p, true)).toBeCloseTo(15 / 1.75);
     });
     it('resumes an old indoor prayer outside without moving the worshipper instantly', () => {
         const { town, p } = fixture(), altar = new Building(town.nextId++, Structure.Shrine, point(18, 12), 0, 0);

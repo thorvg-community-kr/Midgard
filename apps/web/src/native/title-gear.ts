@@ -1,11 +1,13 @@
 // What the title player has made at the stations: the quest's items first, then arms for the fighters, then tools
-// for the workers. Recipes and their reasons are read from the stations' own option lists, never hard-coded.
+// for the workers. Recipes, their reasons and who would get each item are read from the stations' own offers; the
+// station picks the receiver, so the player only judges whether that resident is helped by it.
 import type { Town } from '../../../../packages/engine/src/town';
 import { Activity, Calling, type Person } from '../../../../packages/engine/src/person';
 import type { Building } from '../../../../packages/engine/src/town-models';
 import { Structure } from '../../../../packages/engine/src/building-catalog';
 import {
   carriedTools,
+  attackDamage,
   equippedItem,
   isCraftStation,
   type ItemSpec,
@@ -58,9 +60,9 @@ export function gearWorth(town: Town, p: Person, item: ItemSpec): number {
     const shapes = weaponShapes[p.calling] ?? plainShapes,
       rank = shapes.indexOf(item.visual ?? '');
     if (rank < 0) return 0;
-    const held = equippedItem(p, 'weapon'),
-      gain = item.attackBonus - (held?.attackBonus ?? 0);
-    return gain > 0.05 ? (isFighter(p) ? 40 : 12) + gain * 10 - rank : 0;
+    // A fighter needs their first weapon to join a party and upgrade it, even when carrying a good work tool.
+    const gain = attackDamage(p, item) - attackDamage(p, equippedItem(p, 'weapon'));
+    return gain > 0 ? (isFighter(p) ? 40 : 12) + gain * 3 - rank : 0;
   }
   if (item.category === 'armor' && item.slots.length) {
     if (!isFighter(p) && item.visual !== 'basket') return 0;
@@ -87,26 +89,41 @@ export interface GearChoice {
   item: ItemSpec;
   worth: number;
 }
-/** The most useful item some free resident can have made now at a free station, or null. With `wish`, the most
- * useful one that only lacks materials, so the gatherers know what to fetch. */
-export function bestGear(town: Town, free: readonly Person[], wanted?: readonly string[], wish = false): GearChoice | null {
+/** In the middle of a job the player gave: building, laying a road or walking where they were sent. An item is not
+ * ordered for them now, as the walk to the station would take them off it. */
+const midJob = (p: Person): boolean =>
+  p.task === Activity.Building || p.task === Activity.Roadwork || (p.task === Activity.Moving && p.ordered);
+/** The most useful item a free station would now give one of `free`, or null. With `wish`, the most useful one
+ * that only lacks materials, so the gatherers know what to fetch. With `onlyFree`, an item of `wanted` too goes
+ * only to one of `free`. */
+export function bestGear(
+  town: Town,
+  free: readonly Person[],
+  wanted?: readonly string[],
+  wish = false,
+  onlyFree = false,
+): GearChoice | null {
   let best: GearChoice | null = null;
   for (const station of ownStations(town)) {
     if (!wish && stationBusy(town, station)) continue;
-    for (const p of free)
-      for (const { item, reason } of town.craftOptions(p.id, station.id)) {
-        if (wish ? reason !== shortOfMaterials : reason) continue;
-        const worth = wanted ? (wanted.includes(item.id) && !owns(p, item.id) ? 100 - item.cost.wood : 0) : gearWorth(town, p, item);
-        if (worth > 0 && (!best || worth > best.worth)) best = { person: p, station, item, worth };
-      }
+    for (const { item, who: p, open, reason } of town.craftOffers(station.id)) {
+      // A quest's item is taken by whoever the station names; other gear only by those with nothing else to do.
+      if (!open || !p || ((!wanted || onlyFree) && !free.includes(p)) || (wish ? reason !== shortOfMaterials : reason)) continue;
+      if (!wish && midJob(p)) continue;
+      let worth = wanted ? (wanted.includes(item.id) && !owns(p, item.id) ? 100 - item.cost.wood : 0) : gearWorth(town, p, item);
+      // The station hands a kind out nearest first: one who gains nothing from a tool or armor still has to get
+      // theirs before the one who would, so it is made last of all rather than never. A second weapon helps nobody.
+      if (!worth && !wanted && item.category !== 'weapon') worth = Math.min(1, Math.max(0, ...free.map((q) => gearWorth(town, q, item))));
+      if (worth > 0 && (!best || worth > best.worth)) best = { person: p, station, item, worth };
+    }
   }
   return best;
 }
 /** Items of `wanted` (cheapest first) that the town could make at some station, ignoring materials. */
-export function makeable(town: Town, someone: Person, wanted: readonly string[]): ItemSpec[] {
+export function makeable(town: Town, _someone: Person, wanted: readonly string[]): ItemSpec[] {
   const out: ItemSpec[] = [];
   for (const station of ownStations(town))
-    for (const { item, reason } of town.craftOptions(someone.id, station.id))
-      if (wanted.includes(item.id) && (!reason || reason === shortOfMaterials)) out.push(item);
+    for (const { item, open, reason } of town.craftOffers(station.id))
+      if (open && wanted.includes(item.id) && (!reason || reason === shortOfMaterials)) out.push(item);
   return out.sort((a, b) => a.cost.wood + a.cost.stone - (b.cost.wood + b.cost.stone));
 }

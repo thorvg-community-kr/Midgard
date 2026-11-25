@@ -104,7 +104,7 @@ const labelOf = (kind: TextKind, value: number, words: string) =>
     : kind === TextKind.Heal
       ? `+${value}`
       : kind === TextKind.Dealt || kind === TextKind.Crit || kind === TextKind.Skill
-        ? `${value}`
+        ? `${value / 10}` // Creature hits are recorded in tenths of a health point, including in old saves.
         : translate(words);
 
 function centre(s: WorldRendererState, state: TextState, text: string, size: number, font: string) {

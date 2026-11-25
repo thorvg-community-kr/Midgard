@@ -1,6 +1,6 @@
 import type { Animation } from '@thorvg/webcanvas';
 import { Context, Theme, Rect, Align, board, rgba, setTransform } from '../../../../packages/native-ui/src';
-import { structureSpec } from '../../../../packages/engine/src/building-catalog';
+import { craftMaterialKeys, resourceName, structureSpec, type Resources } from '../../../../packages/engine/src/building-catalog';
 import type { Town } from '../../../../packages/engine/src/town';
 import { Season } from '../../../../packages/engine/src/town-models';
 import type { Point } from '../../../../packages/engine/src/geometry';
@@ -44,6 +44,8 @@ export function winterOutlookLine(town: Town, village?: number): WinterLine | nu
 }
 /** Height the winter line adds below the store grid. */
 export const winterLineHeight = 22;
+const heldMaterials = (stock: Resources) => craftMaterialKeys.filter((key) => stock[key] > 0);
+export const materialRowsHeight = (stock: Resources) => 20 * Math.ceil(heldMaterials(stock).length / 2);
 const amount = (value: number) =>
   value < 10000
     ? String(value)
@@ -276,12 +278,12 @@ export class CampResourceHud {
     if (this.moving) context.requestAnimationFrame();
     const anchor = marker(hovered),
       seat = town.camp(hovered);
-    if (!anchor || !seat || viewport.w < 240 || viewport.h < 36 + 36 * Math.ceil(names.length / 3)) return;
-    const w = Math.min(336, viewport.w),
-      row = viewport.h < 220 ? 36 : 46,
-      h = f(
-        f(36 + f(row * Math.ceil(names.length / 3))) + (winterOutlookLine(town, hovered) ? winterLineHeight : 0),
-      );
+    if (!anchor || !seat || viewport.w < 240) return;
+    const extra = materialRowsHeight(town.stock(hovered)) + (winterOutlookLine(town, hovered) ? winterLineHeight : 0),
+      rows = Math.ceil(names.length / 3), w = Math.min(336, viewport.w),
+      row = Math.min(46, Math.floor((viewport.h - 36 - extra) / rows)),
+      h = 36 + row * rows + extra;
+    if (row < 32) return;
     let x = f(anchor.roof.x + 30);
     if (f(x + w) > f(viewport.x + viewport.w)) x = f(f(anchor.roof.x - w) - 30);
     x = clamp(x, viewport.x, f(f(viewport.x + viewport.w) - w));
@@ -328,7 +330,8 @@ export class CampResourceHud {
     const winter = winterOutlookLine(town, camp),
       { x, y, w } = panel,
       h = f(panel.h - (winter ? winterLineHeight : 0)),
-      row = f((h - 36) / Math.ceil(names.length / 3));
+      extra = materialRowsHeight(stock),
+      row = f((h - extra - 36) / Math.ceil(names.length / 3));
     board(context, panel, { header: 32 });
     context.text(
       new Rect(x + 12, y + 5, f(w * f(0.55)), 24),
@@ -365,6 +368,11 @@ export class CampResourceHud {
       );
       if (i === 6) context.line(x + 12, box.y - 1, f(f(x + w) - 12), box.y - 1, theme.border);
     }
+    heldMaterials(stock).forEach((key, i) => {
+      const name = resourceName(key), width = (w - 24) / 2;
+      context.text(new Rect(x + 12 + (i % 2) * width, y + h - extra + Math.floor(i / 2) * 20, width - 4, 18),
+        `${name[0].toUpperCase() + name.slice(1)} · ${stock[key]}`, theme.text, 11);
+    });
     if (winter) {
       context.line(x + 12, f(y + h), f(f(x + w) - 12), f(y + h), theme.border);
       context.text(

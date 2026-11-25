@@ -1,6 +1,6 @@
 // One rule for keys the player can learn: with residents selected and no tool in hand, the letters on the command
-// card (Q W E H S M A B) command them; every other letter picks a building, for them to build when they are
-// selected. Digits are always control groups.
+// card (Q W A H B) command them; every other letter picks a building, for them to build when they are selected.
+// Moving and working are the right button's, and Hold is also the way to stop. Digits are always control groups.
 import { Order, Tool } from '../../../../packages/engine/src/game-tools';
 import { controllableIds } from './game-control';
 import { beginSkill, cancelSkill, currentAim, cycleFocus, releaseSkill } from './skill-commands';
@@ -19,7 +19,6 @@ export enum KeyState {
 }
 export interface ArmyKeyApp extends GroupApp {
   prepare(order: Order): void;
-  stopSelected(): void;
   openUnitBuild(): void;
 }
 export interface KeyPress {
@@ -53,7 +52,7 @@ export function selectFighters(app: GroupApp): boolean {
   app.status = '';
   return true;
 }
-const commandKeys = new Set(['q', 'w', 'e', 'h', 's', 'm', 'a', 'b', 'tab']);
+const commandKeys = new Set(['q', 'w', 'h', 'a', 'b', 'tab']);
 /** Keys of the army: groups, the fighters, and in the Command state the unit orders and both skills.
  * False leaves the key to its building or game meaning. */
 export function armyKeyDown(app: ArmyKeyApp, e: KeyPress): boolean {
@@ -84,19 +83,8 @@ export function armyKeyDown(app: ArmyKeyApp, e: KeyPress): boolean {
     case 'w':
       beginSkill(app, app.chosen, 1, 'key');
       return true;
-    case 'e':
-      app.prepare(Order.Work);
-      return true;
     case 'h':
       holdPosition(app);
-      return true;
-    case 's':
-      cancelSkill(app);
-      app.stopSelected();
-      return true;
-    case 'm':
-      cancelSkill(app);
-      app.prepare(Order.Move);
       return true;
     case 'a':
       cancelSkill(app);

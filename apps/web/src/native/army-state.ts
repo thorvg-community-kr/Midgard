@@ -20,6 +20,7 @@ export interface SwarmBanner {
 export interface WaveWarning {
   size: number;
   from: Point;
+  gate: number;
   /** Town clock the wave was announced. */
   at: number;
 }
@@ -36,5 +37,5 @@ export class ArmyState {
   densSeen = 0;
   realmRevision = -1;
   banners: SwarmBanner[] = [];
-  wave: WaveWarning | null = null;
+  waves: WaveWarning[] = [];
 }

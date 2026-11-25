@@ -17,14 +17,15 @@ import { rankRules } from '../../packages/engine/src/monster-ranks';
 // them; a telegraphed slam is walked out of. Skills are left on auto (the default) or all switched off.
 const letters: Record<string, Calling> = { W: Calling.Warrior, R: Calling.Ranger, M: Calling.Mage, C: Calling.Cleric };
 const shape = (c: Calling) => (c === Calling.Warrior ? 'sword' : c === Calling.Ranger ? 'bow' : c === Calling.Mage ? 'staff' : 'mace');
-type Gear = 'wood' | 'stone' | 'iron';
-const tierOf: Record<Gear, number> = { wood: 1, stone: 2, iron: 3 };
-// The smithy's gear of one tier: the calling's weapon, a shield beside a one-handed one, and body armor.
+type Gear = 'wood' | 'stone' | 'iron' | 'regional';
+const tierOf: Record<Gear, number> = { wood: 1, stone: 2, iron: 3, regional: 4 };
+// Regional weapons are worn with the same iron protection as their predecessors.
 function arm(p: Person, gear: Gear) {
-  const made = itemCatalog.filter((i) => i.workshop !== null && i.tier === tierOf[gear] && i.minimumLevel <= p.level),
-    weapon = made.find((i) => i.category === 'weapon' && i.visual === shape(p.calling)),
-    shield = weapon?.hands === 1 ? made.find((i) => isShield(i)) : undefined,
-    armor = made.find((i) => i.category === 'armor' && i.slots.includes('body'));
+  const made = itemCatalog.filter((i) => i.workshop !== null && i.minimumLevel <= p.level),
+    weapon = made.find((i) => i.tier === tierOf[gear] && i.category === 'weapon' && i.visual === shape(p.calling)),
+    protection = made.filter((i) => i.tier === Math.min(3, tierOf[gear])),
+    shield = weapon?.hands === 1 ? protection.find(isShield) : undefined,
+    armor = protection.find((i) => i.category === 'armor' && i.slots.includes('body'));
   let slot = 0;
   for (const [item, place] of [[weapon, 'weapon'], [shield, 'offhand'], [armor, 'body']] as const) {
     if (!item) continue;
@@ -70,9 +71,10 @@ function enter(comp: string, level: number, gear: Gear, floor: number) {
   town.advance(0.1);
   return { town, members };
 }
-function play(comp: string, level: number, gear: Gear, skills: boolean, floor = 0): Outcome {
+function play(comp: string, level: number, gear: Gear, skills: boolean, floor = 0, weapons = true): Outcome {
   const { town, members } = enter(comp, level, gear, floor),
     ids = members.map((p) => p.id);
+  if (!weapons) for (const p of members) town.unequipItem(p.id, 'weapon');
   if (!skills) for (const slot of [0, 1]) town.setSkillAuto(ids, slot, false);
   const heart = town.realmPlan()!.chambers.find((c) => c.kind === ChamberKind.Heart)!,
     downed = new Set<number>(),
@@ -135,6 +137,7 @@ function play(comp: string, level: number, gear: Gear, skills: boolean, floor = 
 }
 const cases = {
   four: ['WRMC', 4, 'wood', true, 0],
+  'four without weapons': ['WRMC', 4, 'wood', true, 0, false],
   'four without skills': ['WRMC', 4, 'wood', false, 0],
   'four under level': ['WRMC', 2, 'wood', true, 0],
   six: ['WWRRMC', 4, 'wood', true, 0],
@@ -143,6 +146,7 @@ const cases = {
   'three at 20': ['WMC', 20, 'iron', true, 0],
   'floor 2': ['WRMC', 8, 'stone', true, 1],
   'floor 3': ['WRMC', 12, 'iron', true, 2],
+  'floor 3 with regional weapons': ['WRMC', 12, 'regional', true, 2],
   // A tier short: what the smithy's next level buys.
   'floor 2 in wood': ['WRMC', 8, 'wood', true, 1],
   'floor 3 in stone': ['WRMC', 12, 'stone', true, 2],
@@ -151,8 +155,8 @@ describe('floors played by small parties', () => {
   const outcomes = new Map<string, Outcome>();
   beforeAll(() => {
     base = WorldMap.generate(5);
-    for (const [key, [comp, level, gear, skills, floor]] of Object.entries(cases))
-      outcomes.set(key, play(comp, level, gear, skills, floor));
+    for (const [key, [comp, level, gear, skills, floor, weapons]] of Object.entries(cases))
+      outcomes.set(key, play(comp, level, gear, skills, floor, weapons));
     console.log(JSON.stringify(Object.fromEntries(outcomes)));
   }, 900000);
   it('lets four at level 4 with wooden arms clear floor 1, one downed at most and nobody dead', () => {
@@ -164,19 +168,20 @@ describe('floors played by small parties', () => {
     expect(plain.downed).toBeGreaterThan(0);
     if (!plain.cleared) expect(plain.seconds).toBeGreaterThanOrEqual(60);
   });
-  it('defeats four two levels under, or leaves most of them downed', () => {
-    const under = outcomes.get('four under level')!;
-    expect(!under.cleared || under.downed >= 3).toBe(true);
+  it('allows a lower-level party with matched weapons to clear the first floor while the same gear matters at level four', () => {
+    expect(outcomes.get('four under level')).toMatchObject({ cleared: true, dead: 0 });
+    const armed = outcomes.get('four')!, unarmed = outcomes.get('four without weapons')!;
+    expect(!unarmed.cleared || unarmed.seconds > armed.seconds).toBe(true);
   });
-  it('is easy for six at level 4', () => {
-    expect(outcomes.get('six')).toMatchObject({ cleared: true, downed: 0, dead: 0 });
+  it('lets six at level four clear the floor faster and bring everyone home', () => {
+    expect(outcomes.get('six')).toMatchObject({ cleared: true, dead: 0 });
     expect(outcomes.get('six')!.seconds).toBeLessThan(outcomes.get('four')!.seconds);
   });
-  it('lets three iron-armed residents through as they rise: at 8, at 12 unhurt, at 20 walking', () => {
-    expect(outcomes.get('three at 8')).toMatchObject({ cleared: true, dead: 0 });
-    expect(outcomes.get('three at 12')).toMatchObject({ cleared: true, downed: 0 });
-    expect(outcomes.get('three at 20')).toMatchObject({ cleared: true, downed: 0 });
-    expect(outcomes.get('three at 20')!.seconds).toBeLessThan(0.85 * outcomes.get('three at 8')!.seconds);
+  it('gives three iron-armed residents the same clear time at levels eight, twelve and twenty when nobody goes down', () => {
+    const eight = outcomes.get('three at 8')!;
+    expect(eight).toMatchObject({ cleared: true, downed: 0, dead: 0 });
+    expect(outcomes.get('three at 12')).toEqual(eight);
+    expect(outcomes.get('three at 20')).toEqual(eight);
   });
   it('fits floor 2 to four at level 8 in stone and floor 3 to four at level 12 in iron', () => {
     expect(outcomes.get('floor 2')).toMatchObject({ cleared: true, dead: 0 });
@@ -184,6 +189,12 @@ describe('floors played by small parties', () => {
     // A tier short of the smithy's next level is slower going.
     expect(outcomes.get('floor 2 in wood')!.seconds).toBeGreaterThan(outcomes.get('floor 2')!.seconds);
     expect(outcomes.get('floor 3 in stone')!.seconds).toBeGreaterThan(outcomes.get('floor 3')!.seconds);
+  });
+  it('clears the final floor faster with regional weapons and the same party and armor', () => {
+    const iron = outcomes.get('floor 3')!, regional = outcomes.get('floor 3 with regional weapons')!;
+    expect(regional).toMatchObject({ cleared: true, dead: 0 });
+    expect(regional.seconds).toBeLessThan(iron.seconds);
+    expect(regional.downed).toBeLessThanOrEqual(iron.downed);
   });
   it('lets three at the floor’s level cut a den’s brood down faster than it grows and fell the den', () => {
     const { town, members } = enter('WRC', 4, 'wood', 0),

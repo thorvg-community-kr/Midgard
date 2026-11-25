@@ -7,6 +7,7 @@ import { Activity, Person, Role, Calling, Race } from '../../packages/engine/src
 import { point, add, scale, distance, Footprint } from '../../packages/engine/src/geometry';
 import { RoadNetwork, sharpAnchor } from '../../packages/engine/src/road-network';
 import { footBounds } from '../../packages/engine/src/person-collision';
+import { plotFor } from '../../apps/web/src/native/title-placement';
 
 function fixture(angle = 0, complete = true) {
   const map = new WorldMap();
@@ -64,6 +65,21 @@ function fixture(angle = 0, complete = true) {
   return { town, worker, road, from, to, middle, flank, map: town.map() };
 }
 const orientations = [0, Math.PI / 2, Math.PI / 4, -Math.PI / 4];
+it('faces a seeded title plot toward its street', () => {
+  const { town } = fixture(Math.PI / 4),
+    plot = plotFor(town, Structure.Tent, 101);
+  expect(plot?.snapped).toBe(true);
+  expect(town.place(Structure.Tent, plot!.center, plot!.angle)).toBe(true);
+  const home = town.buildings().at(-1)!,
+    road = town.roads().distance(home.center);
+  expect(town.roads().distance(home.door()).distance).toBeLessThan(road.distance);
+  expect(Math.abs(-Math.sin(home.angle) * road.tangent!.x + Math.cos(home.angle) * road.tangent!.y)).toBeLessThan(1e-4);
+});
+it('keeps the torch close to its road even in a roadside search', () => {
+  const { town, middle } = fixture(),
+    cursor = add(middle, point(0, 1.25));
+  expect(town.fit(Structure.Torch, cursor, 0, 'roadside').snapped).toBe(false);
+});
 describe('roads remain open between legally placed buildings', () => {
   for (const angle of orientations)
     it(`preserves the road center and actual travel after opposite fitted tents (${angle})`, () => {
@@ -241,6 +257,27 @@ describe('roads remain open between legally placed buildings', () => {
     expect(path.length).toBeGreaterThan(0);
     const length = path.slice(1).reduce((sum, p, i) => sum + distance(path[i], p), 0);
     expect(length, `chosen route length ${length}`).toBeLessThan(30);
+  });
+  it('joins a rocky roadside to open ground when the next street is disconnected', () => {
+    const { town, map } = fixture(), roads = new RoadNetwork();
+    for (const tile of map.tiles) tile.terrain = Terrain.Rock;
+    roads.add([point(5, 9.8), point(13, 9.8)].map(sharpAnchor), 1);
+    roads.add([point(17, 17.5), point(24, 17.5)].map(sharpAnchor), 1);
+    const walls = [new Footprint(point(8.5, 10.75), 0.4, 0), new Footprint(point(14.5, 13.7), 1, 0)];
+    const doorstep = point(8.4, 10.15), destination = point(21, 17.5);
+    town.grid.rebuild(map, roads, walls);
+    expect(town.grid.walkable(doorstep)).toBe(true);
+    expect(town.grid.cost(8, 10)).toBe(0);
+    expect(town.grid.clear(doorstep, destination, Infinity, true)).toBe(false);
+    for (const [from, to] of [[doorstep, destination], [destination, doorstep]]) {
+      const path = town.grid.path(from, to, true);
+      expect(path[0]).toEqual(from);
+      expect(path.at(-1)).toEqual(to);
+      for (let i = 1; i < path.length; ++i) expect(town.grid.clear(path[i - 1], path[i], Infinity, true)).toBe(true);
+    }
+    for (let y = 0; y < map.height(); ++y) map.at(15, y).terrain = Terrain.Mountain;
+    town.grid.rebuild(map, roads, walls);
+    expect(town.grid.path(doorstep, destination, true)).toEqual([]);
   });
   it('keeps a completed bridge route available when a shorter planned bridge crosses impassable water', () => {
     const { town, map } = fixture(),

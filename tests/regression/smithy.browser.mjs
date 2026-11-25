@@ -5,7 +5,7 @@ import { chromium } from '@playwright/test';
 
 // Walks the smithy in the real app: build it beside the workbench, make a weapon and a shield there, see a recipe
 // locked by the smithy's level, raise the bench and the smithy, turn a wooden weapon into a stone one, see owned
-// gear fade with its mark and the last selected resident come up as the crafter, the station looks per level,
+// a kind everyone carries fade with its mark and the station name who gets each item, the station looks per level,
 // the unit window with a shield and armor, then the same in Korean and at phone width.
 const output = 'artifacts/regression/smithy';
 const report = { errors: [], passed: false, shots: [], notes: [] };
@@ -129,6 +129,10 @@ async function open(width, height, { mobile = false, korean = false } = {}) {
           this.advance(seconds, () => !town.person(id).craftItem);
           return !town.person(id).craftItem;
         },
+        /** The resident with an order at the station, or -1. */
+        sent(stationId) {
+          return town.people().find((p) => p.health > 0 && p.craftItem && p.craftWorkshop === stationId)?.id ?? -1;
+        },
         founders() {
           return town.people().filter((p) => p.health > 0).map((p) => p.id);
         },
@@ -220,42 +224,60 @@ try {
   const smith = await page.evaluate(() => probe.place('Weaponsmith'));
   assert(smith >= 0, 'a smithy stands');
   await page.evaluate((id) => probe.open(id, null), smith);
-  await shot('01-smithy-level-1', 'A new smithy: level 1, wooden weapons ready, stone and iron locked by level.');
-  const locked = (await controls()).find((c) => c.id === 'station-craft-flint-sword');
-  assert(locked && !locked.enabled, 'the flint sword waits for a level 2 smithy');
+  await shot('01-smithy-level-1', 'A new smithy: level 1 lists the wooden weapons it can make now, and nothing of stone or iron.');
+  const listed = (await controls()).map((c) => c.id).filter((id) => /^station-(craft|upgrade)-[a-z]/.test(id));
+  assert.deepEqual(
+    listed,
+    ['wooden-sword', 'wooden-club'].map((id) => `station-craft-${id}`),
+    'a founding smithy lists the weapons available before the training yard, watchtower and mage tower',
+  );
 
-  // 2. The resident selected last is the crafter once the smithy is selected.
+  // 2. The station picks who gets an item: selecting a resident first changes nothing it lists.
   await page.evaluate(([smith, b]) => probe.open(smith, b), [smith, b]);
-  const crafterName = await page.evaluate((b) => probe.town.person(b).name, b);
-  const words = await page.evaluate(() => probe.game.context.controls.length);
-  assert(words > 0);
-  report.notes.push(`crafter after selecting ${crafterName} then the smithy`);
-  await shot('02-last-selected-crafter', `${crafterName} was selected last, so ${crafterName} is the crafter.`);
+  const sent = (station) => page.evaluate((station) => probe.sent(station), station);
+  assert(!(await controls()).some((c) => c.id.startsWith('station-crafter-')), 'no crafter selector');
+  await shot('02-station-names-receiver', 'Each row names who gets the item: the nearest resident who has none. There is no crafter to pick.');
 
-  // 3. A wooden sword, then a shield, from the panel.
+  // 3. A wooden sword, then a shield, from the panel: each goes to whoever the row named.
   await click('station-craft-wooden-sword');
-  assert.equal(await page.evaluate((b) => probe.work(b), b), true, 'the sword is made');
-  await page.evaluate(([smith, b]) => probe.open(smith, b), [smith, b]);
+  const swordsman = await sent(smith);
+  assert(swordsman >= 0, 'someone was sent to make the sword');
+  assert.equal(await page.evaluate((id) => probe.work(id), swordsman), true, 'the sword is made');
+  assert((await page.evaluate((id) => probe.held(id), swordsman)).includes('wooden-sword'), 'the sword is in its maker\'s pack');
+  // The same row ordered again goes to another resident, who has none yet.
+  await page.evaluate((smith) => probe.open(smith), smith);
+  await click('station-craft-wooden-sword');
+  const second = await sent(smith);
+  assert(second >= 0 && second !== swordsman, 'the second sword goes to someone else');
+  assert.equal(await page.evaluate((id) => probe.work(id), second), true, 'the second sword is made');
+  await page.evaluate((smith) => probe.open(smith), smith);
   await click(`station-group-shields-${smith}`);
   await click('station-craft-shield');
-  assert.equal(await page.evaluate((b) => probe.work(b), b), true, 'the shield is made');
-  const held = await page.evaluate((b) => probe.held(b), b);
-  assert(held.includes('wooden-sword') && held.includes('shield'), held.join());
-  await page.evaluate(([smith, b]) => probe.open(smith, b), [smith, b]);
+  const shielded = await sent(smith);
+  assert(shielded >= 0, 'someone was sent to make the shield');
+  assert.equal(await page.evaluate((id) => probe.work(id), shielded), true, 'the shield is made');
+  assert((await page.evaluate((id) => probe.held(id), shielded)).includes('shield'), 'the shield is in its maker\'s pack');
+  await page.evaluate(() => {
+    for (const id of probe.founders()) if (!probe.held(id).includes('wooden-sword')) probe.equip(id, ['wooden-sword']);
+  });
+  await page.evaluate((smith) => probe.open(smith), smith);
   await click(`station-group-weapons-${smith}`);
-  await shot('03-owned-fades', 'The sword in hand fades with its mark; the next resident who has none is named, one press away.');
+  assert(!(await controls()).some((c) => c.id === 'station-craft-wooden-sword'), 'nobody is left to take a sword');
+  await shot('03-owned-fades', 'Every founder carries a sword: its row fades, marked Everyone has one, and says what a better one waits for.');
 
-  // 4. Raise the workbench: a resident works at it, then the stone tools open.
-  await page.evaluate(([bench, a]) => probe.open(bench, a), [bench, a]);
+  // 4. Raise the workbench: the nearest free resident works at it, then the stone tools open.
+  await page.evaluate((bench) => probe.open(bench), bench);
   await click(`station-upgrade-${bench}`);
-  await page.evaluate((a) => probe.advance(60, () => probe.town.person(a).activity === probe.Activity.Crafting), a);
+  const raiser = await sent(bench);
+  assert(raiser >= 0, 'someone was sent to raise the bench');
+  await page.evaluate((a) => probe.advance(60, () => probe.town.person(a).activity === probe.Activity.Crafting), raiser);
   await page.evaluate((bench) => probe.lookAt(probe.town.building(bench).center, 4), bench);
   await frames(20, 0.1, true);
   await shot('04-bench-upgrading', 'The workbench being upgraded: the bar over it, nothing spent until it is done.');
-  assert.equal(await page.evaluate((a) => probe.work(a), a), true, 'the bench upgrade is done');
+  assert.equal(await page.evaluate((a) => probe.work(a), raiser), true, 'the bench upgrade is done');
   assert.equal(await page.evaluate((bench) => probe.town.building(bench).variant, bench), 1, 'the bench is level 2');
-  await page.evaluate(([bench, a]) => probe.open(bench, a), [bench, a]);
-  await shot('05-bench-level-2', 'Workbench level 2: stone tools open; iron tools say what they still need.');
+  await page.evaluate((bench) => probe.open(bench), bench);
+  await shot('05-bench-level-2', 'Workbench level 2: the sickle and the knife are new on the list; iron is not listed yet.');
 
   // 5. Raise the smithy: it needs a quarry and four residents first.
   await page.evaluate(([smith, b]) => probe.open(smith, b), [smith, b]);
@@ -286,15 +308,29 @@ try {
   }
   await page.evaluate(([smith, b]) => probe.open(smith, b), [smith, b]);
   await click(`station-upgrade-${smith}`);
-  assert.equal(await page.evaluate((b) => probe.work(b), b), true, 'the smithy upgrade is done');
+  const smithRaiser = await sent(smith);
+  assert(smithRaiser >= 0, 'someone was sent to raise the smithy');
+  assert.equal(await page.evaluate((b) => probe.work(b), smithRaiser), true, 'the smithy upgrade is done');
   assert.equal(await page.evaluate((smith) => probe.town.building(smith).variant, smith), 1, 'the smithy is level 2');
 
-  // 6. Turn the wooden sword into a flint sword: Upgrade in place of Craft.
+  // 6. The flint sword is for level 3: until then the row keeps the wooden one and says what it waits for.
+  // The newcomers get wooden swords too, so nobody is left for a first make.
+  await page.evaluate(() => {
+    for (const id of probe.founders()) if (!probe.held(id).includes('wooden-sword')) probe.equip(id, ['wooden-sword']);
+  });
   await page.evaluate(([smith, b]) => probe.open(smith, b), [smith, b]);
-  await shot('07-upgrade-offered', 'Smithy level 2: the flint sword row offers Upgrade for the wooden sword in hand, for less.');
+  assert(!(await controls()).some((c) => c.id.endsWith('flint-sword')), 'no flint sword for a level 1 wielder');
+  await shot('07-waits-for-level', 'Smithy level 2, wielder level 1: the sword row keeps the wooden sword and says the upgrade comes at level 3.');
+  // At level 3 the row becomes the flint sword, marked New, as an upgrade of the one in hand.
+  await page.evaluate((b) => {
+    probe.town.person(b).level = 3;
+    probe.frames(4);
+  }, swordsman);
+  await shot('07-upgrade-offered', 'Level 3: the sword row is now the flint sword, marked New, an upgrade of the wooden sword of the one resident strong enough.');
   await click('station-upgrade-flint-sword');
-  assert.equal(await page.evaluate((b) => probe.work(b), b), true, 'the upgrade is done');
-  const after = await page.evaluate((b) => probe.held(b), b);
+  assert.equal(await sent(smith), swordsman, 'the upgrade goes to the resident who can use it');
+  assert.equal(await page.evaluate((b) => probe.work(b), swordsman), true, 'the upgrade is done');
+  const after = await page.evaluate((b) => probe.held(b), swordsman);
   assert(after.includes('flint-sword') && !after.includes('wooden-sword'), after.join());
   report.notes.push('notices: ' + (await page.evaluate(() => probe.history.slice(-4).join(' | '))));
 
@@ -361,7 +397,52 @@ try {
     return id;
   });
   assert(koSmith >= 0);
+  const reading = await ko.evaluate(async (station) => {
+    const { gearStats, attackPreview } = await import('/packages/engine/src/gear-stats.ts');
+    const { translate } = await import('/packages/localization/src/index.ts');
+    const { item, who } = probe.town.craftOffers(station).find(offer => offer.item.id === 'wooden-sword');
+    who.name = 'Bryn';
+    const c = probe.game.context, original = c.text, visible = new Set();
+    c.text = function (box, words, ...style) {
+      for (const field of translate(words).split(' · ')) visible.add(field);
+      original.call(this, box, words, ...style);
+    };
+    try { probe.frames(3); } finally { c.text = original; }
+    return { visible: [...visible], expected: [...gearStats(item), attackPreview(who, item)]
+      .flatMap(words => words.split(' · ')).map(translate) };
+  }, koSmith);
+  for (const stat of reading.expected) {
+    assert(!/[A-Za-z]/.test(stat), stat);
+    assert(reading.visible.includes(stat), `missing localized stat: ${stat}`);
+  }
   await shot('10-korean-smithy', 'The smithy panel in Korean.', ko);
+  const [foundry, worker] = await ko.evaluate(() => {
+    const id = probe.place('Foundry'), [resident] = probe.founders();
+    Object.assign(probe.town.stock(), { ironOre: 4, frostwood: 2, bones: 3, cinderOre: 2, hides: 2 });
+    probe.open(id, resident);
+    return [id, resident];
+  });
+  assert(foundry >= 0);
+  await shot('10a-korean-foundry', 'The foundry lists each ingredient and the village stock in Korean.', ko);
+  for (const [id, product] of [['iron-ingot', 'ironIngot'], ['bound-frostwood', 'boundFrostwood'], ['embersteel', 'embersteel']]) {
+    await click(`station-craft-${id}`, ko);
+    // The foundry sends its nearest free resident, whoever was selected.
+    assert(await ko.evaluate((f) => probe.sent(f) >= 0 && probe.work(probe.sent(f)), foundry));
+    assert.equal(await ko.evaluate((k) => probe.town.stock()[k], product), 1);
+    await ko.evaluate(([f, w]) => probe.open(f, w), [foundry, worker]);
+  }
+  assert.deepEqual(await ko.evaluate(() => {
+    const { ironIngot, bones, cinderOre, ironOre } = probe.town.stock();
+    return [ironIngot, bones, cinderOre, ironOre];
+  }), [0, 0, 0, 2]);
+  await ko.evaluate(([s, w]) => probe.open(s, w), [koSmith, worker]);
+  await click(`station-group-gear-${koSmith}`, ko);
+  await click('station-craft-boots', ko);
+  assert(await ko.evaluate((w) => probe.work(w), worker));
+  assert.equal(await ko.evaluate((w) => {
+    const p = probe.town.person(w);
+    return p.inventory[p.equipment.feet - 1]?.item;
+  }, worker), 'boots');
   await ko.context().close();
 
   // 10. Phone width.
@@ -380,6 +461,17 @@ try {
   assert.deepEqual(fits, [], 'every station control fits at phone width');
   assert(phoneSmith >= 0);
   await shot('11-phone-smithy', 'The smithy panel at phone width.', phone);
+  const phoneFoundry = await phone.evaluate(() => {
+    const id = probe.place('Foundry'), [worker] = probe.founders();
+    probe.town.stock().ironOre = 2;
+    probe.open(id, worker);
+    return id;
+  });
+  assert(phoneFoundry >= 0);
+  const refineButtons = (await controls(phone)).filter((c) => c.id.startsWith('station-craft-'));
+  assert(refineButtons.some((c) => c.id === 'station-craft-iron-ingot' && c.enabled));
+  assert(refineButtons.every((c) => c.bounds.x >= 0 && c.bounds.x + c.bounds.w <= 390));
+  await shot('12-phone-foundry', 'The foundry recipes at phone width.', phone);
   await phone.context().close();
 
   const items = report.shots

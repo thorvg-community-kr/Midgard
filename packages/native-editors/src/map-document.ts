@@ -7,7 +7,7 @@ import {
   Volcano,
   isWater,
   isStone,
-  impassable,
+  unsafeGround,
   lavaFloor,
   makeTile,
   distance,
@@ -34,8 +34,8 @@ import {
 } from './documents';
 
 export const maxMapBytes = 40 * 1024 * 1024;
-const dry = (terrain: Terrain) => !isWater(terrain) && !isStone(terrain) && !impassable(terrain);
-const dungeonGround = (terrain: Terrain) => !isWater(terrain) && !impassable(terrain);
+const dry = (terrain: Terrain) => !isWater(terrain) && !isStone(terrain) && !unsafeGround(terrain);
+const dungeonGround = (terrain: Terrain) => !isWater(terrain) && !unsafeGround(terrain);
 function doorstep(map: WorldMap, origin: TileCoord): boolean {
   return (
     map.inside(origin.x + 1, origin.y + 2) &&

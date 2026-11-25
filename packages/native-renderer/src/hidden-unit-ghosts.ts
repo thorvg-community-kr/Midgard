@@ -174,11 +174,11 @@ function shown(s: WorldRendererState, town: Town): Seen[] {
   const list: Seen[] = [];
   for (const p of town.people()) {
     const figure = s.figures.get(p.id);
-    if (!figure?.seen || !figure.paint.alpha || p.inside) continue;
+    if (!figure?.seen || !figure.paint.alpha || figure.arrival?.rising || p.inside) continue;
     list.push({
       key: `p${p.id}`,
       ref: { kind: 'person', id: p.id },
-      at: p.position,
+      at: figure.arrival?.foot ?? p.position,
       hostile: false,
       lying: p.downedAt >= 0,
       height: () => residentHeight,

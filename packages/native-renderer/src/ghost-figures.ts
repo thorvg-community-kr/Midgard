@@ -113,7 +113,10 @@ export function traceResident(draft: Draft, figure: Figure): GhostArea[] | null 
       toolTrace(tool),
       times(
         times(body, affineOf(hand.forearm.matrix)),
-        times(affineOf(hand.hand.matrix), shift(hand.wrist.x, hand.wrist.y)),
+        times(
+          times(affineOf(hand.hand.matrix), affineOf(parts[tool]!.matrix)),
+          shift(hand.wrist.x, hand.wrist.y),
+        ),
       ),
       0,
     );

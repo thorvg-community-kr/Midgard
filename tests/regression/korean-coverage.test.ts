@@ -29,7 +29,6 @@ import {
   personPanel,
   personPanelBounds,
   residentSelection,
-  shelteredSelection,
 } from '../../apps/web/src/native/game-unit-panel';
 import { recallGroup, setGroup, groupTabs } from '../../apps/web/src/native/control-groups';
 import { controlReason } from '../../packages/engine/src/faction';
@@ -156,7 +155,6 @@ function fixture(town = new Town(5, 32), width = 1024, height = 768) {
   app.toScreen = toScreen.bind(app);
   app.cue = vi.fn();
   app.residentSelection = residentSelection.bind(app);
-  app.shelteredSelection = shelteredSelection.bind(app);
   app.commandCard = commandCard.bind(app);
   const controls = vi.spyOn(context, 'control'),
     labels = vi.spyOn(context, 'text');
@@ -347,8 +345,12 @@ describe('the army in Korean', () => {
         for (const group of callingSkills(town, [b.id]))
           for (const touch of [false, true]) tips.push(...skillTooltip(group.slots[1], 1, touch));
       }
-      app.shelteredSelection = () => true;
-      const orders = unitOrders(app).flatMap((order) => [order.label, ...order.lines]);
+      // With a mouse and on touch, where Move and Work stay on the card.
+      const orders = [false, true].flatMap((touch) => {
+        app.touchMode = touch;
+        return unitOrders(app).flatMap((order) => [order.label, ...order.lines]);
+      });
+      app.touchMode = false;
       const names = [...namesOf(town), 'Ulf'];
       expectKorean(ui.seen, names);
       expectKorean(statuses.filter(Boolean), names);

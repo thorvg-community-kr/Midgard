@@ -8,10 +8,12 @@ import type {
   Accessor,
   ThorVGNamespace,
 } from '@thorvg/webcanvas';
+import type { Rings } from './outline-rings';
 import {
   PaintNode,
   ShapeNode,
   SceneNode,
+  StaticShapeLayer,
   TextNode,
   PictureNode,
   AnimationNode,
@@ -19,6 +21,8 @@ import {
   type Blend,
   type Matrix,
   type Gradient,
+  type Rgba,
+  type Shade,
   identity,
 } from './paint';
 interface Entry {
@@ -38,7 +42,16 @@ interface Entry {
   masking?: PaintNode;
   maskMethod?: 'alpha' | 'inverseAlpha';
   hitShapes?: { version: number; paints: Paint[] };
+  /** The shade its colours were last sent with, and the one laid over it whole. */
+  shade?: Shade;
+  effect?: Shade;
 }
+const toned = (color: Rgba, shade?: Shade): Rgba => {
+  if (!shade) return color;
+  const k = shade.strength / 255,
+    mix = (from: number, to: number) => Math.round(from + (to - from) * k);
+  return [mix(color[0], shade.tone[0]), mix(color[1], shade.tone[1]), mix(color[2], shade.tone[2]), color[3]];
+};
 function matrix(value: Matrix) {
   return {
     e11: value[0],
@@ -60,11 +73,14 @@ export function invalidateWebCanvasRasterResources(): void {
 /** Mechanical native-paint API adaptation; it does not invent rendering geometry or style. */
 export class WebCanvasAdapter {
   private entries = new Map<PaintNode, Entry>();
+  private lastSweepSize = 0;
   private parents = new WeakMap<Paint, Entry>();
+  private ringPairs: number[][] = [];
   private rasterGeneration = rasterGeneration;
   private hitAccessor?: Accessor;
   constructor(readonly tvg: ThorVGNamespace) {}
-  sync(node: PaintNode): Paint {
+  /** `shade` is what a scene above asks of the colours below it; a scene's own shade takes its place. */
+  sync(node: PaintNode, shade?: Shade): Paint {
     if (this.rasterGeneration !== rasterGeneration) {
       this.rasterGeneration = rasterGeneration;
       for (const [paint, entry] of this.entries)
@@ -121,6 +137,10 @@ export class WebCanvasAdapter {
       entry.maskMethod = undefined;
     }
     if (node instanceof SceneNode) {
+      // Detached children invalidate entry.children. A changed shade must reach the vector fills.
+      if (node instanceof StaticShapeLayer && entry.children && entry.version === node.version &&
+          entry.shade === shade && !node.clipper && !node.masking)
+        return entry.paint;
       // A fully transparent child is switched off: not attached natively, nor even visited,
       // until it shows again. Most of a figure is tools and loads it is not holding.
       let visible = 0, reordered = !entry.children;
@@ -143,9 +163,10 @@ export class WebCanvasAdapter {
         entry.children = undefined;
         entry.childPaints = [];
       }
+      const below = node.shade ? (node.shade.whole ? undefined : node.shade) : shade;
       let children: Paint[] | undefined;
       for (let i = 0; i < shown.length; i++) {
-        const paint = this.sync(shown[i]);
+        const paint = this.sync(shown[i], below);
         if (paint !== entry.childPaints?.[i]) {
           children ??= [...(entry.childPaints ?? [])];
           children[i] = paint;
@@ -176,7 +197,7 @@ export class WebCanvasAdapter {
     }
     if (node.clipper) this.sync(node.clipper);
     if (node.masking) this.sync(node.masking.paint);
-    if (entry.version === node.version) return entry.paint;
+    if (entry.version === node.version && entry.shade === shade) return entry.paint;
     if (node instanceof AnimationNode) entry.animation!.frame(node.currentFrame);
     if (
       (node instanceof PictureNode || node instanceof SvgPictureNode) &&
@@ -186,11 +207,22 @@ export class WebCanvasAdapter {
       (entry.paint as Picture).size(node.displayWidth, node.displayHeight);
     if (node instanceof ShapeNode) {
       // Only a changed outline or style is sent again; a moved or faded shape keeps both.
-      const path = entry.pathVersion !== node.pathVersion;
-      if (entry.paint instanceof this.tvg.Shape && (path || entry.styleVersion !== node.styleVersion))
-        this.shape(entry.paint, node, path, entry);
+      const path = entry.pathVersion !== node.pathVersion,
+        recolour = entry.shade !== shade;
+      if (entry.paint instanceof this.tvg.Shape && (path || recolour || entry.styleVersion !== node.styleVersion))
+        this.shape(entry.paint, node, path, entry, shade, recolour);
       entry.pathVersion = node.pathVersion;
       entry.styleVersion = node.styleVersion;
+    }
+    entry.shade = shade;
+    if (node instanceof SceneNode && entry.paint instanceof this.tvg.Scene) {
+      const whole = node.shade?.whole ? node.shade : undefined;
+      if (whole !== entry.effect) {
+        entry.paint.resetEffects();
+        // Black and white alike: every colour moves toward the one tone, as a recoloured shape does.
+        if (whole) entry.paint.tint(...whole.tone, ...whole.tone, Math.round((whole.strength / 255) * 100));
+        entry.effect = whole;
+      }
     }
     if (node instanceof TextNode && entry.paint instanceof this.tvg.Text) this.text(entry.paint, node);
     const previousMatrix = entry.matrix ?? identity;
@@ -228,6 +260,7 @@ export class WebCanvasAdapter {
     if (entry.paint.intersects(region.x, region.y, region.w, region.h, true)) return true;
     // The pinned SDK's Lottie Picture root can miss transformed children. Its
     // actual prepared leaf shapes still carry the full ancestor/clip transform.
+    if (node instanceof AnimationNode) this.prepareHitTest(node);
     if (
       entry.hitShapes?.paints.some((paint) => paint.intersects(region.x, region.y, region.w, region.h, true))
     )
@@ -257,6 +290,10 @@ export class WebCanvasAdapter {
       ? { x: bounds.x, y: bounds.y, w: bounds.width, h: bounds.height }
       : null;
   }
+  /** Bound the number of new native paints between sweeps during travel or combat. */
+  needsCollection(): boolean {
+    return this.entries.size >= this.lastSweepSize + 128;
+  }
   /** Call after syncing every live root to release paints detached by a rebuild. */
   collect(roots: readonly PaintNode[]): void {
     const live = new Set<PaintNode>();
@@ -274,6 +311,7 @@ export class WebCanvasAdapter {
         this.release(entry);
         this.entries.delete(node);
       }
+    this.lastSweepSize = this.entries.size;
   }
   dispose(): void {
     this.hitAccessor?.dispose();
@@ -307,7 +345,39 @@ export class WebCanvasAdapter {
             ? this.tvg.BlendMethod.Screen
             : this.tvg.BlendMethod.Normal;
   }
-  private shape(paint: Shape, node: ShapeNode, rebuildPath: boolean, entry: Entry): void {
+  /** Every outline of a shape in one call: corner pairs are kept between calls, so nothing is allocated per corner. */
+  private rings(paint: Shape, rings: Rings): void {
+    const corners = rings.used / 2,
+      commands = new Uint8Array(corners + rings.count),
+      pairs = this.ringPairs,
+      { MoveTo, LineTo, Close } = this.tvg.PathCommand;
+    while (pairs.length < corners) pairs.push([0, 0]);
+    let c = 0,
+      p = 0;
+    for (let ring = 0; ring < rings.count; ++ring) {
+      for (let k = rings.sizes[ring]; k > 0; --k, ++p) {
+        const pair = pairs[p];
+        pair[0] = rings.points[p * 2];
+        pair[1] = rings.points[p * 2 + 1];
+        commands[c++] = LineTo;
+      }
+      commands[c - rings.sizes[ring]] = MoveTo;
+      commands[c++] = Close;
+    }
+    // WebCanvas copies the commands as bytes; a typed array saves it a conversion.
+    paint.appendPath(
+      commands as unknown as Parameters<Shape['appendPath']>[0],
+      corners === pairs.length ? pairs : pairs.slice(0, corners),
+    );
+  }
+  private shape(
+    paint: Shape,
+    node: ShapeNode,
+    rebuildPath: boolean,
+    entry: Entry,
+    shade?: Shade,
+    recolour = false,
+  ): void {
     if (rebuildPath) {
       paint.reset();
       for (const command of node.commands) {
@@ -335,22 +405,23 @@ export class WebCanvasAdapter {
             break;
         }
       }
+      if (node.rings?.count) this.rings(paint, node.rings);
     }
-    if (node.color) paint.fill(...node.color);
-    if (node.gradient && node.gradient !== entry.gradient) {
+    if (node.color) paint.fill(...toned(node.color, shade));
+    if (node.gradient && (node.gradient !== entry.gradient || recolour)) {
       const g = node.gradient,
         c = g.coordinates;
       const gradient =
         g.type === 'linear'
           ? new this.tvg.LinearGradient(c[0], c[1], c[2], c[3])
           : new this.tvg.RadialGradient(c[0], c[1], c[2], c[3], c[4], c[5]);
-      for (const stop of g.stops) gradient.addStop(stop.offset, [...stop.color]);
+      for (const stop of g.stops) gradient.addStop(stop.offset, [...toned(stop.color, shade)]);
       paint.fill(gradient);
       gradient.dispose();
     }
     entry.gradient = node.gradient;
     if (node.width !== undefined) paint.stroke(node.width);
-    if (node.strokeColor) paint.stroke({ color: [...node.strokeColor] });
+    if (node.strokeColor) paint.stroke({ color: [...toned(node.strokeColor, shade)] });
     if (node.cap)
       paint.stroke({
         cap:

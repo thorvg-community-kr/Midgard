@@ -14,7 +14,8 @@ import { hasHangul, setLocale, translate } from '../../packages/localization/src
 import { guidePhrases } from '../../packages/localization/src/korean/guide';
 import { CombatHudState } from '../../apps/web/src/native/game-combat-hud';
 import { ArmyState } from '../../apps/web/src/native/army-state';
-import { GuideState, guideFrame, guideRules, guideUnread, dismissGuideCard, type GuideApp } from '../../apps/web/src/native/game-guide';
+import { GuideState, guideFrame, guideRules, guideShow, guideUnread, dismissGuideCard, type GuideApp } from '../../apps/web/src/native/game-guide';
+import type { WorldObjectRef } from '../../packages/native-renderer/src/world-picking-types';
 import { fill, guideMoments } from '../../apps/web/src/native/guide-moments';
 import { guidePreferences, reloadGuidePreferences, setGuidePreference } from '../../apps/web/src/native/guide-preferences';
 
@@ -71,6 +72,21 @@ function harness(town: Town) {
     prayer: null,
     hoveredWorldTarget: null,
     guide: new GuideState(),
+    chosen: [] as number[],
+    selected: -1,
+    selectedDungeon: -1,
+    selectedObjects: [] as WorldObjectRef[],
+    selectPeople(ids: number[]) {
+      this.chosen = [...ids];
+      this.selected = this.selectedDungeon = -1;
+      this.selectedObjects = [];
+    },
+    selectObject(ref: WorldObjectRef) {
+      this.chosen = ref.kind === 'person' ? [ref.id] : [];
+      this.selected = ref.kind === 'building' ? ref.id : -1;
+      this.selectedDungeon = ref.kind === 'dungeon' ? ref.id : -1;
+      this.selectedObjects = ['person', 'building', 'dungeon'].includes(ref.kind) ? [] : [ref];
+    },
   };
   const game = app as unknown as GuideApp;
   return {
@@ -276,6 +292,103 @@ describe('the camera', () => {
   });
 });
 
+describe('the selection', () => {
+  /** A new game past its opening with nothing selected, the camp's own note put away. */
+  function settled() {
+    const world = newGame();
+    world.town.awaiting = false;
+    world.h.game.guide.queue = [];
+    world.h.game.guide.card = null;
+    world.h.app.selectPeople([]);
+    return world;
+  }
+  const farm = (town: Town) => town.placed.push(new Building(town.nextId++, Structure.Farm, point(20, 14), 0, 0));
+  const down = (town: Town, p: Person, at: Point = p.position) => town.emit(CombatCue.Downed, at, { person: p.id });
+  it('is laid on the thing a note introduces: the waiting founders, then the first camp', () => {
+    const { town, h } = newGame();
+    expect(h.app.chosen).toEqual([0, 1]);
+    town.awaiting = false;
+    h.step();
+    expect(h.game.guide.card?.entry.key).toBe('built:Camp');
+    expect(h.app.selected).toBe(0);
+    expect(h.app.chosen).toEqual([]);
+  });
+  it('is left alone by a first deed, which introduces no thing', () => {
+    const { town, people, h } = settled();
+    for (const [key, deed] of [
+      ['wood', () => fell(town, people[0], TreeWorkKind.Fall, people[0].position)],
+      ['kill', () => town.emit(CombatCue.Kill, people[0].position, { person: people[0].id, creature: 900 })],
+      ['level', () => town.emit(CombatCue.LevelUp, people[0].position, { person: people[0].id, amount: 2 })],
+      ['craft', () => town.notify('Askr crafted Wooden axe')],
+    ] as const) {
+      deed();
+      h.step();
+      expect(h.game.guide.log.find((e) => e.key === key)?.about, key).toEqual([]);
+    }
+    expect(h.game.guide.card?.entry.key).toBe('wood');
+    expect(h.app.chosen).toEqual([]);
+    expect(h.app.selected).toBe(-1);
+  });
+  it('is not narrowed when it already holds the one the note is about', () => {
+    const { town, people, h } = settled();
+    h.app.selectPeople([0, 1]);
+    h.run(guideRules.handSeconds + 1);
+    down(town, people[0]);
+    h.step();
+    expect(h.game.guide.card?.entry.key).toBe('downed');
+    expect(h.app.chosen).toEqual([0, 1]);
+  });
+  it.each<[string, (h: ReturnType<typeof harness>, town: Town) => void]>([
+    ['choosing an order target', (h) => (h.game.pending = Order.Attack)],
+    ['having just given an order', (h) => h.game.cues.push(new Sound(Cue.Order))],
+    ['leading a party beyond a gate', (_, town) => (town.realmActive = () => true)],
+  ])('stays with the player while %s', (_, busy) => {
+    const { town, h } = settled();
+    h.app.selectPeople([1]);
+    // Long enough that the pick itself no longer counts.
+    h.run(guideRules.handSeconds + 1);
+    busy(h, town);
+    farm(town);
+    h.step();
+    expect(h.game.guide.card?.entry.key).toBe('built:Farm');
+    expect(h.app.chosen).toEqual([1]);
+    expect(h.app.selected).toBe(-1);
+  });
+  it('leaves residents the player picked or commanded a moment ago in their hand, and takes an idle selection', () => {
+    const { town, people, h } = settled();
+    h.app.selectPeople([1]);
+    h.run(guideRules.busySeconds + 1);
+    farm(town);
+    h.step();
+    expect(h.game.guide.card?.entry.key).toBe('built:Farm');
+    expect(h.app.chosen).toEqual([1]);
+    // Left alone for a while, the same selection is free for the next note.
+    dismissGuideCard(h.game);
+    h.run(guideRules.handSeconds + 1);
+    down(town, people[0]);
+    h.step();
+    expect(h.game.guide.card?.entry.key).toBe('downed');
+    expect(h.app.chosen).toEqual([0]);
+  });
+  it('follows Look: the camera goes to where the one it is about stands now and the selection is laid on them', () => {
+    const { town, people, h } = settled();
+    h.game.pending = Order.Attack;
+    down(town, people[0], point(30, 20));
+    h.step();
+    const card = h.game.guide.card;
+    expect(card?.entry.key).toBe('downed');
+    expect(card?.looked).toBe(false);
+    expect(h.app.chosen).toEqual([]);
+    h.game.pending = Order.None;
+    people[0].position = point(34, 22);
+    guideShow(h.game, card!.entry);
+    h.run(1);
+    const there = project(34, 22);
+    expect([h.game.camera.x, h.game.camera.y]).toEqual([there.x, there.y]);
+    expect(h.app.chosen).toEqual([0]);
+  });
+});
+
 describe('cards and the log', () => {
   it('shows one card at a time; of a burst the first shows and the newest three wait, and the log keeps all', () => {
     const { town, people, h } = newGame();
@@ -368,9 +481,10 @@ describe('words', () => {
     expect(guideMoments.map((m) => m.key)).toContain('built:Workbench');
     for (const text of [
       'Guide',
-      'Guide (F1)',
-      'Every first-time explanation, to read again.',
-      'Every first-time explanation, newest first.',
+      'Log',
+      'Log (F1)',
+      'Everything that has happened, to read again.',
+      'Everything that has happened, newest first.',
       'Got it',
       'Look',
       'Day 3',
@@ -381,9 +495,8 @@ describe('words', () => {
       'Cards: Off',
       'Newer',
       'Older',
-      '1–4 of 12',
       'Earlier',
-      'Nothing yet. An explanation is written here the first time something happens.',
+      'Nothing yet. What happens is written here.',
       'Askr joins the settlement',
       'Askr used Challenge',
       'Askr learned Whirl',

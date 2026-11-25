@@ -85,6 +85,7 @@ try {
     // A new game waits for the first order; the start is not what this run is about.
     town.awaiting = false;
     site.discovered = true;
+    town.open[gate] = 1;
     const camp = new Building(0, Structure.Camp, town.map().camp(), 0, 0);
     camp.village = 0;
     town.placed.push(camp);
@@ -432,12 +433,11 @@ try {
   });
   await frames(2, 0.001);
   await page.keyboard.press('1');
-  await page.keyboard.press('m');
-  // The panel steps aside for the armed order before the click lands.
   await frames(2, 0.001);
   await settle();
+  // A right-click on open ground is the plain Move.
   let at = await toScreen(choke);
-  await page.mouse.click(at.x, at.y);
+  await page.mouse.click(at.x, at.y, { button: 'right' });
   await fight(20, () =>
     page.evaluate(
       (choke) =>
@@ -476,12 +476,11 @@ try {
   }, den);
   await frames(2, 0.001);
   await page.keyboard.press('2');
-  await page.keyboard.press('m');
   await frames(2, 0.001);
   await settle();
   // A first leg within sight, so the formation marks are in view; Move ignores the brood.
   at = await toScreen(leg);
-  await page.mouse.click(at.x, at.y);
+  await page.mouse.click(at.x, at.y, { button: 'right' });
   await frames(3, 0.05);
   await shot('move-formation');
   const group2 = [rangerId, mageId, clericId];

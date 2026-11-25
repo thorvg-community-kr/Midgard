@@ -2,11 +2,16 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import ThorVG, { type ThorVGNamespace } from '@thorvg/webcanvas';
 import { Person, Calling, Role, Race, Activity } from '../../packages/engine/src/person';
-import { Camera, point, project } from '../../packages/engine/src/geometry';
+import { Camera, Footprint, point, project } from '../../packages/engine/src/geometry';
 import { Traffic } from '../../packages/engine/src/traffic';
-import type { Town } from '../../packages/engine/src/town';
-import { PictureNode, SceneNode, ShapeNode } from '../../packages/native-renderer/src/paint';
+import { Town } from '../../packages/engine/src/town';
+import { WorldMap } from '../../packages/engine/src/world-map';
+import { PictureNode, SceneNode, ShapeNode, StaticShapeLayer } from '../../packages/native-renderer/src/paint';
+import { MistField } from '../../packages/native-renderer/src/mist-bands';
 import { WorldRendererState } from '../../packages/native-renderer/src/world-renderer-state';
+import { fitToView } from '../../packages/native-renderer/src/world-ground';
+import { updateVision } from '../../packages/native-renderer/src/world-vision';
+import { cullTrees } from '../../packages/native-renderer/src/world-trees';
 import { moveAgents } from '../../packages/native-renderer/src/world-people';
 import { registerDepth, sortWorldObjects } from '../../packages/native-renderer/src/world-depth';
 import { WebCanvasAdapter } from '../../packages/native-renderer/src/webcanvas-adapter';
@@ -78,6 +83,40 @@ describe('the native tree holds only what shows', () => {
       adapter.dispose();
     }
   });
+  it('reuses static shapes across frames and applies their new parent shade when moved', () => {
+    const adapter = new WebCanvasAdapter(tvg),
+      fixed = new ShapeNode().appendRect(0, 0, 4, 4).fill(200, 100, 50),
+      layer = new StaticShapeLayer([fixed]),
+      moving = new ShapeNode().appendRect(5, 0, 2, 2).fill(1, 2, 3),
+      root = new SceneNode().add(layer).add(new SceneNode().add(moving)),
+      shadow = new SceneNode().shaded({ tone: [0, 0, 0], strength: 127.5 }),
+      sync = vi.spyOn(adapter, 'sync'),
+      fill = vi.spyOn(tvg.Shape.prototype, 'fill');
+    try {
+      const nativeLayer = adapter.sync(layer);
+      adapter.sync(root);
+      sync.mockClear();
+      fill.mockClear();
+      moving.fill(50, 60, 70);
+      adapter.sync(root);
+      expect(sync.mock.calls.some(([node]) => node === fixed)).toBe(false);
+      expect(fill.mock.calls).toEqual([[50, 60, 70, 255]]);
+
+      root.remove(layer);
+      shadow.add(layer);
+      adapter.sync(shadow);
+      expect(fill).toHaveBeenLastCalledWith(100, 50, 25, 255);
+      shadow.remove(layer);
+      root.add(layer);
+      adapter.sync(root);
+      expect(fill).toHaveBeenLastCalledWith(200, 100, 50, 255);
+      expect(adapter.sync(layer)).toBe(nativeLayer);
+    } finally {
+      sync.mockRestore();
+      fill.mockRestore();
+      adapter.dispose();
+    }
+  });
   it('sends a shape its style once, not again each time it only moves or fades', () => {
     const adapter = new WebCanvasAdapter(tvg),
       shape = new ShapeNode().appendRect(0, 0, 4, 4).fill(1, 2, 3).strokeFill(9, 9, 9).strokeWidth(1),
@@ -98,6 +137,32 @@ describe('the native tree holds only what shows', () => {
     } finally {
       fill.mockRestore();
       stroke.mockRestore();
+      adapter.dispose();
+    }
+  });
+});
+
+describe('a shaded scene', () => {
+  it('sends its shapes dimmed toward the tone, and plain again once the shade is lifted', () => {
+    const adapter = new WebCanvasAdapter(tvg),
+      shape = new ShapeNode().appendRect(0, 0, 4, 4).fill(200, 100, 50),
+      root = new SceneNode().add(new SceneNode().add(shape)),
+      fill = vi.spyOn(tvg.Shape.prototype, 'fill');
+    try {
+      adapter.sync(root);
+      expect(fill.mock.calls.at(-1)).toEqual([200, 100, 50, 255]);
+      // Half way to black.
+      root.shaded({ tone: [0, 0, 0], strength: 127.5 });
+      adapter.sync(root);
+      expect(fill.mock.calls.at(-1)).toEqual([100, 50, 25, 255]);
+      const sent = fill.mock.calls.length;
+      adapter.sync(root);
+      expect(fill.mock.calls.length).toBe(sent);
+      root.shaded();
+      adapter.sync(root);
+      expect(fill.mock.calls.at(-1)).toEqual([200, 100, 50, 255]);
+    } finally {
+      fill.mockRestore();
       adapter.dispose();
     }
   });
@@ -150,7 +215,82 @@ describe('people outside the picture', () => {
   });
 });
 
-describe('land nobody has seen', () => {
+it('keeps the ground mist and its daylight mask over the same tiles through zoom and travel', () => {
+  const state = new WorldRendererState(tvg), town = new Town(WorldMap.generate(5, 64, 64));
+  state.viewWidth = 1280;
+  state.viewHeight = 720;
+  try {
+    const views = [[51, 45, 1.4, 1], [51, 45, 0.68, 2], [56, 61, 0.31, 4], [56, 61, 1.4, 1]];
+    for (const [second, [x, y, zoom, cell]] of views.entries()) {
+      const at = project(x, y);
+      state.view = new Camera(at.x, at.y, zoom);
+      fitToView(state);
+      updateVision(state, town, second);
+      const frame = state.mistField!.frame();
+      expect(frame.cell).toBe(cell);
+      for (const picture of [state.mistPicture!, state.warmPicture]) {
+        const [stepX, , left, , stepY, top] = picture.matrix;
+        expect([stepX, stepY]).toEqual([cell, cell]);
+        // The center of the first pixel is the first tile sample returned by the field.
+        expect([left + stepX / 2, top + stepY / 2]).toEqual([frame.x, frame.y]);
+      }
+    }
+  } finally {
+    state.dispose();
+  }
+});
+
+it('masks cloud shadows with the drawn mist through zoom and fog changes', () => {
+  const state = new WorldRendererState(tvg),
+    town = new Town(WorldMap.generate(5, 64, 64)),
+    at = project(51, 45);
+  state.viewWidth = 1280;
+  state.viewHeight = 720;
+  try {
+    state.view = new Camera(at.x, at.y, 1.2);
+    fitToView(state);
+    updateVision(state, town, 1);
+    const mask = state.clouds.masking;
+    expect(mask?.method).toBe('inverseAlpha');
+    expect(mask?.paint).toBeInstanceOf(SceneNode);
+    const layer = mask!.paint as SceneNode, picture = layer.children[0] as PictureNode;
+    expect(layer.alpha).toBe(255);
+    expect(layer.matrix).toEqual(state.mist.matrix);
+    const version = picture.dataVersion;
+
+    state.view = new Camera(at.x + 50, at.y, 0.45);
+    fitToView(state);
+    updateVision(state, town, 2);
+    expect(state.clouds.masking?.paint).toBe(layer);
+    expect(picture.source).toBe(state.mistPicture);
+    expect(picture.dataVersion).toBeGreaterThan(version);
+    expect(picture.matrix).toEqual(state.mistPicture!.matrix);
+
+    state.mistLifted = true;
+    updateVision(state, town, 3);
+    expect(layer.alpha).toBe(0);
+    state.mistLifted = false;
+    updateVision(state, town, 4);
+    expect(layer.alpha).toBe(255);
+  } finally {
+    state.dispose();
+  }
+});
+
+it.each([1.4, 0.45])('keeps scenery ready just outside the screen at zoom %s', (zoom) => {
+  const { s } = world([]);
+  s.view = new Camera(0, 0, zoom);
+  s.rowTrees = [new SceneNode(), new SceneNode()];
+  const right = s.viewWidth / 2;
+  s.treeBounds = [
+    new Rect((right + 32) / zoom, 0, 20, 30),
+    new Rect((right + 96) / zoom, 0, 20, 30),
+  ];
+  cullTrees(s);
+  expect(s.rowTrees.map((row) => row.alpha)).toEqual([255, 0]);
+});
+
+describe('what stands in the mist', () => {
   /** A tree-like object with its own bounds, standing on a tile. */
   function standing(s: WorldRendererState, x: number, y: number, key: string): SceneNode {
     const node = new SceneNode().add(new ShapeNode().appendRect(-6, -30, 12, 30).fill(20, 90, 40)),
@@ -159,30 +299,85 @@ describe('land nobody has seen', () => {
     s.rowTrees[0].add(node);
     return node;
   }
-  it('leaves out what the opaque veil covers whole, and adds it once the land is explored', () => {
+  /** One resident at (6, 6) seeing 8.5 tiles; the land is known round them only, or everywhere once scouted. */
+  function mist(s: WorldRendererState, scouted: boolean): void {
+    const eye = point(6, 6),
+      at = project(eye.x, eye.y);
+    s.rowTrees = s.rowTrees.length ? s.rowTrees : [new SceneNode()];
+    s.fogged = true;
+    s.mistField ??= new MistField();
+    s.mistField.build({
+      sights: [{ center: eye, radius: 8.5 }],
+      explored: (x, y) => (scouted || Math.hypot(x - eye.x, y - eye.y) < 9 ? 255 : 0),
+      area: { x: -16, y: -16, w: 96, h: 96 },
+      view: [at.x - 400, at.y - 300, 800, 600],
+      zoom: 1,
+      seconds: 0,
+    });
+    s.mistTick++;
+  }
+  it('draws a thing in sight plain, and nothing that stands on unknown land', () => {
     const { s } = world([]);
-    s.rowTrees = [new SceneNode()];
-    s.exploredVisibility.reset(32, 32);
-    s.visibilityPicture = new PictureNode(new Uint8Array(4), 1, 1);
-    s.exploredVisibility.stamp({ center: point(4, 6), radius: 2 });
-    const known = standing(s, 4, 6, 'tree:known'),
-      unknown = standing(s, 10, 6, 'tree:unknown');
+    mist(s, false);
+    const near = standing(s, 4, 6, 'tree:near'),
+      // Nearer the camera than the eye, twelve tiles off: its top would reach up over known ground.
+      far = standing(s, 15, 15, 'tree:far');
     sortWorldObjects(s);
-    expect(s.objects.children).toContain(known);
-    expect(s.objects.children).not.toContain(unknown);
-    // A scout reaches it: the same object appears without being rebuilt.
-    s.exploredVisibility.stamp({ center: point(10, 6), radius: 2 });
+    expect(s.objects.children).toContain(near);
+    expect(near.shade).toBeUndefined();
+    expect(s.objects.children).not.toContain(far);
+    // A scout walks past: the land is remembered, and the same tree appears, dimmed whole.
+    mist(s, true);
     sortWorldObjects(s);
-    expect(s.objects.children).toContain(unknown);
+    expect(s.objects.children).toContain(far);
+    expect(far.shade).toBeDefined();
+    expect(near.shade).toBeUndefined();
   });
-  it('keeps everything in the editors, where there is no fog', () => {
+  it('shows everything plain in the editors and when the mist is lifted', () => {
     const { s } = world([]);
-    s.rowTrees = [new SceneNode()];
-    s.exploredVisibility.reset(32, 32);
-    s.visibilityPicture = new PictureNode(new Uint8Array(4), 1, 1);
-    s.editorView = true;
-    const unknown = standing(s, 10, 6, 'tree:unknown');
+    mist(s, true);
+    const far = standing(s, 15, 15, 'tree:far');
     sortWorldObjects(s);
-    expect(s.objects.children).toContain(unknown);
+    expect(far.shade).toBeDefined();
+    s.mistLifted = true;
+    sortWorldObjects(s);
+    expect(s.objects.children).toContain(far);
+    expect(far.shade).toBeUndefined();
+    // Unknown land, in an editor: there is no mist there at all.
+    s.mistLifted = false;
+    mist(s, false);
+    s.editorView = true;
+    sortWorldObjects(s);
+    expect(s.objects.children).toContain(far);
+  });
+  it('takes a landmark for seen only where the mist was drawn, and then keeps the bank off its ground', () => {
+    const { s } = world([]);
+    // All the land is remembered, so the rim of what was drawn is no bank.
+    mist(s, true);
+    const landmark = (x: number, y: number, key: string) => {
+      const node = new SceneNode().add(new ShapeNode().appendRect(-40, -200, 80, 200).fill(150, 150, 150));
+      registerDepth(node, new Footprint(point(x, y), 3, 0), key);
+      s.rowTrees[0].add(node);
+      return node;
+    };
+    // Far outside the picture: its ground is not in the fields at all.
+    landmark(70, 70, 'landmark:far');
+    sortWorldObjects(s);
+    expect([...s.mistKnown.keys()]).toEqual([]);
+    // Beside the eye, on ground in sight.
+    const near = landmark(8, 8, 'landmark:near');
+    mist(s, true);
+    sortWorldObjects(s);
+    expect(s.objects.children).toContain(near);
+    expect([...s.mistKnown.keys()]).toEqual(['landmark:near']);
+  });
+  it('lies on the ground under all that stands; cloud shadows fall over everything and over the day light', () => {
+    const { s } = world([]),
+      order = (layer: SceneNode) => s.world.children.indexOf(layer);
+    expect(order(s.mist)).toBeGreaterThan(-1);
+    expect(order(s.mist)).toBeLessThan(order(s.objects));
+    expect(order(s.clouds)).toBeGreaterThan(order(s.objects));
+    expect(order(s.clouds)).toBeGreaterThan(order(s.sunlight));
+    expect(order(s.clouds)).toBeLessThan(order(s.darkness));
   });
 });

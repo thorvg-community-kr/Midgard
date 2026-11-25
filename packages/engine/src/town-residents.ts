@@ -1,4 +1,6 @@
 // Native town_people.cpp resident creation, navigation, housing and guest arrival rules.
+import { equippedItem, isCraftStation } from './equipment';
+import { Terrain } from './world-types';
 import { burdenPace } from './carried-resources';
 import { TownState } from './town-state';
 import { Building } from './town-models';
@@ -35,7 +37,7 @@ export interface ResidentTown extends TownState {
   naturalize(p: Person): number;
   enforceGuestLodging(p: Person): void;
 }
-const humanNames = [
+export const humanNames: readonly string[] = [
   'Arnbjorn',
   'Bera',
   'Dagny',
@@ -75,9 +77,11 @@ export function customizePerson(this: ResidentTown, id: number, preset: Characte
   for (const person of this.folk) if (person.id === id) return applyCharacter(person, preset);
   return false;
 }
-export function makePerson(this: ResidentTown, role: Role, calling: Calling, at: Point): Person {
-  const race = this.roll() < f(0.08) ? Race.God : Race.Human,
-    names = race === Race.God ? godNames : humanNames,
+export function makePerson(
+  this: ResidentTown, role: Role, calling: Calling, at: Point,
+  race = this.roll() < f(0.08) ? Race.God : Race.Human,
+): Person {
+  const names = race === Race.God ? godNames : humanNames,
     called = names[Math.trunc(f(this.roll() * names.length)) % names.length],
     person = new Person(
       this.nextPerson++,
@@ -118,8 +122,20 @@ export function walkTo(this: ResidentTown, p: Person, to: Point): boolean {
       distance(from, to) <= shortHop &&
       this.grid.walkable(from) &&
       this.grid.walkable(to) &&
-      this.grid.clear(from, to, Infinity),
-    path = direct ? [from, to] : this.grid.path(from, to);
+      this.grid.clear(from, to, Infinity, true);
+  const boots = equippedItem(p, 'feet');
+  let path = direct ? [from, to] : this.grid.path(from, to, true, boots);
+  // A work surface can be reached on foot even when its tile centre lies under the station.
+  // Walk back across the same clear apron to rejoin the ordinary navigation grid.
+  if (!path.length && this.grid.cost(Math.floor(from.x), Math.floor(from.y)) <= 0) {
+    for (const station of this.placed) {
+      if (!station.built() || !isCraftStation(station.kind) || !station.footprint().contains(from, 0.17)) continue;
+      const door = station.door();
+      if (!this.grid.clear(from, door, Infinity, true)) continue;
+      const onward = this.grid.path(door, to, true, boots);
+      if (onward.length) { path = [from, ...onward]; break; }
+    }
+  }
   if (!path.length) return false;
   p.path = path.slice(1);
   p.inside = false;
@@ -137,8 +153,17 @@ export function refreshShelter(this: ResidentTown, p: Person): void {
   }
 }
 export function walkingSpeed(this: ResidentTown, p: Person): number {
-  let speed = this.grid.speedAt(p.position);
-  speed = f(speed * f(1 - f(f(0.35) * this.climate().snow)));
+  const boots = equippedItem(p, 'feet'),
+    snowDrag = f(f(0.35) * this.climate().snow);
+  let speed = this.grid.speedAt(p.position, boots);
+  let footing = 1 - snowDrag;
+  if (boots?.snowGrip) {
+    // A broad sole also finds purchase on permanently frozen ground between snowfalls.
+    const snow = this.world.cell(p.position)?.terrain === Terrain.Frost ? Math.max(0.175, snowDrag) : snowDrag;
+    footing += snow * boots.snowGrip;
+  }
+  speed = f(speed * f(footing));
+  if (boots?.walkBonus) speed = f(speed * (1 + boots.walkBonus));
   if (p.health < f(0.4)) speed = f(speed * f(0.7));
   if (this.rallied(p)) speed = f(speed * f(1.2));
   return f(speed * burdenPace(p));

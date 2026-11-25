@@ -1,5 +1,12 @@
+import { herdLeader, livestockKind, localRanches, penHasRoom } from '../../../../packages/engine/src/livestock';
+import { ranchGrowth } from '../../../../packages/engine/src/ranch-cycle';
+import { AnimalKind } from '../../../../packages/engine/src/person';
+import { canControl } from '../../../../packages/engine/src/faction';
+import { Product } from '../../../../packages/engine/src/building-catalog';
+import { harvestAmount, harvestName, harvestNeeds, harvestProduct } from '../../../../packages/engine/src/harvest-material';
+import { productItem } from '../../../../packages/engine/src/equipment';
 import type { Paint } from '@thorvg/webcanvas';
-import { Rect, button, frame as pictureFrame, meter, type Context, type Color } from '../../../../packages/native-ui/src';
+import { Rect, ButtonStyle, button, frame as pictureFrame, meter, type Context, type Color } from '../../../../packages/native-ui/src';
 import { Order } from '../../../../packages/engine/src/game-tools';
 import { f32 } from '../../../../packages/engine/src/numeric';
 import { animalSpec } from '../../../../packages/engine/src/wildlife';
@@ -7,9 +14,8 @@ import { point } from '../../../../packages/engine/src/geometry';
 import * as mining from '../../../../packages/engine/src/mining';
 import { animalSprite } from '../../../../packages/native-renderer/src/wildlife-sprites';
 import { treeAt, TreeKind, TreeBatch } from '../../../../packages/native-renderer/src/tree-painter';
-import { appendStone, stoneLit, stoneShade } from '../../../../packages/native-renderer/src/mining-stone';
-import { SceneNode, ShapeNode } from '../../../../packages/native-renderer/src/paint';
-import { fill, opaque } from '../../../../packages/native-renderer/src/vector-paint';
+import { depositPaint } from '../../../../packages/native-renderer/src/mining-stone';
+import { SceneNode } from '../../../../packages/native-renderer/src/paint';
 import { hudPaint } from './hud-paint';
 import type { GameHudApp } from './game-hud-contract';
 import { worldTarget, landmarkDescription } from './world-targets';
@@ -72,9 +78,11 @@ export function worldObjectPanel(this: GameHudApp, panel: Rect): void {
       const f = this.town.field(target.id);
       detail = f ? `Farmland · ${f.acres()} acres` : '';
     }
-    if (target.kind === 'tree')
-      detail = 'A wood resource. Right-click to gather; inspect any selected object below.';
-    if (target.kind === 'rock') detail = 'A stone resource. Right-click to mine.';
+    if (target.kind === 'tree' || target.kind === 'rock') {
+      const map = this.town.map(), x = target.id % map.width(), y = Math.floor(target.id / map.width());
+      const product = harvestProduct(map, x, y, target.kind === 'rock');
+      detail = harvestNeeds(product, target.kind === 'rock' && target.id === map.basaltCell) || (target.kind === 'tree' ? 'A wood resource. Right-click to gather; inspect any selected object below.' : 'A stone resource. Right-click to mine.');
+    }
     if (target.kind === 'building')
       detail = 'Open the building inspector for construction, residents and services.';
     c.text(
@@ -141,35 +149,39 @@ export function worldObjectPanel(this: GameHudApp, panel: Rect): void {
     c.paint(JSON.stringify(['animal-profile', kind, portrait]), () =>
       fitted(c, hudPaint(c, animalSprite(kind)), portrait),
     );
-    text(10, spec.name, t.text, 17, true);
-    text(35, animal.angry ? (spec.defends ? 'Defending itself' : 'Fleeing') : 'Neutral animal', t.accent);
-    text(58, 'Food +' + spec.food + ' when hunted', t.muted);
+    const young = animal.ranchBornAt >= 0 && ranchGrowth(animal, this.town.clock()) < 1;
+    text(10, young ? (kind === AnimalKind.Cow ? 'Calf' : 'Piglet') : spec.name, t.text, 17, true);
+    const farms = livestockKind(kind) ? this.town.people().flatMap(p => canControl(p) ? localRanches(this.town, p) : []) : [];
+    const housed = animal.pen >= 0, led = !!farms.length && !!herdLeader(this.town, animal), room = farms.some(b => penHasRoom(this.town, b));
+    text(35, housed ? 'Ranch animal' : led ? 'Leading livestock' : animal.angry ? (spec.defends ? 'Defending itself' : 'Fleeing') : 'Neutral animal', t.accent);
+    const husbandry = kind === AnimalKind.Chicken ? 'Lays eggs in the nest.' : young ? 'Growing in the pen.'
+      : animal.ranchBornAt >= 0 ? 'Raised for meat.' : kind === AnimalKind.Pig ? 'Two pigs can raise piglets.' : 'Two cows can raise calves.';
+    text(58, housed || farms.length ? husbandry : 'Food +' + spec.food + ' when hunted', t.muted);
     const health = Math.max(0, Math.min(1, f32(animal.health / spec.health)));
     text(79, 'Health ' + Math.ceil(f32(health * 100)) + '%', t.muted, 11);
     meter(c, new Rect(f32(left + 78), f32(panel.y + 86), Math.max(1, f32(width - 78)), 7), health, t.success);
-    button(c, 'animal-hunt', new Rect(left, f32(panel.y + 104), width, 30), 'Attack  A', () =>
-      this.prepare(Order.Attack),
-    );
+    if (housed) button(c, 'animal-ranch', new Rect(left, f32(panel.y + 104), width, 30),
+      'View ranch', () => this.selectBuilding(animal.pen));
+    else if (!led) button(c, 'animal-hunt', new Rect(left, f32(panel.y + 104), width, 30),
+      farms.length ? (room ? 'Lead to ranch' : 'Ranch is full') : 'Attack  A', () => this.prepare(farms.length ? Order.Work : Order.Attack),
+      ButtonStyle.Default, !farms.length || room);
     return;
   }
   const x = cell % map.width(),
     y = Math.trunc(f32(cell / map.width()));
   if (!map.inside(x, y)) return;
+  const product = harvestProduct(map, x, y, stone);
   if (stone) {
-    const size = mining.size(map, x, y);
-    c.paint(JSON.stringify(['stone-profile', map.seed(), cell, portrait]), () => {
-      const model = new SceneNode(),
-        lit = new ShapeNode(),
-        shade = new ShapeNode();
-      appendStone(lit, shade, point(), size);
-      fill(lit, opaque(stoneLit));
-      fill(shade, opaque(stoneShade));
-      model.add(lit).add(shade);
+    const size = mining.size(map, x, y), basalt = cell === map.basaltCell;
+    c.paint(JSON.stringify(['stone-profile', product, basalt, map.seed(), cell, portrait]), () => {
+      const model = new SceneNode();
+      for (const shape of depositPaint(product, point(), size, basalt)) model.add(shape);
       return fitted(c, hudPaint(c, model), portrait);
     });
-    text(10, 'Stone', t.text, 17, true);
-    text(35, 'Stone deposit', t.accent);
-    text(58, 'Mine, carry, store +3 stone', t.muted);
+    text(10, harvestName(product, basalt), t.text, 17, true);
+    text(35, harvestNeeds(product, basalt) || 'Stone deposit', t.accent);
+    if (basalt) text(79, 'Opens a path for the party', t.muted, 11);
+    text(58, product === Product.Stone ? 'Mine, carry, store +3 stone' : `${productItem(product)!.name} +${harvestAmount(product)}`, t.muted);
   } else {
     if (!map.at(x, y).trees) return;
     const instance =
@@ -198,13 +210,13 @@ export function worldObjectPanel(this: GameHudApp, panel: Rect): void {
         return fitted(c, hudPaint(c, model), portrait);
       },
     );
-    text(10, 'Tree', t.text, 17, true);
+    text(10, harvestName(product), t.text, 17, true);
     text(
       35,
-      tree.kind === TreeKind.Fir ? 'Fir' : tree.kind === TreeKind.SnowySpruce ? 'Snowy spruce' : 'Dead tree',
+      harvestNeeds(product) || (tree.kind === TreeKind.Fir ? 'Fir' : tree.kind === TreeKind.SnowySpruce ? 'Snowy spruce' : 'Dead tree'),
       t.accent,
     );
-    text(58, 'Chop, carry, store +3 wood', t.muted);
+    text(58, product === Product.Frostwood ? `Frostwood +${harvestAmount(product)}` : 'Chop, carry, store +3 wood', t.muted);
     text(79, 'Trees remaining: ' + map.at(x, y).trees, t.muted, 11);
   }
   button(

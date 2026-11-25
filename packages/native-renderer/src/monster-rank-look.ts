@@ -1,6 +1,8 @@
 // How a monster's rank shows in the world: its size, a guardian's crown, recoil from blows and a rearing wind-up.
 import { project } from '../../engine/src/geometry';
 import { CombatCue, MonsterRank } from '../../engine/src/combat-events';
+import { FirstSlam } from '../../engine/src/expedition-record';
+import { rankRules } from '../../engine/src/monster-ranks';
 import type { Hit, Monster } from '../../engine/src/person';
 import type { Town } from '../../engine/src/town';
 import { DungeonKind } from '../../engine/src/world-types';
@@ -160,7 +162,8 @@ export function recoilOf(town: Town, beast: Monster): { dx: number; dy: number; 
 export function windupOf(town: Town, beast: Monster): number | null {
   const now = town.clock();
   if (!(beast.windupUntil > now)) return null;
-  let total = 1.6;
+  let total = town.realmGuardian === beast.id && town.firstExpedition.slam === FirstSlam.Winding
+    ? rankRules.firstSlamWindup : rankRules.slamWindup;
   for (const event of cuesOf(town))
     if (event.cue === CombatCue.Telegraph && event.creature === beast.id && event.duration > 0)
       total = event.duration;

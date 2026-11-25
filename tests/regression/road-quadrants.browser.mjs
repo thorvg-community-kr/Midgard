@@ -534,6 +534,7 @@ try {
           roads: town
             .roads()
             .roads()
+            .filter((road) => road.id !== trace.street)
             .map((road) => {
               const front = road.workPoint();
               return {
@@ -786,12 +787,23 @@ try {
 
       // Submit another global construction request while both roads are active.
       // Only the UI is paused; no worker's order, needs, materials or position is changed.
-      await page.evaluate(() => {
-        const game = window.goldfantasy.app.gameSession.game;
+      await page.evaluate((parent) => {
+        const E = window.roadEngine,
+          game = window.goldfantasy.app.gameSession.game,
+          town = game.state(),
+          c = town.camp().center;
         game.selectPeople([]);
-        game.selectTool(window.roadEngine.Tool.Select, false);
+        game.selectTool(E.Tool.Select, false);
+        // The workbench comes into the build menu when the first road is finished (the second founding quest).
+        // This case asks for it while both drawn roads are still open, so a finished stub of road on the far
+        // side of the camp stands in for that quest; the snapshots leave it out.
+        const end = parent[parent.length - 1],
+          away = E.normalized(E.sub(c, end)),
+          id = town.roads().add([1.6, 3.6].map((r) => E.sharpAnchor(E.add(c, E.scale(away, r)))), 1);
+        town.roads().road(id).village = town.camp().id;
+        window.roadTrace.street = id;
         window.roadTrace.stage = 'global-building';
-      });
+      }, result.fixture.parent);
       await frames();
       await page.mouse.move(640, 775);
       await frames(4);

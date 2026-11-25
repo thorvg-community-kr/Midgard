@@ -5,14 +5,18 @@ import type { Town } from '../../../../packages/engine/src/town';
 import { TownState } from '../../../../packages/engine/src/town-state';
 import { Building, type Placement } from '../../../../packages/engine/src/town-models';
 import { Structure, structureSpec } from '../../../../packages/engine/src/building-catalog';
-import { Footprint, add, distance, normalized, point, scale, sub, type Outline, type Point } from '../../../../packages/engine/src/geometry';
-import { freehandRoad, sharpAnchor, type RoadPath } from '../../../../packages/engine/src/road-network';
+import { Footprint, add, distance, normalized, point, rotated, scale, sub, type Outline, type Point } from '../../../../packages/engine/src/geometry';
+import { flatten, freehandRoad, sharpAnchor, type RoadPath } from '../../../../packages/engine/src/road-network';
 import { hash01 } from '../../../../packages/engine/src/numeric';
 import { isPlayerBuilding } from '../../../../packages/engine/src/faction';
+import { walkSpeed } from '../../../../packages/engine/src/walk-paths';
+import type { Trip, WorkEfficiency } from '../../../../packages/engine/src/work-efficiency';
 
 /** Candidate plots tried per search; each is one `fit` and one `canPlace`. */
 const plotBudget = 160;
 const ringAngles = 16;
+/** Straight spurs tried for one building that has no road; each is one `canBuildRoad`. */
+const spurBudget = 40;
 
 const ownBuildings = (town: Town): Building[] => town.buildings().filter(isPlayerBuilding);
 
@@ -45,8 +49,25 @@ const offStreet = (corridor: { from: Point; dir: Point } | null, at: Point, clea
     across = Math.abs(rel.x * corridor.dir.y - rel.y * corridor.dir.x);
   return along < -clear || along > 10 + clear || across > clear;
 };
+/** The rounds a new building would shorten, so its plot is weighed by the walking it saves. */
+export interface Serves {
+  efficiency: WorkEfficiency;
+  /** Walks that would end at its door when that is nearer than where they end now. */
+  drops: readonly Trip[];
+  /** Places its own people walk to and from. */
+  visits: readonly Point[];
+}
+/** Tiles of walking a round a plot at `at` costs its people, less those it saves the rounds it serves. */
+function walkOf(serves: Serves | undefined, at: Point): number {
+  if (!serves) return 0;
+  let tiles = 0;
+  const trips = serves.drops.reduce((sum, t) => sum + t.perDay, 0);
+  if (trips > 0) tiles -= (serves.efficiency.dropWorth(serves.drops, at).saved / trips) * walkSpeed.open;
+  for (const to of serves.visits) tiles += (serves.efficiency.straightSeconds(at, to) * walkSpeed.open) / serves.visits.length;
+  return tiles;
+}
 /** Plots beside the roads first, so doors face a road; then rings around the anchor. */
-function candidates(town: Town, kind: Structure, anchor: Point, seed: number, salt: number): Point[] {
+function candidates(town: Town, kind: Structure, anchor: Point, seed: number, salt: number, serves?: Serves): Point[] {
   const out: { p: Point; s: number }[] = [],
     half = structureSpec(kind).size / 2,
     reach = TownState.campReach,
@@ -61,7 +82,7 @@ function candidates(town: Town, kind: Structure, anchor: Point, seed: number, sa
       for (let s = 0.4; s < along; s += 1.1)
         for (const side of [1, -1]) {
           const at = add(add(a, scale(dir, s)), scale(normal, side * (half + 0.9)));
-          if (distance(at, anchor) <= reach) out.push({ p: at, s: distance(at, anchor) + jitter(at) });
+          if (distance(at, anchor) <= reach) out.push({ p: at, s: distance(at, anchor) + jitter(at) + walkOf(serves, at) });
         }
     }
   // Off the streets a plot ranks behind every plot beside one.
@@ -72,12 +93,12 @@ function candidates(town: Town, kind: Structure, anchor: Point, seed: number, sa
     for (let i = 0; i < ringAngles; ++i) {
       const angle = turn + (i * Math.PI * 2) / ringAngles,
         at = point(anchor.x + r * Math.cos(angle), anchor.y + r * Math.sin(angle));
-      if (offStreet(corridor, at, half + 1.1)) out.push({ p: at, s: distance(at, anchor) + jitter(at) + penalty });
+      if (offStreet(corridor, at, half + 1.1)) out.push({ p: at, s: distance(at, anchor) + jitter(at) + penalty + walkOf(serves, at) });
     }
   return out.sort((a, b) => a.s - b.s).map((c) => c.p);
 }
 /** A plot the town accepts for `kind`, or null when none is found within the budget. */
-export function plotFor(town: Town, kind: Structure, seed: number, salt = 0): Placement | null {
+export function plotFor(town: Town, kind: Structure, seed: number, salt = 0, serves?: Serves): Placement | null {
   const seat = town.camp();
   const camp = seat ? seat.center : town.map().camp();
   if (kind === Structure.Camp) {
@@ -91,9 +112,10 @@ export function plotFor(town: Town, kind: Structure, seed: number, salt = 0): Pl
     corridor = streetCorridor(town),
     half = structureSpec(kind).size / 2;
   let tried = 0;
-  for (const p of candidates(town, kind, anchor, seed, salt)) {
-    if (++tried > plotBudget) break;
-    const spot = town.fit(kind, p, 0);
+  for (const p of candidates(town, kind, anchor, seed, salt, serves)) {
+    // Roadside plots crowd the front of the list. A quarry may need the rocky fringe of the camp.
+    if (++tried > plotBudget && kind !== Structure.Quarry) break;
+    const spot = town.fit(kind, p, 0, 'roadside');
     if (distance(spot.center, camp) > TownState.campReach || !offStreet(corridor, spot.center, half + 0.9)) continue;
     if (town.canPlace(kind, spot.center, spot.angle).ok) return spot;
   }
@@ -131,7 +153,50 @@ export function roadToDoor(town: Town, site: Building): RoadPath | null {
     const path = routedRoad(town, near.onRoad, add(door, scale(out, reach)));
     if (path) return path;
   }
+  // The way from the nearest road is shut (the camp itself, a field, a neighbour): a straight spur serves as well.
+  return spurTo(town, site.footprint(), [add(door, scale(out, 0.2))]);
+}
+/** A straight spur from anywhere on the laid roads to one of `ends` or to any wall of `footprint`, the shortest
+ * the town accepts, or null. */
+function spurTo(town: Town, footprint: Footprint, ends: Point[]): RoadPath | null {
+  const reach = footprint.half + 0.5,
+    starts: Point[] = [],
+    spurs: { from: Point; to: Point; length: number }[] = [];
+  for (let side = 0; side < 8; ++side) {
+    const angle = footprint.angle + (side * Math.PI) / 4;
+    ends.push(add(footprint.center, scale(point(Math.cos(angle), Math.sin(angle)), side % 2 ? reach * Math.SQRT2 : reach)));
+  }
+  // Starts a tile apart along the roads, so the tries are spread over different lines.
+  for (const segment of town.roads().builtSegments())
+    for (const at of [segment.a, segment.b]) if (!starts.some((known) => distance(known, at) < 1)) starts.push(at);
+  for (const to of ends)
+    for (const from of starts
+      .slice()
+      .sort((x, y) => distance(x, to) - distance(y, to))
+      .slice(0, 5)) {
+      const length = distance(from, to);
+      if (length >= 0.6 && length <= TownState.maxRoadLength * 0.6) spurs.push({ from, to, length });
+    }
+  for (const spur of spurs.sort((x, y) => x.length - y.length).slice(0, spurBudget)) {
+    const path = [sharpAnchor(spur.from), sharpAnchor(spur.to)];
+    if (standsAt(footprint, path) && town.canBuildRoad(path).ok) return path;
+  }
   return null;
+}
+/** A spur to a plot nothing stands on yet, so what is built there stands at a road from its first day. */
+export function roadToPlot(town: Town, kind: Structure, spot: Placement): RoadPath | null {
+  return spurTo(town, new Footprint(spot.center, structureSpec(kind).size / 2, spot.angle), []);
+}
+/** True when a road along `path` counts as standing at `footprint`, as `roadAccess` reads it, without running
+ * over it. */
+function standsAt(footprint: Footprint, path: RoadPath): boolean {
+  const line = flatten(path),
+    margin = TownState.roadHalfWidth + 0.7;
+  if (line.some((q) => footprint.contains(q, TownState.roadHalfWidth - 0.1))) return false;
+  for (let i = 1; i < line.length; ++i)
+    if ([line[i - 1], line[i], point((line[i - 1].x + line[i].x) / 2, (line[i - 1].y + line[i].y) / 2)].some((q) => footprint.contains(q, margin)))
+      return true;
+  return false;
 }
 /** The settlement's main street: out of the camp door, as straight as the ground allows. */
 export function firstRoad(town: Town, seed: number): RoadPath | null {
@@ -154,6 +219,21 @@ export function firstRoad(town: Town, seed: number): RoadPath | null {
     }
   return null;
 }
+/** When the doorway is boxed in, the first street can still meet another side of the camp. */
+export function roadBesideCamp(town: Town): RoadPath | null {
+  const seat = town.camp();
+  if (!seat) return null;
+  for (const length of [5, 3, 2])
+    for (let side = 0; side < 8; ++side) {
+      const angle = seat.angle + side * Math.PI / 4;
+      const outward = point(Math.cos(angle), Math.sin(angle));
+      const from = add(seat.center, scale(outward, 1));
+      const path = [sharpAnchor(from), sharpAnchor(add(from, scale(outward, length)))];
+      if (town.canBuildRoad(path).ok) return path;
+    }
+  return null;
+}
+
 /** A branch off the roads toward open ground, for a village that has filled its streets. */
 export function branchRoad(town: Town, seed: number, salt: number): RoadPath | null {
   const seat = town.camp(),
@@ -170,6 +250,25 @@ export function branchRoad(town: Town, seed: number, salt: number): RoadPath | n
     const path = [sharpAnchor(at), sharpAnchor(end)];
     if (town.canBuildRoad(path).ok) return path;
   }
+  return null;
+}
+/** An area for a new farm that has `spot` for the farmhouse in a corner, its door side on the edge; or null. */
+export function farmArea(town: Town, spot: Placement): Outline | null {
+  const half = structureSpec(Structure.Farm).size / 2,
+    out = rotated(point(0, 1), spot.angle),
+    across = point(-out.y, out.x);
+  for (const [wide, deep] of [
+    [3, 3],
+    [3.5, 2.5],
+    [2.5, 3.5],
+    [2.5, 2.5],
+  ])
+    for (const turn of [1, -1]) {
+      const corner = add(spot.center, add(scale(out, half), scale(across, -turn * half))),
+        far = add(corner, scale(across, turn * wide)),
+        outline = [corner, far, add(far, scale(out, -deep)), add(corner, scale(out, -deep))];
+      if (town.farmLayout(outline).check.ok) return outline;
+    }
   return null;
 }
 /** A field of about six acres within the farmhouse's reach, or null. */

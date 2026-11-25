@@ -3,7 +3,7 @@ import { Town } from '../../packages/engine/src/town';
 import { Building, Field } from '../../packages/engine/src/town-models';
 import { Structure, structureSpec } from '../../packages/engine/src/building-catalog';
 import { Tool, toolStructure } from '../../packages/engine/src/game-tools';
-import { Calling, Role } from '../../packages/engine/src/person';
+import { Activity, Calling, Role } from '../../packages/engine/src/person';
 import { DungeonKind } from '../../packages/engine/src/world-types';
 import { point } from '../../packages/engine/src/geometry';
 import { decodeTown, encodeTown } from '../../packages/engine/src/save-game';
@@ -11,7 +11,7 @@ import { RaidKind } from '../../packages/engine/src/raid-progression';
 import { sharpAnchor } from '../../packages/engine/src/road-network';
 import { Boon, boon } from '../../packages/engine/src/gate-boons';
 import { sealFloors, sealable } from '../../packages/engine/src/gate-seals';
-import { drillRules, towerVolley } from '../../packages/engine/src/progression-rules';
+import { towerVolley } from '../../packages/engine/src/progression-rules';
 import { BUILDING_ASSETS } from '../../packages/content/src/assets';
 import { addInventory, itemSpec } from '../../packages/engine/src/equipment';
 import { levelVariant, stationLevel } from '../../packages/engine/src/craft-stations';
@@ -54,6 +54,12 @@ function residents(town: Town, count: number): void {
   while (town.population() < count)
     town.folk.push(town.makePerson(Role.Resident, Calling.Settler, town.map().camp()));
 }
+/** A finished road out of the camp, as the second founding quest asks. */
+function road(town: Town): void {
+  const c = town.map().camp(),
+    id = town.roads().add([sharpAnchor(c), sharpAnchor(point(c.x + 3, c.y))], 1);
+  town.roads().road(id)!.village = 0;
+}
 function worker(town: Town, job: Building) {
   const p = town.makePerson(Role.Resident, Calling.Settler, { ...job.center });
   p.job = job.id;
@@ -66,23 +72,31 @@ describe('new buildings', () => {
     expect(Structure.Watchtower).toBe(35);
     // The workbench came after these, appended so saved building kinds keep their numbers.
     expect(Structure.Workbench).toBe(38);
-    expect(Structure.Count).toBe(39);
+    expect(Structure.Foundry).toBe(39);
+    expect(Structure.Ranch).toBe(40);
+    expect(Structure.Count).toBe(41);
     expect(added.map((kind) => structureSpec(kind).name)).toEqual(['Watchtower', 'Training yard', 'Runestone']);
-    expect(added.map((kind) => structureSpec(kind).jobs)).toEqual([1, 2, 0]);
+    expect(added.map((kind) => structureSpec(kind).jobs)).toEqual([0, 0, 0]);
     expect(structureSpec(Structure.Runestone).cost.stone).toBeGreaterThan(structureSpec(Structure.Runestone).cost.wood);
     for (let kind = 0; kind < Structure.Count; ++kind) {
       const next = structureSpec(kind).next;
       expect(next).toBeLessThanOrEqual(Structure.Count);
-      expect(added).not.toContain(next);
+      expect([...added, Structure.Foundry]).not.toContain(next);
     }
     expect([Tool.Watchtower, Tool.TrainingYard, Tool.Runestone].map(toolStructure)).toEqual(added);
     expect(Tool.Runestone + 1).toBe(Tool.Workbench);
     expect(toolStructure(Tool.Workbench)).toBe(Structure.Workbench);
-    expect(Tool.Workbench + 1).toBe(Tool.Count);
+    expect(Tool.Workbench + 1).toBe(Tool.Foundry);
+    expect(toolStructure(Tool.Foundry)).toBe(Structure.Foundry);
+    expect(Tool.Foundry + 1).toBe(Tool.Ranch);
+    expect(toolStructure(Tool.Ranch)).toBe(Structure.Ranch);
+    expect(Tool.Ranch + 1).toBe(Tool.Count);
     for (const [key, id] of [
       ['Watchtower', 'watchtower'],
       ['TrainingYard', 'training-yard'],
       ['Runestone', 'runestone'],
+      ['Foundry', 'foundry'],
+      ['Ranch', 'ranch'],
     ] as const) {
       const asset = decodeBuildingAsset(JSON.stringify(BUILDING_ASSETS[key]));
       expect(asset.id).toBe(id);
@@ -125,14 +139,13 @@ describe('watchtower', () => {
     for (const beast of town.beasts) beast.position = point(tower.center.x + 3, tower.center.y + 1);
     return { town, tower };
   }
-  it('shoots raiders only while a resident keeps watch', () => {
+  it('shoots raiders as soon as the tower is complete, with no worker', () => {
     const { town, tower } = raid(),
       before = town.beasts.map((b) => b.health);
+    tower.progress = 0.9;
     town.defendSettlement(0.1);
-    expect(town.beasts.map((b) => b.health)).toEqual(before);
-    expect(town.watchtowerManned(tower.id)).toBe(false);
-    const watcher = worker(town, tower);
-    expect(town.watchtowerManned(tower.id)).toBe(true);
+    expect(town.beasts.map(b => b.health)).toEqual(before);
+    tower.progress = 1;
     town.defendSettlement(0.1);
     const lost = before.reduce((sum, h, i) => sum + h - town.beasts[i].health, 0),
       might = boon(town, Boon.Bulwark) ? 1.5 : 1;
@@ -145,16 +158,9 @@ describe('watchtower', () => {
     town.time += towerVolley.pause;
     town.defendSettlement(0.1);
     expect(before.reduce((sum, h, i) => sum + h - town.beasts[i].health, 0)).toBeCloseTo(lost * 2, 4);
-    // A downed watcher keeps no watch.
-    watcher.downedAt = town.time;
-    town.time += towerVolley.pause;
-    const held = town.beasts.map((b) => b.health);
-    town.defendSettlement(0.1);
-    expect(town.beasts.map((b) => b.health)).toEqual(held);
   });
   it('reaches about nine tiles and ignores peaceful wildlife', () => {
     const { town, tower } = raid();
-    worker(town, tower);
     for (const beast of town.beasts) beast.position = point(tower.center.x + towerVolley.reach + 0.5, tower.center.y);
     const before = town.beasts.map((b) => b.health);
     town.defendSettlement(0.1);
@@ -165,7 +171,6 @@ describe('watchtower', () => {
   });
   it('shoots half again as hard with the Bulwark boon', () => {
     const { town, tower } = raid();
-    worker(town, tower);
     const jotunheim = town
       .map()
       .dungeons()
@@ -183,41 +188,25 @@ describe('watchtower', () => {
   });
 });
 
-describe('training yard', () => {
-  it('turns a day of drilling into experience and eases stress, below the level cap only', () => {
-    const { town } = settlement(),
-      yard = facility(town, Structure.TrainingYard),
-      a = worker(town, yard),
-      b = worker(town, yard),
-      idle = worker(town, facility(town, Structure.Lumberyard));
-    b.level = drillRules.levelCap;
-    a.stress = 0.5;
-    yard.attendance = 1;
-    town.runDrills();
-    // One day of drilling is most of the way to the first level, not all of it.
-    expect(a.level).toBe(1);
-    expect(a.experience).toBe(drillRules.experience);
-    expect(a.experience).toBeLessThan(a.experienceToNextLevel());
-    expect(a.stress).toBeCloseTo(0.5 - drillRules.stressRelief, 5);
-    expect(b.level).toBe(drillRules.levelCap);
-    expect(b.experience).toBe(0);
-    expect(idle.experience).toBe(0);
-    // A month (five days) of full drilling is worth a few levels, no more.
-    for (let day = 1; day < 5; ++day) town.runDrills();
-    expect(a.level).toBeGreaterThanOrEqual(3);
-    expect(a.level).toBeLessThanOrEqual(5);
-  });
-  it('teaches nothing on a day nobody turned up or before it is built', () => {
-    const { town } = settlement(),
-      yard = facility(town, Structure.TrainingYard),
-      p = worker(town, yard);
-    yard.attendance = 0;
-    town.runDrills();
-    expect(p.experience).toBe(0);
-    yard.attendance = 1;
-    yard.progress = 0.5;
-    town.runDrills();
-    expect(p.experience).toBe(0);
+describe('military buildings without jobs', () => {
+  it.each([Structure.Watchtower, Structure.TrainingYard])('frees old workers on load and keeps other jobs intact (%s)', kind => {
+    const { town } = settlement(), school = facility(town, kind), old = worker(town, school);
+    const wood = facility(town, Structure.Lumberyard), lumberjack = worker(town, wood);
+    const arriving = worker(town, school);
+    Object.assign(arriving, { job: -1, task: Activity.Working, activity: Activity.Moving, taskSite: school.id,
+      target: -1, path: [school.door()], ordered: true });
+    Object.assign(old, { task: Activity.Working, activity: Activity.Working, taskSite: school.id, target: school.id, inside: true });
+    school.wanted = 1;
+    expect(structureSpec(kind).jobs).toBe(0);
+    expect(town.assignJob([lumberjack.id], school.id)).toBe(false);
+    const loaded = decodeTown(encodeTown(town), map => new Town(map, 32, false, true));
+    expect(loaded.person(old.id)).toMatchObject({ job: -1, task: Activity.Idle, activity: Activity.Idle, inside: false });
+    expect(loaded.person(arriving.id)).toMatchObject({ task: Activity.Idle, activity: Activity.Idle, path: [], ordered: false });
+    expect(loaded.building(school.id)).toMatchObject({ wanted: 0, workers: 0 });
+    expect(loaded.person(lumberjack.id)?.job).toBe(wood.id);
+    expect(loaded.setWorkers(school.id, 1)).toBe(false);
+    loaded.staff();
+    expect(loaded.building(school.id)?.workers).toBe(0);
   });
 });
 
@@ -271,6 +260,7 @@ describe('unlocks by deeds', () => {
     expect(buildingUnlock(town, Structure.Watchtower)).toEqual({ available: false, reason: 'Beat off a raid' });
     town.chronicle.raidsRepelled = 1;
     expect(buildingUnlock(town, Structure.Watchtower).available).toBe(true);
+    road(town);
     facility(town, Structure.Workbench);
     expect(buildingUnlock(town, Structure.Weaponsmith).reason).toBe('Reach the quest "Build a smithy"');
     addInventory(town.people()[0], 'wooden-mallet');
@@ -307,10 +297,14 @@ describe('unlocks by deeds', () => {
   });
   it('brings each founding building into the menu with its quest, one at a time', () => {
     const { town } = settlement();
-    // A founded camp asks for a workbench: nothing else of the chain is offered yet.
+    // A founded camp asks for a road first: nothing of the chain is offered until it is laid.
+    expect(currentGoal(town, GoalBranch.Core)).toBe(1);
+    expect(settlementGoals()[1].title).toBe('Lay a road');
+    expect(buildingUnlock(town, Structure.Workbench).reason).toBe('Reach the quest "Build a workbench"');
+    road(town);
     expect(buildingUnlock(town, Structure.Workbench)).toEqual({ available: true, reason: '' });
     expect(buildingUnlock(town, Structure.Tent).reason).toBe('Reach the quest "Build a tent"');
-    expect(buildingUnlock(town, Structure.Farm).reason).toBe('Reach the quest "Build a farmhouse"');
+    expect(buildingUnlock(town, Structure.Farm).reason).toBe('Reach the quest "Lay out a farm"');
     expect(buildingUnlock(town, Structure.Well).reason).toBe('Reach the quest "Build a well"');
     // Roads are not kept back: they are the settlement's own from the first camp.
     expect(toolAvailable(town, Tool.Road)).toBe(true);
@@ -322,12 +316,20 @@ describe('unlocks by deeds', () => {
     // What the settlement already has is known, whatever the quest; a later one still waits its turn.
     facility(town, Structure.Tent);
     expect(buildingUnlock(town, Structure.Tent).available).toBe(true);
-    expect(buildingUnlock(town, Structure.Farm).reason).toBe('Reach the quest "Build a farmhouse"');
+    expect(buildingUnlock(town, Structure.Farm).reason).toBe('Reach the quest "Lay out a farm"');
     // Each finished step opens exactly the next building of the chain.
     const chain = settlementGoals().filter((goal) => goal.branch === GoalBranch.Core),
       staged = chain.filter((goal) => goal.kind === GoalKind.Building && goal.building !== Structure.Camp),
       open = () => staged.filter((goal) => buildingUnlock(town, goal.building).available).map((goal) => goal.title);
     expect(open()).toEqual(['Build a workbench', 'Build a tent']);
+    // The farm quest is one step: the farmhouse standing is half of it, the planted field the rest.
+    const farm = chain.find((goal) => goal.title === 'Lay out a farm')!;
+    expect(goalProgress(town, farm)).toEqual({ have: 0, need: 2, label: 'No farm yet' });
+    facility(town, Structure.Farm);
+    expect(goalComplete(town, farm)).toBe(false);
+    expect(goalProgress(town, farm)).toEqual({ have: 1, need: 2, label: 'No field yet' });
+    town.farmland.push(new Field(78, [point(1, 1), point(5, 1), point(5, 5), point(1, 5)], 0));
+    expect(goalComplete(town, farm)).toBe(true);
     facility(town, Structure.Workbench);
     residents(town, 1);
     addInventory(town.people()[0], 'wooden-axe');
@@ -397,13 +399,11 @@ describe('quests that follow the combat loop', () => {
       case GoalKind.Population:
         residents(town, goal.count);
         break;
-      case GoalKind.Road: {
-        const c = town.map().camp(),
-          id = town.roads().add([sharpAnchor(c), sharpAnchor(point(c.x + 3, c.y))], 1);
-        town.roads().road(id)!.village = 0;
+      case GoalKind.Road:
+        road(town);
         break;
-      }
       case GoalKind.Field:
+        if (goal.building !== Structure.Count) facility(town, goal.building);
         town.farmland.push(new Field(77, [point(1, 1), point(5, 1), point(5, 5), point(1, 5)], 0));
         break;
       case GoalKind.Floor:
@@ -466,17 +466,16 @@ describe('quests that follow the combat loop', () => {
     const { town } = settlement(),
       chain = goals.filter((goal) => goal.branch === GoalBranch.Core && goal.building !== Structure.Camp);
     expect(chain.map((goal) => goal.title)).toEqual([
+      'Lay a road',
       'Build a workbench',
       'Craft a wooden tool',
       'Build a smithy',
       'Make a weapon or a shield',
       'Build a tent',
-      'Build a farmhouse',
-      'Plant a field',
+      'Lay out a farm',
       'Build an altar',
       'Reach 4 residents',
       'Upgrade the workbench',
-      'Lay a road',
       'Build a lumberyard',
       'Build a well',
       'Build a quarry',
@@ -489,7 +488,7 @@ describe('quests that follow the combat loop', () => {
       if (goal.kind === GoalKind.Building)
         expect(buildingUnlock(town, goal.building), goal.title).toEqual({ available: true, reason: '' });
       if (goal.kind === GoalKind.Road) expect(toolAvailable(town, Tool.Road)).toBe(true);
-      if (goal.kind === GoalKind.Field) expect(toolAvailable(town, Tool.Field)).toBe(true);
+      if (goal.kind === GoalKind.Field) expect(toolAvailable(town, Tool.Farm)).toBe(true);
       // Growth needs a standing altar and a free bed by the time the chain asks for it.
       if (goal.kind === GoalKind.Population) {
         expect(goalComplete(town, goals.find((g) => g.building === Structure.Shrine)!)).toBe(true);
@@ -518,10 +517,10 @@ describe('quests that follow the combat loop', () => {
       chain = goals.filter((goal) => goal.branch === GoalBranch.Core && goal.building !== Structure.Camp),
       placing: Tool[] = [];
     for (let tool = 0; tool < Tool.Count; ++tool)
-      if (toolStructure(tool) !== undefined || tool === Tool.Road || tool === Tool.Pave || tool === Tool.Field)
+      if (toolStructure(tool) !== undefined || tool === Tool.Road || tool === Tool.Pave)
         placing.push(tool);
     const known = new Set(placing.filter((tool) => toolAvailable(town, tool)));
-    expect([...known].map((tool) => Tool[tool])).toEqual(['Road', 'Camp', 'Workbench']);
+    expect([...known].map((tool) => Tool[tool])).toEqual(['Road', 'Camp', 'Ranch']);
     const steps: string[] = [];
     for (const goal of chain) {
       fulfil(town, goal);
@@ -531,17 +530,16 @@ describe('quests that follow the combat loop', () => {
     }
     // Never two at once: what is not in the chain waits for a step that brings nothing else.
     expect(steps).toEqual([
+      'Lay a road: Workbench',
       'Build a workbench: ',
       'Craft a wooden tool: Weaponsmith',
       'Build a smithy: ',
       'Make a weapon or a shield: Tent',
       'Build a tent: Farm',
-      'Build a farmhouse: Field',
-      'Plant a field: Shrine',
+      'Lay out a farm: Shrine',
       'Build an altar: Torch',
       'Reach 4 residents: Inn',
-      'Upgrade the workbench: ',
-      'Lay a road: Lumberyard',
+      'Upgrade the workbench: Lumberyard',
       'Build a lumberyard: Well',
       'Build a well: Quarry',
       'Build a quarry: Pave',
@@ -568,12 +566,12 @@ describe('quests that follow the combat loop', () => {
       }
     // The founding chain asks for no other piece of gear.
     expect(goals.filter((goal) => goal.branch === GoalBranch.Core && goal.kind !== GoalKind.Building).map((goal) => goal.title)).toEqual([
+      'Lay a road',
       'Craft a wooden tool',
       'Make a weapon or a shield',
-      'Plant a field',
+      'Lay out a farm',
       'Reach 4 residents',
       'Upgrade the workbench',
-      'Lay a road',
       'Upgrade the smithy',
     ]);
   });
@@ -593,11 +591,12 @@ describe('quests that follow the combat loop', () => {
     const titles = (branch: GoalBranch) => goals.filter((g) => g.branch === branch).map((g) => g.title);
     expect(titles(GoalBranch.Arms)).toEqual([
       'Build a guild',
-      'Swear a fighter',
       'Build a training yard',
+      'Swear a fighter',
       'Beat off a raid',
       'Build a watchtower',
       'Reach 10 residents',
+      'Build a foundry',
       'Raise the smithy to iron',
       'Forge an iron weapon',
       'Reach 12 residents',

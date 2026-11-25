@@ -48,7 +48,8 @@ const smithySteps: readonly StationStep[] = [
 ];
 /** The highest level a craft station of `kind` can reach; 0 for buildings that are not stations. */
 export function topLevel(kind: Structure): number {
-  return kind === Structure.Workbench || kind === Structure.Weaponsmith ? 3 : kind === Structure.Armorer ? 3 : 0;
+  if (kind === Structure.Foundry) return 1;
+  return [Structure.Workbench, Structure.Weaponsmith, Structure.Armorer].includes(kind) ? 3 : 0;
 }
 // A station's level is its look: the low variant bits pick the asset's level-by-level variant (as the chapel's faith does).
 export function stationLevel(b: Pick<Building, 'kind' | 'variant'>): number {

@@ -69,6 +69,7 @@ const event = (type: EventType, x = 0, y = 0, key = Key.Unknown, shift = false, 
   text,
 });
 const matrixCache = new WeakMap<Paint, string>();
+const originalText = (value: string) => value;
 export function setTransform(paint: Paint, matrix: Matrix): void {
   const key = JSON.stringify(matrix);
   if (matrixCache.get(paint) === key) return;
@@ -82,6 +83,8 @@ export class Context {
   private target: Layer;
   private readonly paintLayers = new Map<Paint, Layer>();
   private readonly frames = new FrameRequest();
+  private readonly textWidths = new Map<string, number>();
+  private localize = translate;
   private tokens = Theme.dark();
   private seconds = 0;
   private motions = new Map<
@@ -127,6 +130,17 @@ export class Context {
       render();
     } finally {
       this.tokens = previous;
+    }
+  }
+  /** Measure and draw player-authored text exactly as entered, including names that match interface labels. */
+  verbatim<T>(render: () => T, enabled = true): T {
+    if (!enabled) return render();
+    const previous = this.localize;
+    this.localize = originalText;
+    try {
+      return render();
+    } finally {
+      this.localize = previous;
     }
   }
   time(): number {
@@ -228,6 +242,7 @@ export class Context {
   }
   destroy(): void {
     this.discardLayer(this.rootLayer);
+    this.textWidths.clear();
     for (const release of this.deferredReleases.splice(0)) release();
     this.icons.destroy();
     this.controls = [];
@@ -544,7 +559,7 @@ export class Context {
     horizontalOffset = 0,
   ): void {
     if (bounds.w <= 0 || bounds.h <= 0 || !value) return;
-    value = translate(value);
+    value = this.localize(value);
     const logicalSize = size > 0 ? size : this.tokens.fontSize,
       font = this.fittedFont(value, bold, logicalSize, bounds.w),
       points = Math.fround(logicalSize * 0.75 * this.faceScale(font));
@@ -615,12 +630,22 @@ export class Context {
     return !!this.tokens.titleFont && (font === this.tokens.titleFont || font === koreanTitleFont);
   }
   private measure(value: string, font: string, size: number): number {
+    const points = size * 0.75 * this.faceScale(font),
+      key = JSON.stringify([font, points, value]),
+      cached = this.textWidths.get(key);
+    if (cached !== undefined) return cached;
     const label = new this.tvg.Text()
       .font(font)
-      .fontSize(size * 0.75 * this.faceScale(font))
+      .fontSize(points)
       .text(value);
     try {
-      return label.bounds().width;
+      const width = label.bounds().width;
+      // Do not retain fallback measurements while an optional face is loading.
+      if (this.metrics[font]) {
+        if (this.textWidths.size >= 2048) this.textWidths.delete(this.textWidths.keys().next().value!);
+        this.textWidths.set(key, width);
+      }
+      return width;
     } finally {
       label.dispose();
     }
@@ -639,7 +664,7 @@ export class Context {
   }
   textWidth(value: string, size = 0, bold = false, fontContext = ''): number {
     if (!value) return 0;
-    value = translate(value);
+    value = this.localize(value);
     const logicalSize = size > 0 ? size : this.tokens.fontSize,
       font =
         this.fontFor?.(fontContext || value, bold) || this.scriptFont(fontContext || value, bold, logicalSize);
@@ -647,7 +672,7 @@ export class Context {
   }
   elideText(value: string, width: number, size = 0, bold = false, suffix = ''): string {
     if (width <= 0 || !value) return '';
-    value = translate(value);
+    value = this.localize(value);
     const full = value + suffix,
       logicalSize = size > 0 ? size : this.tokens.fontSize;
     if (this.textWidth(full, size, bold) <= width) return full;
@@ -655,18 +680,16 @@ export class Context {
     if (this.titled(this.scriptFont(full, bold, logicalSize))) {
       if (this.measure(full, this.scriptFont(full, bold, 0), logicalSize) <= width) return full;
     }
-    const points = Array.from(value),
-      ends: string[] = [];
-    for (let i = 1; i < points.length; i++) ends.push(points.slice(0, i).join(''));
-    const shortened = (i: number) => ends[i] + '…' + suffix;
+    const points = Array.from(value);
+    const shortened = (length: number) => points.slice(0, length).join('') + '…' + suffix;
     let low = 0,
-      high = ends.length;
+      high = points.length - 1;
     while (low < high) {
-      const middle = low + Math.floor((high - low) / 2);
-      if (this.textWidth(shortened(middle), size, bold) <= width) low = middle + 1;
-      else high = middle;
+      const middle = Math.ceil((low + high) / 2);
+      if (this.textWidth(shortened(middle), size, bold) <= width) low = middle;
+      else high = middle - 1;
     }
-    return low ? shortened(low - 1) : '';
+    return low ? shortened(low) : '';
   }
   icon(bounds: Rect, icon: Icon, color: Color): void;
   icon(

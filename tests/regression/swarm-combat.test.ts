@@ -292,7 +292,7 @@ describe('raids come as waves', () => {
     expect(swarm[0].health).toBeLessThan(raiders[0].health / 3);
     expect(cues(town, CombatCue.Wave)).toEqual([expect.objectContaining({ amount: raiders.length })]);
   });
-  it('is held at the first raids by a manned watchtower, the ward and a few fighters', () => {
+  it('is held at the first raids by an unstaffed watchtower, the ward and a few fighters', () => {
     const { town, camp, gate } = settlement(),
       at = camp.center,
       tower = new Building(town.nextId++, Structure.Watchtower, town.grid.nearestWalkable(add(at, point(3, 3))), 0, 0);
@@ -311,8 +311,7 @@ describe('raids come as waves', () => {
     };
     const guard = fighter(Calling.Settler, 'bow', 0),
       party = [fighter(Calling.Warrior, 'sword', -1), fighter(Calling.Warrior, 'sword', 1), fighter(Calling.Ranger, 'bow', 2)];
-    guard.job = tower.id;
-    guard.position = { ...tower.center };
+    guard.position = tower.door();
     town.wardUntil = Infinity;
     town.days = 2;
     town.editHour(22);

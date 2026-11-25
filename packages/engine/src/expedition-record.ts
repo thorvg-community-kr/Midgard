@@ -18,6 +18,8 @@ export enum ExpeditionEnd {
   /** Nobody came back. */
   Lost,
 }
+/** The first marked slam of a settlement, even if first encountered on a later outing. */
+export enum FirstSlam { Unseen, Winding, Evaded, Hit, Interrupted, Unfinished }
 export enum MemberState {
   Unhurt,
   /** Home and on their feet, but carrying a wound for some days. */
@@ -62,6 +64,7 @@ export interface MemberOutcome {
 /** The finished expedition, for the result screen. */
 export interface ExpeditionResult {
   end: ExpeditionEnd;
+  scoutingGoalMet?: boolean;
   gate: number;
   site: string;
   world: string;
@@ -153,6 +156,10 @@ export function finishRecord(town: TownState, record: ExpeditionRecord, ending: 
     rewards: [...record.rewards],
     home: { ...ending.home },
   };
+  if (town.chronicle.partiesLed === 1 && ending.spoilsKept && result.densDestroyed > 0) {
+    result.scoutingGoalMet = true;
+    if (ending.end !== ExpeditionEnd.Withdrew) result.rewards.push('Optional goal complete. A den fell and the party came home.');
+  }
   town.realmOutcome = result;
   return result;
 }

@@ -15,6 +15,8 @@ import {
   type Point,
 } from '../../packages/engine/src/geometry';
 import { flatten, sharpAnchor, type RoadPath } from '../../packages/engine/src/road-network';
+import { deposit, position as rockPosition } from '../../packages/engine/src/mining';
+import { decodeTown, encodeTown } from '../../packages/engine/src/save-game';
 import {
   roadDraft,
   roadPoint,
@@ -150,6 +152,66 @@ function expectAt(actual: Point, expected: Point, digits = 3): void {
   expect(actual.y, JSON.stringify(actual)).toBeCloseTo(expected.y, digits);
 }
 
+describe('drawing roads on rocky ground', () => {
+  it.each([[5, 56, 40], [11, 59, 43]])('previews, stakes and builds the road to a stone pile on seed %i', (seed, x, y) => {
+    const town = new Town(seed, 96), map = town.map(), origin = map.camp(), rock = rockPosition(x, y);
+    town.scout(origin.x, origin.y, 22);
+    expect(town.place(Structure.Camp, origin, 0)).toBe(true);
+    town.completeConstruction();
+    town.tick(0);
+    expect(map.terrainAt(rock)).toBe(Terrain.Rock);
+    expect(deposit(map, x, y)).toBe(true);
+    const app = controls(town), path = draw(app, hand(app, [town.camp()!.door(), rock], 0));
+    expect(town.canBuildRoad(path)).toMatchObject({ ok: true, reason: '' });
+    expect(deposit(map, x, y)).toBe(true);
+    const stone = town.stock().stone;
+    expect(town.buildRoad(path)).toBe(true);
+    expect(town.stock().stone).toBe(stone);
+    expect(deposit(map, x, y)).toBe(false);
+    const road = town.network.roads()[0];
+    expect(town.orderRoadwork(town.folk.map(person => person.id), road.id)).toBe(true);
+    for (let i = 0; i < 2400 && road.built < 1; ++i) town.advance(0.1);
+    expect(road.built).toBe(1);
+    expect(town.canPave(road.id).ok).toBe(true);
+  });
+
+  it('clears only piles within the curved stroke when it is laid or reshaped and keeps them covered after loading', () => {
+    const town = settlement(), map = town.map();
+    map.layer(Layer.Elevation).fill(0.8);
+    const rocks: { x: number; y: number }[] = [];
+    for (let y = 28; y <= 38; ++y)
+      for (let x = 32; x <= 40; ++x) {
+        map.at(x, y).terrain = Terrain.Rock;
+        if (deposit(map, x, y)) rocks.push({ x, y });
+      }
+    const start = sharpAnchor(at(1.1, 0.25)), end = sharpAnchor(at(7.5, 5.55));
+    const first = [start, { point: at(5.5, 0.55), in: at(4.5, 0.25), out: at(6.5, 0.85) }, end];
+    const next = [start, { point: at(4.5, 4.55), in: at(3.7, 3.95), out: at(5.3, 5.15) }, end];
+    const touched = (line: readonly Point[], x: number, y: number) =>
+      line.some((b, i) => i > 0 && segmentDistance(rockPosition(x, y), line[i - 1], b) <= Town.roadHalfWidth);
+    map.layer(Layer.Ridge).fill(0.2);
+    expect(town.canBuildRoad(first).reason).toBe('Mountains');
+    expect(town.buildRoad(first)).toBe(false);
+    expect(rocks.every(({ x, y }) => deposit(map, x, y))).toBe(true);
+    map.layer(Layer.Ridge).fill(-1);
+    expect(town.buildRoad(first)).toBe(true);
+    const road = town.network.roads()[0], before = road.line;
+    for (const { x, y } of rocks) expect(deposit(map, x, y)).toBe(!touched(before, x, y));
+    expect(town.canReshapeRoad(road.id, next).ok).toBe(true);
+    expect(town.reshapeRoad(road.id, next)).toBe(true);
+    expect(rocks.some(p => !touched(before, p.x, p.y) && touched(road.line, p.x, p.y))).toBe(true);
+    expect(rocks.some(p => touched(before, p.x, p.y) && !touched(road.line, p.x, p.y))).toBe(true);
+    for (const { x, y } of rocks) expect(deposit(map, x, y)).toBe(!touched(before, x, y) && !touched(road.line, x, y));
+    const shoulder = rocks.filter(({ x, y }) => !touched(road.line, x, y) &&
+      road.line.some(p => Math.floor(p.x) === x && Math.floor(p.y) === y));
+    expect(shoulder.length).toBeGreaterThan(0);
+    for (const { x, y } of shoulder) map.at(x, y).quarried = true;
+    const loaded = decodeTown(encodeTown(town), saved => new Town(saved, 64, false, true));
+    for (let day = 1; day <= 80; ++day) { loaded.days = day; loaded.regrow(); }
+    for (const { x, y } of rocks) expect(deposit(loaded.map(), x, y)).toBe(!touched(road.line, x, y));
+  });
+});
+
 describe('drawing a road between existing roads', () => {
   it.each([0, 1, 12])('connects two roads with %i pointer events on the way', (moves) => {
     const app = controls(withRoads(settlement())),
@@ -247,6 +309,13 @@ describe('how a hand-drawn stroke becomes a road', () => {
     expect(app.town.canBuildRoad(path).reason).toBe('');
     expect(onRoad(app.town, path.at(-1)!.point)).toBeLessThan(0.01);
     expect(sharpestBend(app, path)).toBeLessThan(20);
+  });
+  it('keeps the beginning of a bent stroke drawn on new ground beside a road', () => {
+    const app = controls(withRoads(settlement()), 1.4),
+      path = draw(app, hand(app, [at(2, 0.65), at(5, 0.65), at(5, 3)], 0));
+    expect(app.town.canBuildRoad(path).ok).toBe(true);
+    expect(distance(path[0].point, at(2, 0))).toBeLessThan(0.2);
+    expectAt(path.at(-1)!.point, at(5, 3), 1);
   });
   it('starts the new road where a stroke that first follows a road leaves it', () => {
     const app = controls(withRoads(settlement()), 1.4),

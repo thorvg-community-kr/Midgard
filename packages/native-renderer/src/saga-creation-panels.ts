@@ -17,9 +17,7 @@ import {
   boardPicture,
   easeOut,
   flat,
-  frame,
   frost,
-  glide,
   iceGlint,
   rime,
   lock,
@@ -34,7 +32,6 @@ import {
   waves,
   type SagaArt,
   type SagaPanel,
-  type Stop,
 } from './saga-panel';
 
 const night: Rgb = [18, 18, 40];
@@ -45,19 +42,25 @@ export function voidPanel(): SagaPanel {
     far = new SceneNode(),
     frostBank = new SceneNode(),
     fireBank = new SceneNode(),
-    embers = new SceneNode(),
-    chips = new SceneNode();
+    embers = new SceneNode();
   far.add(backdrop([18, 14, 50], [46, 32, 86])).add(stars(60, 560));
-  // Three stars that flicker; everything else holds still.
-  const twinkles = [
-    [250, 150],
-    [1320, 110],
-    [1130, 300],
-  ].map(([x, y]) => {
-    const star = flat([lock(x, y + 14, x, y - 14, 9, 0), lock(x - 14, y, x + 14, y, 9, 0)], [236, 232, 250]);
-    far.add(star);
-    return star;
-  });
+  // Three stars that flicker; everything else holds still. Four long rays and four short ones between them.
+  const rays = pen(0, -13);
+  for (let k = 1; k < 16; k++) {
+    const a = -Math.PI / 2 + (k * Math.PI) / 8,
+      reach = k % 2 ? 2.6 : k % 4 ? 6 : 13;
+    rays.line(Math.cos(a) * reach, Math.sin(a) * reach);
+  }
+  const ray = rays.close(),
+    twinkles = [
+      [250, 150],
+      [1320, 110],
+      [1130, 300],
+    ].map(([x, y]) => {
+      const star = flat([ray], [236, 232, 250]);
+      far.add(star);
+      return { star, x, y };
+    });
   // Low plum silhouettes: a far ridge, then cloud on either hand, cold to the left and warm to the right.
   far.add(
     flat(
@@ -95,27 +98,10 @@ export function voidPanel(): SagaPanel {
     sparks.push(spark);
     embers.add(spark);
   }
-  // Three fragments of ice let go of his left shoulder as he stirs.
-  const slivers: ShapeNode[] = [];
-  for (let i = 0; i < 3; i++) {
-    const r = 12 + i * 5,
-      sliver = flat(
-        [
-          pen(-r, 0)
-            .curve([-r * 0.4, -r * 0.9], [r * 0.5, -r * 0.8])
-            .curve([r, -r * 0.1], [r * 0.4, r * 0.8])
-            .curve([-r * 0.5, r * 0.7], [-r, 0])
-            .close(),
-        ],
-        iceGlint,
-      );
-    slivers.push(sliver);
-    chips.add(sliver);
-  }
   // Hunched and vast: shoulders like a hill, the head sunk between them.
   const ymir = frostGiant();
   ymir.scene.transform([1.7, 0, 800, 0, 1.7, 610, 0, 0, 1]);
-  scene.add(far).add(frostBank).add(fireBank).add(ymir.scene).add(chips).add(embers);
+  scene.add(far).add(frostBank).add(fireBank).add(ymir.scene).add(embers);
   return {
     scene,
     pose(beat, seconds) {
@@ -129,14 +115,11 @@ export function voidPanel(): SagaPanel {
       ymir.head.look((['shut', 'half', 'wide', 'glare'] as const)[stage]);
       ymir.head.scene.translate(1.2 * Math.sin(seconds * 0.9) * bowed, 9 * bowed);
       ymir.sway(seconds);
-      twinkles.forEach((star, i) =>
-        star.opacity(alphaOf(0.55 + 0.45 * Math.sin(seconds * (1.6 + i * 0.5) + i * 2))),
-      );
-      slivers.forEach((sliver, i) => {
-        const drop = (beat - 0.38 - i * 0.05) / 0.26;
-        sliver
-          .translate(1150 + i * 44 + 20 * drop, 560 + i * 12 + 380 * drop * drop)
-          .opacity(drop > 0 && drop < 1 ? alphaOf(1.5 - drop) : 0);
+      twinkles.forEach(({ star, x, y }, i) => {
+        // Each swells and dims in its own time.
+        const glow = 0.5 + 0.5 * Math.sin(seconds * (1.6 + i * 0.5) + i * 2),
+          k = 0.6 + 0.4 * glow;
+        star.transform([k, 0, x, 0, k, y, 0, 0, 1]).opacity(alphaOf(0.45 + 0.55 * glow));
       });
       sparks.forEach((spark, i) => {
         const life = (seconds * (0.05 + 0.05 * scatter(i, 12)) + scatter(i, 13)) % 1;
@@ -190,8 +173,10 @@ export function slayingPanel(): SagaPanel {
   // The same giant, broader and nearer: he fills the right of the frame, arms at his sides.
   const ymir = frostGiant(1.2);
   ymir.head.look('wide');
-  ymir.scene.transform([1.5, 0, 1150, 0, 1.5, 500, 0, 0, 1]);
-  giant.add(ymir.scene);
+  // The split opens in the ice of his chest, so it lies under his beard: the body, then the wound, then the head.
+  const seat = [1.5, 0, 1150, 0, 1.5, 500, 0, 0, 1] as const;
+  ymir.scene.remove();
+  giant.add(new SceneNode().add(ymir.body).transform(seat));
   // Where the spear goes in, the ice of him splits: wide at the heart of it, kinked, forked.
   const fissure: Rgb = [50, 56, 104],
     cracks: Form = [],
@@ -231,7 +216,7 @@ export function slayingPanel(): SagaPanel {
     );
   }
   wound.add(flat(plates, rime, 120)).add(flat(cracks, fissure));
-  giant.add(wound);
+  giant.add(wound).add(new SceneNode().add(ymir.head.scene).transform(seat));
   // A dark spur: the two brothers stand guard on it, and Odin strikes from its lip.
   const ridge: Form = [
     pen(-200, 1000)
@@ -440,19 +425,6 @@ export function slayingPanel(): SagaPanel {
   };
 }
 
-/**
- * Where the camera rests on the map as each part of him is named: the green heart of the land,
- * the western sea, the spine of peaks, then all of it at once for its name.
- */
-const mapStops: readonly Stop[] = [
-  { at: 0, x: 650, y: 372, zoom: 2.1 },
-  { at: 5.85, x: 660, y: 376, zoom: 2.16 },
-  { at: 6.55, x: 428, y: 474, zoom: 2 },
-  { at: 7.85, x: 420, y: 480, zoom: 2.06 },
-  { at: 8.55, x: 792, y: 468, zoom: 2.3 },
-  { at: 10.3, x: 800, y: 462, zoom: 2.38 },
-  { at: 12.1, x: 800, y: 450, zoom: 1 },
-];
 /** The giant lies in the red sea; then the land that was made of him. */
 export function shapingPanel(art?: SagaArt): SagaPanel {
   const scene = new SceneNode(),
@@ -465,6 +437,8 @@ export function shapingPanel(art?: SagaArt): SagaPanel {
     shards = new SceneNode(),
     shore = new SceneNode(),
     veil = snowVeil(),
+    // The picture goes dark at the end: the next beat opens like an eye.
+    dark = new ShapeNode().appendRect(-200, -200, 2000, 1300).fill(8, 8, 14),
     ymir = giantHead(),
     tilt = -0.5,
     k = 1.75;
@@ -521,7 +495,7 @@ export function shapingPanel(art?: SagaArt): SagaPanel {
     .add(shards)
     .add(surf)
     .add(shore);
-  scene.add(fallen).add(midgard).add(veil.scene);
+  scene.add(fallen).add(midgard).add(veil.scene).add(dark);
   return {
     scene,
     pose(beat, seconds, at) {
@@ -531,11 +505,11 @@ export function shapingPanel(art?: SagaArt): SagaPanel {
       ymir.sway(seconds, 0.5);
       trio.sway(seconds);
       surf.translate(18 * Math.sin(seconds * 0.5), 0);
-      // His body melts into the land on "his flesh became the earth".
-      midgard.opacity(alphaOf(span(at, 3.75, 4.75)));
-      const view = glide(mapStops, at);
-      frame(midgard, view.x, view.y, view.zoom);
+      // His body melts into the land, and the camera only draws slowly back from it.
+      midgard.opacity(alphaOf(span(at, 4.9, 7.2)));
+      about(midgard, 800, 450, 1.4 - 0.26 * span(at, 4.9, 13.9));
       map();
+      dark.opacity(alphaOf(ramp(at, 13.15, 13.8)));
     },
   };
 }

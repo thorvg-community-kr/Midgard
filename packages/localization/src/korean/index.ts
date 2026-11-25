@@ -4,6 +4,7 @@ import { combatPhrases } from './combat';
 import { editorPhrases } from './editors';
 import { expeditionPhrases } from './expedition';
 import { expeditionResultPhrases } from './expedition-result';
+import { forgePhrases } from './forge';
 import { godsPhrases } from './gods';
 import { guidePhrases } from './guide';
 import { hudPhrases } from './hud';
@@ -16,6 +17,7 @@ import { townPhrases } from './town';
 export const koreanPhrases = [
   editorPhrases,
   catalogPhrases,
+  forgePhrases,
   townPhrases,
   guidePhrases,
   combatPhrases,

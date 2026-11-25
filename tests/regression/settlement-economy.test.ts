@@ -306,7 +306,7 @@ describe('wages, boons and winter', () => {
       const smith = facility(town, itemSpec(item)!.workshop!),
         p = resident(town);
       smith.variant = levelVariant(3);
-      Object.assign(town.stock(), new Resources(100, 60, 60, 60, 20, 60, 20, 20));
+      town.stock().add(itemSpec(item)!.cost);
       p.position = smith.door();
       p.path = [];
       p.task = Activity.Crafting;

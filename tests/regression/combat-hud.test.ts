@@ -24,7 +24,7 @@ import { SceneNode } from '../../packages/native-renderer/src/paint';
 import { commandCard } from '../../apps/web/src/native/game-hud';
 import { aimPreview, aimPrompt } from '../../apps/web/src/native/skill-commands';
 import { realmPanel } from '../../apps/web/src/native/game-realm-panel';
-import { personPanel, personPanelBounds, residentSelection, shelteredSelection } from '../../apps/web/src/native/game-unit-panel';
+import { personPanel, personPanelBounds, residentSelection } from '../../apps/web/src/native/game-unit-panel';
 import {
   combatFrame,
   combatOverlays,
@@ -112,7 +112,6 @@ function fixture(width = 1024, height = 768) {
   app.toScreen = toScreen.bind(app);
   app.cue = vi.fn();
   app.residentSelection = residentSelection.bind(app);
-  app.shelteredSelection = shelteredSelection.bind(app);
   app.commandCard = commandCard.bind(app);
   const controls = vi.spyOn(context, 'control'),
     labels = vi.spyOn(context, 'text'),
@@ -182,7 +181,6 @@ function keyGame(app: TestApp) {
     setPan: vi.fn(),
     rotate: vi.fn(),
     prepare: vi.fn(),
-    stopSelected: vi.fn(),
     openUnitBuild: vi.fn(),
     cycleSpeed: vi.fn(),
     cancel: vi.fn(),
@@ -462,21 +460,26 @@ describe('commanding a few residents', () => {
       app.chosen = [a.id];
       expect(keyState(app)).toBe(KeyState.Command);
       vi.mocked(game.selectTool).mockClear();
-      press(game, 'm');
-      expect(game.prepare).toHaveBeenLastCalledWith(Order.Move);
       press(game, 'a');
       expect(game.prepare).toHaveBeenLastCalledWith(Order.Attack);
-      press(game, 'e');
-      expect(game.prepare).toHaveBeenLastCalledWith(Order.Work);
-      press(game, 's');
-      expect(game.stopSelected).toHaveBeenCalledOnce();
-      press(game, 'b');
-      expect(game.openUnitBuild).toHaveBeenCalledOnce();
       press(game, 'h');
       expect(hold).toHaveBeenCalledWith([a.id]);
       expect(a.holding).toBe(true);
-      // Other building letters still pick a building, for the selected residents to raise.
+      // Hold is the only stop: S is no order and no building, so it does nothing.
+      press(game, 's');
+      expect(game.prepare).toHaveBeenCalledOnce();
       expect(game.selectTool).not.toHaveBeenCalled();
+      // B opens the build menu for the selected residents.
+      press(game, 'b');
+      expect(game.openUnitBuild).toHaveBeenCalledOnce();
+      expect(game.selectTool).not.toHaveBeenCalled();
+      // Moving and working are the right button's: M is a building letter again, like every other letter off
+      // the card, for the selected residents to raise. E was the Fields tool's and is nothing now.
+      press(game, 'm');
+      expect(game.selectTool).toHaveBeenLastCalledWith(Tool.Market, true);
+      press(game, 'e');
+      expect(game.selectTool).toHaveBeenLastCalledWith(Tool.Market, true);
+      expect(game.prepare).toHaveBeenCalledOnce();
       press(game, 't');
       expect(game.selectTool).toHaveBeenLastCalledWith(Tool.Tent, true);
       press(game, 'x');
@@ -487,9 +490,11 @@ describe('commanding a few residents', () => {
       press(game, 'm');
       expect(game.selectTool).toHaveBeenLastCalledWith(Tool.Market, true);
       // Every card label matches its key.
-      expect(['Road', 'Fields', 'Tent', 'Farm', 'Wood', 'Quarry', 'Market', 'Tavern', 'Inn', 'Guild'].map(
+      expect(['Road', 'Tent', 'Farm', 'Wood', 'Quarry', 'Market', 'Tavern', 'Inn', 'Guild'].map(
         (label) => toolInfo.find((tool) => tool.label === label)!.key,
-      )).toEqual(['D', 'E', 'T', 'F', 'L', 'Z', 'M', 'Y', 'I', 'U']);
+      )).toEqual(['D', 'T', 'F', 'L', 'Z', 'M', 'Y', 'I', 'U']);
+      // The Fields tool is gone with its key: E picks nothing in the build menu.
+      expect(toolInfo.some((tool) => tool.key === 'E')).toBe(false);
       expect(toolInfo.some((tool) => /^[0-9]$/.test(tool.key))).toBe(false);
     } finally {
       ui.dispose();
@@ -620,6 +625,29 @@ describe('reading a swarm', () => {
       ui.dispose();
     }
   });
+  it('tracks the two wings from different gates and centres each arrow on its own raiders', () => {
+    const ui = fixture();
+    try {
+      const { app, town } = ui;
+      const west = new Monster(800, 0, point(15, 88)), east = new Monster(801, 1, point(88, 15));
+      west.raider = east.raider = true;
+      town.beasts.push(west, east);
+      combatFrame(app, 0);
+      town.emit(CombatCue.Wave, point(16, 90), { gate: 0, amount: 5 });
+      town.emit(CombatCue.Wave, point(90, 16), { gate: 1, amount: 4 });
+      combatFrame(app, 0.1);
+      ui.draw(() => combatOverlays(app, 1024, 768));
+      expect(ui.text().filter(line => line.startsWith('A raid wave of'))).toHaveLength(2);
+      expect(ui.ids()).toEqual(expect.arrayContaining(['wave-arrow', 'wave-arrow-1']));
+      ui.click('wave-arrow');
+      expect(app.camera.x).toBe(project(west.position.x, west.position.y).x);
+      ui.draw(() => combatOverlays(app, 1024, 768));
+      ui.click('wave-arrow-1');
+      expect(app.camera.x).toBe(project(east.position.x, east.position.y).x);
+    } finally {
+      ui.dispose();
+    }
+  });
   it('says what a floor holds and the level it wants before a party is sent', () => {
     const ui = fixture();
     try {
@@ -631,11 +659,11 @@ describe('reading a swarm', () => {
       expect(lines).toEqual([
         'Floor 1 holds a swarm and dens that keep breeding more until destroyed.',
         'Recommended: a small party at level 4, using their skills.',
-        'Your fighters: 3 at level 3 on average, too few to stand against a swarm.',
+        'Your fighters: 3 at level 3 on average, high risk.',
       ]);
       app.chosen = party.map((p) => p.id);
       expect(floorForecast(app, 0, 2)[0]).toBe('Floor 3 holds a great swarm and dens that keep breeding more until destroyed.');
-      expect(floorForecast(app, 0, 0)[2]).toBe('Selected: 3 at level 3 on average, too few to stand against a swarm.');
+      expect(floorForecast(app, 0, 0)[2]).toBe('Selected: 3 at level 3 on average, high risk.');
     } finally {
       ui.dispose();
     }

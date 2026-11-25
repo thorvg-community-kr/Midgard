@@ -25,6 +25,7 @@ import { sharpAnchor, type RoadPath } from './road-network';
 import { treePosition } from './world-map';
 import * as mining from './mining';
 import type { AltarStatus } from './town-devotion';
+import type { PlacementMode } from './town-construction';
 export interface TitleTown extends TownState {
   prepareTitlePreview(): void;
   yearFraction(): number;
@@ -61,7 +62,7 @@ export interface TitleTown extends TownState {
   pave(id: number): boolean;
   orderChop(ids: number[], cell: number): boolean;
   orderMine(ids: number[], cell: number): boolean;
-  fit(kind: Structure, point: Point, angle: number): Placement;
+  fit(kind: Structure, point: Point, angle: number, mode?: PlacementMode): Placement;
 }
 export function seekTitleMaterials(this: TitleTown, p: Person, product: Product): boolean {
   if (product !== Product.Wood && product !== Product.Stone) return false;
@@ -479,6 +480,7 @@ export function planTitleWork(this: TitleTown): void {
         nativeRandomRadial(() => this.roll(), 4, 9, 6.283185),
       ),
       0,
+      'roadside',
     );
     const footprint = new Footprint(spot.center, f(structureSpec(wanted).size / 2), spot.angle);
     if (distance(spot.center, origin) > TownState.campReach || !this.roadAccess(footprint)) continue;

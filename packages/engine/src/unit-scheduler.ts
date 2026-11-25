@@ -1,3 +1,4 @@
+import { leadLivestock, orderRanchHarvest } from './livestock';
 import { canControl } from './faction';
 import type { Town } from './town';
 import { Person, Role, Activity } from './person';
@@ -7,6 +8,7 @@ import { add, distance, normalized, point, rotated, scale, sub } from './geometr
 import { f32 as f } from './numeric';
 import { healthCap } from './resident-wounds';
 import type { Road } from './road-network';
+import { dangerNear } from './town-tick';
 import { automaticConstructionAllowed, hasUnfinishedRoadwork, registerAutomaticConstruction } from './automatic-work';
 
 export function orderAutomatic(this: Town, ids: number[]): void {
@@ -18,6 +20,7 @@ export function orderAutomatic(this: Town, ids: number[]): void {
     p.ordered = p.approachingOrder = p.hunting = false;
     p.recoveringRest = p.recoveringHealth = false;
     p.trainingCalling = -1;
+    if (p.craftItem) this.finishCraftOrder(p);
     p.task = Activity.Idle; p.taskSite = p.supplyTarget = p.attackPerson = p.foe = p.tree = -1;
     p.supplyRoad = false; p.path = []; p.activity = Activity.Idle; p.until = this.time;
     p.scheduleAt = this.time + .5;
@@ -57,13 +60,12 @@ export function scheduleAutomatic(this: Town, p: Person): boolean {
       (p.activity === Activity.WaitingMaterials && this.time >= p.until)) this.resumeOrder(p);
     return true;
   }
-  const directWork = p.ordered && p.task === Activity.Working;
+  const directWork = p.ordered && (p.task === Activity.Working || p.task === Activity.Crafting);
   if ((p.ordered && !directWork) || p.approachingOrder) return true;
   // Beyond a gate nobody farms, sleeps or builds: the party only follows orders.
   if ((!p.autoMode && !directWork) || this.inRealm(p.position)) return false;
-  // A player-selected workplace is an ongoing order, not just a trip to its
-  // door. Night is a routine Auto preference; critical care still takes priority.
-  const night = !directWork && this.climate().night > f(.5);
+  // A direct wake order can defer a break. Daylight never decides when a shift ends.
+  const awake = this.stayingUp(p);
   if (p.health >= healthCap(p)) p.recoveringHealth = false;
   if (p.rest >= f(.95)) p.recoveringRest = false;
   const care = (place: Building | null, activity: Activity): boolean => {
@@ -88,8 +90,11 @@ export function scheduleAutomatic(this: Town, p: Person): boolean {
       this.placed.some(b => b.built() && b.kind === Structure.Well && this.settlementOf(b) === this.settlementOf(p)) &&
       this.drink(p)) return true;
   if (p.health < f(.4)) p.recoveringHealth = true;
-  if (p.rest < f(.2)) p.recoveringRest = true;
-  if (p.recoveringHealth || p.recoveringRest || night) {
+  if (p.rest < f(.2) && !awake) p.recoveringRest = true;
+  // Nobody sets out for bed while a raid is on or a foe is near; the wounded still withdraw.
+  const abed = p.activity === Activity.Sleeping && p.inside,
+    bedtime = p.recoveringRest && (abed || !(this.raiding() || dangerNear(this, p)));
+  if (p.recoveringHealth || bedtime) {
     if (p.recoveringHealth) {
       const clinic = this.nearest(p.position, b => b.faction === p.faction && b.kind === Structure.Apothecary && b.built() && b.workers > 0);
       if (clinic && care(clinic, Activity.Treating)) return true;
@@ -97,12 +102,17 @@ export function scheduleAutomatic(this: Town, p: Person): boolean {
     const home = this.building(p.home);
     if (home?.built() && home.faction === p.faction && care(home, Activity.Sleeping)) return true;
     // Homeless residents recover outside; they never enter somebody else's home.
-    if ((p.recoveringHealth || p.recoveringRest) && care(null, Activity.Sleeping)) return true;
+    if ((p.recoveringHealth || (p.recoveringRest && bedtime)) && care(null, Activity.Sleeping)) return true;
   }
   if (p.activity === Activity.Sleeping) {
+    if (p.inside) this.walkTo(p, p.entrance);
     p.activity = Activity.Idle; p.until = this.time;
   }
 
+  if (directWork && p.task === Activity.Crafting) {
+    if (p.activity === Activity.Idle) this.resumeOrder(p);
+    return true;
+  }
   if (directWork) {
     const job = this.building(p.taskSite);
     // Keep gathering inputs, output delivery and temporary care in the same
@@ -144,12 +154,13 @@ export function scheduleAutomatic(this: Town, p: Person): boolean {
   if (p.hydration < f(.25) && this.drink(p)) return true;
 
   // The selected resource is a finite transaction: gather, deliver, then reevaluate.
-  if ((p.task === Activity.Felling || p.task === Activity.Mining) && p.rest >= f(2 / 3)) {
+  if (p.job < 0 && p.task === Activity.Idle && (orderRanchHarvest(this, p) || leadLivestock(this, p))) return true;
+  if ((p.task === Activity.Felling || p.task === Activity.Mining) && p.rest >= f(.2)) {
     if (p.activity === p.task) return true;
     if (this.resumeOrder(p) && Number(p.task) !== Activity.Idle) return true;
   }
   const job = this.building(p.job);
-  if (job?.built() && (p.rest >= f(2 / 3) || (job.kind !== Structure.Lumberyard && job.kind !== Structure.Quarry))) {
+  if (job?.built() && (p.rest >= f(.2) || (job.kind !== Structure.Lumberyard && job.kind !== Structure.Quarry))) {
     if (p.task !== Activity.Working || p.taskSite !== job.id) {
       p.task = Activity.Working; p.taskSite = job.id; p.activity = Activity.Idle;
     }
@@ -157,7 +168,7 @@ export function scheduleAutomatic(this: Town, p: Person): boolean {
     return this.resumeOrder(p);
   }
   if (p.task !== Activity.Idle) { p.task = Activity.Idle; p.taskSite = -1; p.tree = -1; p.path = []; p.activity = Activity.Idle; }
-  if (!this.titleAutoplay && p.rest >= f(2 / 3) && this.startHarvest(p, p.position, 5)) {
+  if (!this.titleAutoplay && p.rest >= f(.2) && this.startHarvest(p, p.position, 5)) {
     p.task = p.activity; p.taskSite = p.tree; p.goal = { ...p.position }; return true;
   }
   // Keep an existing wander route until its destination; reevaluation never

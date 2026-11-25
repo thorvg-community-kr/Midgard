@@ -16,6 +16,7 @@ import { Rect } from '../../../../packages/native-ui/src';
 import { queueWorkSounds } from './work-audio';
 import { objectSelectionOverlay } from './selection-overlay';
 import { renderPrayer } from './game-prayer';
+import { measureArrivalHud, stepResidentArrival } from './resident-arrival';
 import { renderExpedition } from './expedition-window';
 import { renderExpeditionResult } from './expedition-result';
 import { stagingActive, stagingFrame, stagingHeld, stagingVeil } from './expedition-staging';
@@ -74,6 +75,7 @@ export interface GameRenderApp extends GameCommandApp {
   updateSpeech(seconds: number): void;
   speechBubbles(width: number, height: number): void;
   hud(width: number, height: number): void;
+  personPanelBounds(width: number, height: number, commands: boolean): Rect;
   commandOverlay(): void;
   animatingUi(): boolean;
   reducedMotion(): boolean;
@@ -108,6 +110,8 @@ export function render(
   this.theme.reducedMotion = this.reducedMotion();
   // The in-game setting, not only the OS preference, stills the water and the world shake.
   this.renderer.reducedMotion = this.theme.reducedMotion;
+  const presentationTime = uiSeconds >= 0 ? uiSeconds : seconds;
+  this.renderer.arrivalSeconds = presentationTime;
   width = f(width);
   height = f(height);
   if (this.atlas || this.buildings) this.campResources.reset();
@@ -218,6 +222,8 @@ export function render(
     this.realmGateSeen = this.town.realmGate;
   }
   if (simulate && !editing) stagingFrame(this, this.context.time());
+  if (this.residentArrival && !editing)
+    stepResidentArrival(this, presentationTime, this.personPanelBounds(width, height, true).y, this.theme.reducedMotion);
   this.chosen = this.chosen.filter((id) => !!this.town.person(id));
   for (const id of this.speakers.keys()) if (!this.town.person(id)) this.speakers.delete(id);
   if (simulate && !editing && !this.prayer && !this.expedition && !this.expeditionResult) guideFrame(this);
@@ -321,6 +327,8 @@ export function render(
   }
   if (!editing) this.speechBubbles(width, height);
   this.hud(width, height);
+  const arrival = this.residentArrival;
+  if (arrival?.placed) this.context.deferOverlay((_, controls) => measureArrivalHud(arrival, controls));
   if (!editing) this.commandOverlay();
   if (this.editor) {
     const person = this.town.person(this.editor.personId());
@@ -357,6 +365,7 @@ export function takeCues(this: GameRenderApp): Sound[] {
 }
 export function nextFrameDelay(this: GameRenderApp): number {
   if (this.animatingUi()) return 1 / 60;
+  if (this.prayer) return 0.1;
   if (this.buildings) return this.buildings.animating() ? 1 / 60 : 0.1;
   if (this.atlas) return this.atlas.dragging() ? 1 / 60 : 0.1;
   if (this.editor) return 0.1;
@@ -365,8 +374,9 @@ export function nextFrameDelay(this: GameRenderApp): number {
   return 1 / 30;
 }
 export function animatingUi(this: GameRenderApp): boolean {
+  if (this.prayer) return this.context.motionActive();
   return (
-    this.prayer !== null ||
+    !!this.residentArrival ||
     stagingActive(this) ||
     this.dockProgress < 1 ||
     this.campResources.animating() ||

@@ -56,6 +56,7 @@ async function setup({ width, height, korean, touch }) {
   game.touchMode = !!touch;
   town.awaiting = false;
   site.discovered = true;
+  town.open[gate] = 1;
   const camp = new Building(0, Structure.Camp, town.map().camp(), 0, 0);
   camp.village = 0;
   town.placed.push(camp);

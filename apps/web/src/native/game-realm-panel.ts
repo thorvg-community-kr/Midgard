@@ -26,7 +26,9 @@ export function realmPanel(this: GameHudApp, width: number, height: number): voi
     loot = this.town.realmLoot,
     w = Math.min(300, f32(width - 24)),
     inner = f32(w - 24),
-    header = 34,
+    scouting = this.town.chronicle.partiesLed === 1,
+    denDown = scouting && this.town.realmDens().length < this.town.realmDenTotal(),
+    header = scouting ? 54 : 34,
     collapsed = this.realmCollapsed || compact,
     reason = wrapText(
       c,
@@ -62,6 +64,10 @@ export function realmPanel(this: GameHudApp, width: number, height: number): voi
       () => (this.realmCollapsed = !this.realmCollapsed),
       ButtonStyle.Quiet,
     );
+  if (scouting)
+    c.text(new Rect(bounds.x + 12, top + 31, inner, 18),
+      denDown ? 'Optional goal · Bring the party home' : 'Optional goal · Destroy one den and return alive',
+      denDown ? t.success : t.accent, 10, true);
   if (collapsed) {
     const count = swarmCount(this);
     if (count)

@@ -8,11 +8,11 @@ import type { StrikeKind } from './skill-catalog';
 export enum Role { Resident, Guest }
 export enum Calling { Settler, Traveller, Warrior, Ranger, Mage, Cleric, Bard }
 export enum Race { Human, God, Giant }
-export enum Activity { Idle, Moving, Holding, Building, Roadwork, Working, Eating, Sleeping, Relaxing, Exploring, Brooding, Arriving, Leaving, Guarding, Fighting, Expedition, Praying, Shopping, Hauling, Felling, Collecting, Mining, Treating, FetchingMaterials, DeliveringMaterials, WaitingMaterials, Drinking, Training, Crafting, /** Struck down and bleeding out; lies still until tended or dead. */ Downed, /** Kneeling by a downed resident (`target` is their id). */ Tending }
+export enum Activity { Idle, Moving, Holding, Building, Roadwork, Working, Eating, Sleeping, Relaxing, Exploring, Brooding, Arriving, Leaving, Guarding, Fighting, Expedition, Praying, Shopping, Hauling, Felling, Collecting, Mining, Treating, FetchingMaterials, DeliveringMaterials, WaitingMaterials, Drinking, Training, Crafting, /** Struck down and bleeding out; lies still until tended or dead. */ Downed, /** Kneeling by a downed resident (`target` is their id). */ Tending, Herding, GatheringEggs, PreparingMeat }
 export enum AnimalKind { Cow, Pig, Chicken, Wolf, Dog, Cat, Count }
 export const callingName = (calling: Calling): string => ['Settler', 'Traveller', 'Warrior', 'Ranger', 'Mage', 'Cleric', 'Bard'][calling] || '';
 export const raceName = (race: Race): string => ['Human', 'God', 'Giant'][race] || '';
-export const activityName = (activity: Activity): string => ['Idle', 'Moving on orders', 'Holding position', 'Building', 'Working on a road', 'Working', 'Eating', 'Sleeping', 'Relaxing at the tavern', 'Delving the dungeon', 'Brooding', 'Arriving', 'Leaving', 'On watch', 'Fighting', 'On an expedition', 'Praying', 'Buying gear', 'Carrying goods', 'Felling a tree', 'Collecting resources', 'Mining stone', 'Receiving treatment', 'Fetching supplies', 'Delivering materials', 'Waiting for materials', 'Drinking water', 'Training at the guild', 'Crafting equipment', 'Downed', 'Tending the fallen'][activity] || '';
+export const activityName = (activity: Activity): string => ['Idle', 'Moving on orders', 'Holding position', 'Building', 'Working on a road', 'Working', 'Eating', 'Resting', 'Relaxing at the tavern', 'Delving the dungeon', 'Brooding', 'Arriving', 'Leaving', 'On watch', 'Fighting', 'On an expedition', 'Praying', 'Buying gear', 'Carrying goods', 'Felling a tree', 'Collecting resources', 'Mining stone', 'Receiving treatment', 'Fetching supplies', 'Delivering materials', 'Waiting for materials', 'Drinking water', 'Training at the guild', 'Crafting equipment', 'Downed', 'Tending the fallen', 'Leading livestock', 'Collecting eggs', 'Preparing meat'][activity] || '';
 export class Monster {
   health = 3; strength = 1; raider = false; angry = false; ready = 0; home = point(); prey = -1; race: Race | null = null; insideLair = false; provokedBy = -1; animal: AnimalKind | null = null;
   /** What kind of fighter this is; decides its size and manner. */
@@ -27,6 +27,10 @@ export class Monster {
   bornAt = -1;
   /** Id of the den it came from or belongs to, or -1. */
   brood = -1;
+  /** Ranch this animal belongs to. */
+  pen = -1;
+  /** Birth time of a ranch-raised calf or piglet. Captured breeding stock has no birth time. */
+  ranchBornAt = -1;
   constructor(public id: number, public lair: number, public position: Point, public path: Point[] = []) {}
   giant(): boolean { return this.race === Race.Giant; }
 }
@@ -39,15 +43,25 @@ export class Person {
   craftItem: string | null = null;
   craftWorkshop = -1;
   craftProgress = 0;
+  /** A foundry batch made on the way to completing the main upgrade. */
+  refining = Product.None;
+  refineProgress = 0;
   faction = 0;
   stressRecovery = false;
   lastBreakdownAt = -1;
   trained = false;
+  /** Aptitudes granted at the altar and kept when training or gaining levels. */
+  birthStrength = 0;
+  birthVitality = 0;
   trainingCalling = -1;
   // Temporary rest can span a meal or combat without replacing the assigned work.
   /** Resident this one is walking to for a hand-to-hand delivery; not saved. */
   giver = -1;
+  /** Most recent physical transfer of supplies, for presentation only. */
+  transfer: { taking: boolean; at: number; toward?: Point } | null = null;
   recoveringRest = false;
+  /** Clock time until which a resident the player got out of bed stays up; not saved. */
+  awakeUntil = -1;
   recoveringHealth = false;
   /** Clock time this resident was struck down, or -1 while standing. */
   downedAt = -1;
@@ -82,22 +96,24 @@ export class Person {
   woundDays = 0;
   hydration = 1;
   hunting = false;
+  /** The animal being led or the grown offspring chosen for meat. */
+  herdAnimal = -1;
   attackPerson = -1;
   workField = -1;
   activity = Activity.Idle; target = -1; until = 0; inside = false; ordered = false; task = Activity.Idle; taskSite = -1;
-  food = f32(.8); rest = f32(.9); stress = f32(.15); health = 1; home = -1; job = -1; bed = -1; autoMode = true;
+  food = f32(.8); rest = f32(.9); health = 1; home = -1; job = -1; bed = -1; autoMode = true;
   ready = 0; foe = -1; tree = -1; carrying = 0; carriedProduct = Product.Wood; aggressive = false; approachingOrder = false; goal = point(); days = 0; loot = 0;
   relaxedAt = -1e9; prayedAt = -1e9; load = 0; breaking = 0; gear = 0; level = 1; experience = 0; purse = 0; worked = 0; unpaid = false; sleptOutside = false;
   customLook: Appearance | null = null; lookRevision = 0n; entrance = point(); threshold = point(); doorway = 0; faith = Faith.Dawn; past = ''; village = -1; supplyTarget = -1; supplyRoad = false; scheduleAt = 0;
+  /** Physical tiredness and strain use one reserve. Legacy callers express it from the tired end. */
+  get stress(): number { return 1 - this.rest; }
+  set stress(value: number) { this.rest = f32(clamp(1 - value, 0, 1)); }
   constructor(public id: number, public name: string, public role: Role, public calling: Calling, public race: Race, public look: number, public position: Point, public path: Point[] = []) {}
   /** Each level asks more than the last, and the gap itself widens: a floor's worth of fighting is a level or two, not five. */
   experienceToNextLevel(): number { const n = this.level - 1; return this.level >= Person.maximumLevel ? 0 : 40 + 30 * n + 3 * n * n; }
-  /** Levels and a fighting calling are what turn a long brawl into a quick kill. */
-  /** Growth a level brings to blows and to the health a blow takes away; strong enough that a level is felt. */
-  static attackPerLevel = 0.15;
+  /** Experience improves endurance. Weapons and their attribute scaling determine attack. */
   static vitalityPerLevel = 0.2;
-  attackMultiplier(): number { return f32((1 + f32(Person.attackPerLevel) * (this.level - 1)) * (this.calling === Calling.Warrior ? f32(1.3) : this.calling === Calling.Ranger || this.calling === Calling.Mage ? f32(1.15) : 1)); }
-  vitalityMultiplier(): number { return f32(1 + f32(f32(Person.vitalityPerLevel) * (this.level - 1))); }
+  vitalityMultiplier(): number { return f32(1 + f32(f32(Person.vitalityPerLevel) * (this.level - 1)) + this.birthVitality * 0.08); }
   gainExperience(points: number): number {
     if (points <= 0 || this.health <= 0 || this.level >= Person.maximumLevel) return 0;
     let gained = 0, remaining = this.experience + points;

@@ -198,7 +198,7 @@ a { color: var(--bright); }
       </div>
       <template data-node="gathering" data-video="docs/felling.mp4">Wood, stone and food are gathered by hand and carried in packs; a pack goes to storage when it is full. A tool makes the work faster.</template>
       <template data-node="settlement" data-video="docs/town-life.mp4" data-link="#buildings">Homes, workshops, farms, markets and halls, joined by roads; every building is a small 3D model drawn as vector shapes. Residents have homes, work, hunger and rest; on Auto they choose useful work.</template>
-      <template data-node="altar" data-video="docs/altar.mp4">An offering of water, bones, gold, food and stone calls a new resident. A richer offering brings a stronger one; a small one can be refused.</template>
+      <template data-node="altar" data-video="docs/altar.mp4">Four food and a free bed welcome a settler. Choose their name and appearance. Every four extra goods grant a point in strength or vitality.</template>
       <template data-node="crafting" data-video="docs/workbench.mp4">A resident walks to the workbench, weaponsmith or armorer and makes the item in the open. Nothing is paid until it is done.</template>
       <template data-node="expeditions" data-video="docs/dungeon-arc.mp4">Choose a party and a floor at a gate, fight the swarm and its dens, fell the guardian, and bring the spoils home.</template>
     </div>
@@ -302,7 +302,7 @@ a { color: var(--bright); }
     <h2>Characters</h2>
     <div class="split even">
       <div class="pair">
-        <figure class="sound"><video src="docs/altar.mp4" poster="docs/altar.jpg" muted autoplay loop playsinline controls preload="metadata"></video><figcaption>A kingly offering at Odin's altar.</figcaption></figure>
+        <figure class="sound"><video src="docs/altar.mp4" poster="docs/altar.jpg" muted autoplay loop playsinline controls preload="metadata"></video><figcaption>Preparing supplies and choosing a new settler's appearance at Odin's altar.</figcaption></figure>
         <figure class="sound"><video src="docs/revive.mp4" poster="docs/revive.jpg" muted autoplay loop playsinline controls preload="metadata"></video><figcaption>A fallen warrior raised by an ally.</figcaption></figure>
       </div>
       <div>
@@ -310,12 +310,12 @@ a { color: var(--bright); }
           <li>Five fighting callings: warrior, ranger, mage, cleric, bard.</li>
           <li>Two skills each, the second from level 4; on auto or fired by hand.</li>
           <li>A resident at the end of their strength falls and bleeds out unless an ally kneels beside them.</li>
-          <li>New residents come from offerings at Odin's altar, graded humble to kingly.</li>
-          <li>A small offering can be refused; the gifts are gone either way.</li>
-          <li>Odin sends only so many: the cap rises as floors are cleared.</li>
+          <li>Every new resident starts as a settler at half the residents' average level, rounded down to a minimum of one. The guild can train them for a fighting calling.</li>
+          <li>The first four food give one random point in strength or vitality. Up to twelve extra goods can pay for three more points.</li>
+          <li>Clear floors beyond the gates to make room for more residents.</li>
         </ul>
         <span class="src">packages/engine/src/skill-catalog.ts · town-downed.ts · prayer-offering.ts · altar-cap.ts</span>
-      <a class="devlog-link" href="docs/devlog/altar.html">See the working gallery: the altar</a>
+      <a class="devlog-link" href="docs/devlog/altar.html">See earlier altar designs</a>
       </div>
     </div>
   </div>

@@ -56,8 +56,8 @@ export interface CombatKeyApp extends GameAppState {
   selectPeople(ids: readonly number[]): void;
 }
 export const combatHints = [
-  'Q / W skills  ·  H hold  ·  S stop  ·  R recall',
-  'M move past enemies  ·  A attack-move  ·  ` party',
+  'Q / W skills  ·  H hold or stop  ·  R recall',
+  'Right-click move  ·  A attack-move  ·  ` party',
   'Ctrl+1-9 make a group, 1-9 select it',
   'Right-click a downed ally to revive  ·  Space pause',
 ];
@@ -270,6 +270,7 @@ export function combatFrame(app: CombatFrameApp, seconds: number): void {
     town = app.town;
   if (state.town !== town) {
     state.town = town;
+    app.army.waves = [];
     state.heardEvent = nextSerial(town);
     state.fallenSeen = town.fallen.length;
     state.memorials = [];
