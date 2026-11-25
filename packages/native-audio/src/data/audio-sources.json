@@ -674,18 +674,6 @@
       "sha256": "d8f6722f0acfbd20d0aac30c52ea7c7b1fbc8013d0424625dce2da09d6e261c4"
     },
     {
-      "path": "voice/berserker/mumble_01.ogg",
-      "sha256": "aff4a941635ca522e8bd7887b535e8da1c4f435d70c4e242b81cbb31b33d1317"
-    },
-    {
-      "path": "voice/berserker/mumble_02.ogg",
-      "sha256": "6ad09b70199f33ead3a23570b59deabc92a5caf5913d93bd784a33b467c2595d"
-    },
-    {
-      "path": "voice/berserker/mumble_03.ogg",
-      "sha256": "b36bc735d426ddd451a31020dd4a07c03d3a19574cd1978b87a995c3e5512ed5"
-    },
-    {
       "path": "voice/berserker/select_01.ogg",
       "sha256": "006e6ce2e768bd9dfc8f78b8bb42901f4fc111073113f01fb5cb8db726c2b3ca"
     },
@@ -870,18 +858,6 @@
       "sha256": "0ce3a2e3b8aaed37b93ba65c62b3448cd5f6b8687a8ab84bdbecefbc77e16675"
     },
     {
-      "path": "voice/huntress/mumble_01.ogg",
-      "sha256": "ff909b2a5313a9af4836f290af4108eca47c8519a8d7f412562b68d5c02a3f9b"
-    },
-    {
-      "path": "voice/huntress/mumble_02.ogg",
-      "sha256": "09acebfc9d18c19bec51c9dd4f0fc9d45436af48935eb813e5b5d1a36fdd59c3"
-    },
-    {
-      "path": "voice/huntress/mumble_03.ogg",
-      "sha256": "5aa85c46ee8efaca2b532bf4f6f308f60e3547a14b77d2a4075c5dc9673f566c"
-    },
-    {
       "path": "voice/huntress/select_01.ogg",
       "sha256": "3ff7e87f7a00120f3954ffaeb6c66ac867765e1ea48f56036703e9b7ea68fa02"
     },
@@ -1060,18 +1036,6 @@
     {
       "path": "voice/maiden/hurt_04.ogg",
       "sha256": "209f1ec226f14bea84f9119c5d96745f93bacb5bd5751a33812d5e08fd3554ab"
-    },
-    {
-      "path": "voice/maiden/mumble_01.ogg",
-      "sha256": "1f28dfc94389964fa03af17181a33cf60eb4263e1b37ec4fe01fcd853d3a1010"
-    },
-    {
-      "path": "voice/maiden/mumble_02.ogg",
-      "sha256": "459734b71a047e501929f9f71adf26a2f38b32e568b7dd8f441f627f6308ff7c"
-    },
-    {
-      "path": "voice/maiden/mumble_03.ogg",
-      "sha256": "b2398e207696bb2691563140fdd84a6cf7de1753f886338137cd8776e9e6afa1"
     },
     {
       "path": "voice/maiden/select_01.ogg",
@@ -1258,18 +1222,6 @@
       "sha256": "259c97816441c1eb84266be0dfadd0c7ed76123f4f65a36bcca4a1b5659b2c6e"
     },
     {
-      "path": "voice/veteran/mumble_01.ogg",
-      "sha256": "719c73f461d323bbb21c55f4c17a15d3146106d59c6a38e9218651cf23c01d1b"
-    },
-    {
-      "path": "voice/veteran/mumble_02.ogg",
-      "sha256": "1034c738b02479c5be2afad49e53f3e1b02321389c4c5580a11244e5e1b0089e"
-    },
-    {
-      "path": "voice/veteran/mumble_03.ogg",
-      "sha256": "d6c1ff81bf44a35b21cd76ce258832611504dc7342bb3289ead43eea9bd5e04f"
-    },
-    {
       "path": "voice/veteran/select_01.ogg",
       "sha256": "91258af912d3091b6920b1497c1bb2c1159f9146914ec9b4fe6b7c85fd59d5fd"
     },
@@ -1452,18 +1404,6 @@
     {
       "path": "voice/young/hurt_04.ogg",
       "sha256": "0d02652838676f507debce524c4af35b9b4b913dec396a9f2e414c9c3cdbd6e0"
-    },
-    {
-      "path": "voice/young/mumble_01.ogg",
-      "sha256": "a59bdb2330e867fd55fa331d57195f8a3970f53894bb8b5cc6b3f2480fae46e4"
-    },
-    {
-      "path": "voice/young/mumble_02.ogg",
-      "sha256": "311d238bcfb43b5c9d11fd9d0cb0d6677da458516bdba61bb0044bb4367c2afe"
-    },
-    {
-      "path": "voice/young/mumble_03.ogg",
-      "sha256": "ff36ac3e0b4706cf98b0d4fe2ca99e4866e1610683db41211945184904d04f38"
     },
     {
       "path": "voice/young/select_01.ogg",
@@ -1770,7 +1710,7 @@
       "sha256": "a7c37187b3de0e3fd216c375aacf97554acd8915b4201a56a93776c058fddf0d"
     }
   ],
-  "endingsSha256": "da5055940423c0b05c3cb8b399880d936ba046feacf4e1c60c290c777ddddc8b",
+  "endingsSha256": "c9c4f1e43da13df278304b61674dec0f2096581c862594acfc91225f33d4afc7",
   "weatherVoiceProvenance": {
     "source": "Synthetic speech generated offline; no human voice recordings or model runtime shipped",
     "model": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",

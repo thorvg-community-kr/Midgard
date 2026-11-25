@@ -32,7 +32,7 @@ const words = [
   'Ugh!',
   'Haaah.',
   'Hmm.',
-  'Hmm, where was I...',
+  '',
   'Yes?',
   'Aye!',
   'Hup!',
@@ -180,7 +180,7 @@ export class PersonSpeech {
     if (this.nextUtterance < 0) this.nextUtterance = seconds + randomDelay(person.look, person.id);
     if (!automatic || this.playing(seconds) || (!attack && seconds < this.nextUtterance)) return;
     const roll = hash01(person.look, Math.trunc(seconds), person.id, 0x5a1d);
-    let line = roll < f(0.45) ? VoiceLine.Hmm : roll < f(0.75) ? VoiceLine.Mumble : VoiceLine.Ahh;
+    let line = roll < f(0.45) ? VoiceLine.Hmm : roll < f(0.75) ? VoiceLine.None : VoiceLine.Ahh;
     if (mood === Mood.Fierce) line = VoiceLine.Attack;
     else if (mood === Mood.Hurt) line = VoiceLine.Hut;
     else if (mood === Mood.Tired || mood === Mood.Exhausted)
@@ -189,6 +189,10 @@ export class PersonSpeech {
     else if (mood === Mood.Stressed) line = roll < f(0.5) ? VoiceLine.Phew : VoiceLine.Complain;
     else if (mood === Mood.Cheerful) line = roll < f(0.6) ? VoiceLine.Ahh : VoiceLine.Hmm;
     else if (mood === Mood.Asleep) line = VoiceLine.Sleep;
+    if (line === VoiceLine.None) {
+      this.nextUtterance = seconds + randomDelay(person.look, seconds);
+      return;
+    }
     const voice = voiceKind(appearanceOf(person).bodyType, person.look, person.id);
     if (this.say(line, seconds, characterVoicePitch(person.look, person.id), voice))
       this.nextUtterance =

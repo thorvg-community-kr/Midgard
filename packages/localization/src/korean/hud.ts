@@ -722,7 +722,6 @@ export const hudPhrases: Phrases = {
   'Look, snow!': '봐, 눈이다!',
   'Mmm... five more winters...': '음... 다섯 겨울만 더...',
   'My thanks.': '고맙습니다.',
-  'Now where did I leave that hammer... ah, there it is.': '망치를 어디 뒀더라... 아, 여기 있네.',
   'Oh, God!': '오, 신이시여!',
   'On it.': '맡겨 줘요.',
   'Raiders!': '약탈자다!',

@@ -1035,27 +1035,6 @@
     "caption": "Uhk! ... Ak! ... Ut! ... Nk!"
   },
   {
-    "name": "voice/berserker/mumble_01",
-    "frames": 66150,
-    "rate": 22050,
-    "channels": 1,
-    "caption": "Now where did I leave that hammer... ah, there it is."
-  },
-  {
-    "name": "voice/berserker/mumble_02",
-    "frames": 65631,
-    "rate": 22050,
-    "channels": 1,
-    "caption": "Now where did I leave that hammer... ah, there it is."
-  },
-  {
-    "name": "voice/berserker/mumble_03",
-    "frames": 65648,
-    "rate": 22050,
-    "channels": 1,
-    "caption": "Now where did I leave that hammer... ah, there it is."
-  },
-  {
     "name": "voice/berserker/select_01",
     "frames": 12178,
     "rate": 22050,
@@ -1378,27 +1357,6 @@
     "caption": "Uhk! ... Ak! ... Ut! ... Nk!"
   },
   {
-    "name": "voice/huntress/mumble_01",
-    "frames": 65751,
-    "rate": 22050,
-    "channels": 1,
-    "caption": "Now where did I leave that hammer... ah, there it is."
-  },
-  {
-    "name": "voice/huntress/mumble_02",
-    "frames": 47681,
-    "rate": 22050,
-    "channels": 1,
-    "caption": "Now where did I leave that hammer... ah, there it is."
-  },
-  {
-    "name": "voice/huntress/mumble_03",
-    "frames": 63848,
-    "rate": 22050,
-    "channels": 1,
-    "caption": "Now where did I leave that hammer... ah, there it is."
-  },
-  {
     "name": "voice/huntress/select_01",
     "frames": 13561,
     "rate": 22050,
@@ -1710,27 +1668,6 @@
     "rate": 22050,
     "channels": 1,
     "caption": "Uhk! ... Ak! ... Ut! ... Nk!"
-  },
-  {
-    "name": "voice/maiden/mumble_01",
-    "frames": 38784,
-    "rate": 22050,
-    "channels": 1,
-    "caption": "Now where did I leave that hammer... ah, there it is."
-  },
-  {
-    "name": "voice/maiden/mumble_02",
-    "frames": 33178,
-    "rate": 22050,
-    "channels": 1,
-    "caption": "Now where did I leave that hammer... ah, there it is."
-  },
-  {
-    "name": "voice/maiden/mumble_03",
-    "frames": 48521,
-    "rate": 22050,
-    "channels": 1,
-    "caption": "Now where did I leave that hammer... ah, there it is."
   },
   {
     "name": "voice/maiden/select_01",
@@ -2055,27 +1992,6 @@
     "caption": "Uhk! ... Ak! ... Ut! ... Nk!"
   },
   {
-    "name": "voice/veteran/mumble_01",
-    "frames": 63866,
-    "rate": 22050,
-    "channels": 1,
-    "caption": "Now where did I leave that hammer... ah, there it is."
-  },
-  {
-    "name": "voice/veteran/mumble_02",
-    "frames": 65815,
-    "rate": 22050,
-    "channels": 1,
-    "caption": "Now where did I leave that hammer... ah, there it is."
-  },
-  {
-    "name": "voice/veteran/mumble_03",
-    "frames": 65820,
-    "rate": 22050,
-    "channels": 1,
-    "caption": "Now where did I leave that hammer... ah, there it is."
-  },
-  {
     "name": "voice/veteran/select_01",
     "frames": 10915,
     "rate": 22050,
@@ -2396,27 +2312,6 @@
     "rate": 22050,
     "channels": 1,
     "caption": "Uhk! ... Ak! ... Ut! ... Nk!"
-  },
-  {
-    "name": "voice/young/mumble_01",
-    "frames": 23667,
-    "rate": 22050,
-    "channels": 1,
-    "caption": "Now where did I leave that hammer... ah, there it is."
-  },
-  {
-    "name": "voice/young/mumble_02",
-    "frames": 42099,
-    "rate": 22050,
-    "channels": 1,
-    "caption": "Now where did I leave that hammer... ah, there it is."
-  },
-  {
-    "name": "voice/young/mumble_03",
-    "frames": 43986,
-    "rate": 22050,
-    "channels": 1,
-    "caption": "Now where did I leave that hammer... ah, there it is."
   },
   {
     "name": "voice/young/select_01",

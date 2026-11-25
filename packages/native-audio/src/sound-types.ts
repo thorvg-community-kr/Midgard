@@ -104,7 +104,7 @@ export enum VoiceLine {
   Hut,
   Phew,
   Murmur,
-  Mumble,
+  Mumble, // Retired recording. Later voice IDs keep their original values.
   Select,
   Ack,
   Work,
