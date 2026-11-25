@@ -21,7 +21,6 @@ export function realmPanel(this: GameHudApp, width: number, height: number): voi
     site = this.town.map().dungeons()[this.town.realmGate],
     party = this.town.realmParty(),
     foes = this.town.realmFoes(),
-    guardian = foes.find((foe) => foe.id === this.town.realmGuardian) ?? null,
     leave = this.town.canLeaveRealm(),
     left = this.town.realmLeftBehind(),
     loot = this.town.realmLoot,
@@ -85,9 +84,6 @@ export function realmPanel(this: GameHudApp, width: number, height: number): voi
   c.clip(bounds.inset(4), () => {
     const left = f32(bounds.x + 12);
     let y = f32(top + header);
-    const bar = (x: number, span: number, fraction: number, color = t.success) => {
-      meter(c, new Rect(x, f32(y + 5), span, 7), fraction, color);
-    };
     c.text(
       new Rect(left, y, 96, 18),
       this.town.realmCleared ? 'Guardian slain' : 'Guardian',
@@ -95,7 +91,6 @@ export function realmPanel(this: GameHudApp, width: number, height: number): voi
       11,
       true,
     );
-    if (guardian) bar(f32(left + 100), f32(inner - 100), guardian.health / Math.max(0.01, this.town.guardianVigor()), t.danger);
     y = f32(y + 20);
     const count = swarmCount(this);
     c.text(new Rect(left, y, inner, 18), count ? swarmLine(count) : `Monsters left: ${foes.length}`, count?.dens ? t.text : t.success, 10, true);

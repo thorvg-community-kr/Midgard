@@ -392,7 +392,7 @@ describe('a fight beyond a gate in Korean', () => {
       realm(town, [a, b, c], [...dens, ...swarm], g);
       const overlays = (time: number) => ui.draw(() => combatOverlays(app, 1024, 768), time);
       combatFrame(app, 0);
-      // The guardian wakes: the auto-pause and its bar, then the wind-up once enraged.
+      // The guardian wakes, then warns the player before its slam.
       g.angry = true;
       combatFrame(app, 0.1);
       overlays(0.1);
@@ -713,11 +713,13 @@ describe('outdoor dungeon combat in Korean', () => {
     expectKorean([
       'Raiders pour out of this dungeon and march on the camp. Press Attack to send your fighters.',
       'No settler is available to attack.',
+      'As the dungeon weakens, larger and stronger hordes emerge. The guardian leads the last wave. Defeat them all before the dungeon rises again.',
+      `Defenders pour out of ${name}.`,
       'The falling stones push everyone back. The guardian and its brood will rise from the marked ground.',
       `${name} has fallen. A guardian is gathering its horde.`,
       `Defeat the guardian and every defender before ${name} rises again.`,
       `${name} has risen again.`,
-      'Dungeon tier 3 · Dungeon health: 23 / 43', 'Recommended: 5 fighters at level 4', 'Defenders left: 4', 'Dungeon rises in 37s', 'Attack dungeon',
+      'Dungeon tier 3', 'Hostile · Strength 1.5', 'Recommended: 5 fighters at level 4', 'Defenders left: 4', 'Dungeon rises in 37s', 'Attack dungeon',
       'Bring flint or stone weapons.', 'Bring iron weapons.', 'Bring embersteel or frostwood weapons.',
     ], new Set([name]));
   });

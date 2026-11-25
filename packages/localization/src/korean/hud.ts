@@ -558,7 +558,7 @@ export const hudPhrases: Phrases = {
   tree: '나무',
   rock: '바위',
   dungeon: '관문',
-  'Health {0} · Hostile · Strength {1}': '체력 {0} · 적대 · 힘 {1}',
+  'Hostile · Strength {0}': '적대 · 힘 {0}',
   'Health {0} · Neutral · Strength {1}': '체력 {0} · 중립 · 힘 {1}',
   Hostile: '적대',
   Neutral: '중립',

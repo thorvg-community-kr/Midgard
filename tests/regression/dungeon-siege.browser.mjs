@@ -231,6 +231,9 @@ try {
     assert.deepEqual(await page.evaluate(() => probe.snapshot().selected), []);
     const inspection = await page.evaluate(() => probe.visibleLabels());
     assert.match(inspection.join(' '), /Recommended: 10 fighters at level 10/);
+    assert.match(inspection.join(' '), /larger and stronger hordes/);
+    assert.match(inspection.join(' '), /Defeat them all before the dungeon rises again\./);
+    assert(!inspection.some(text => text.includes('Dungeon health')));
     assert(inspection.includes('Attack'), 'The dungeon inspector shows an Attack button');
     await control('gate-attack');
     const issued = await page.evaluate(() => probe.snapshot());
@@ -240,10 +243,21 @@ try {
     assert(!issued.controls.some(c => c.id.startsWith('expedition-')), 'A single attack press issues the order in the world');
     const battle = await page.evaluate(async touch => {
       const { dungeonStatus } = await import('/packages/engine/src/dungeon-siege.ts');
+      const { MonsterRank } = await import('/packages/engine/src/combat-events.ts');
       const { game, gate } = probe, town = game.town;
+      const waves = [];
       const stepTo = (phase) => {
         const deadline = town.time + 90;
-        while (town.time < deadline && dungeonStatus(town, gate).phase !== phase) town.advance(0.1);
+        while (town.time < deadline && dungeonStatus(town, gate).phase !== phase) {
+          const next = town.nextMonster;
+          town.advance(0.1);
+          const wave = town.monsters().filter(m => m.id >= next && m.lair === gate && !m.raider);
+          if (wave.length) waves.push({
+            count: wave.length,
+            level: Math.min(...wave.map(m => m.level)),
+            guardian: wave.some(m => m.rank === MonsterRank.Guardian),
+          });
+        }
         return dungeonStatus(town, gate);
       };
       const before = dungeonStatus(town, gate);
@@ -252,10 +266,18 @@ try {
       const hit = dungeonStatus(town, gate);
       const broken = stepTo('summoning');
       probe.frames(2, 0.01);
-      return { hit, broken, initialHealth, partySize: town.chronicle.largestParty, outdoors: !town.realmActive(), marching: town.parties.length };
+      return { hit, broken, waves, initialHealth, partySize: town.chronicle.largestParty, outdoors: !town.realmActive(), marching: town.parties.length };
     }, touch);
     assert(battle.hit.health < battle.initialHealth, 'Normal attack orders damage the structure');
     assert.equal(battle.broken.phase, 'summoning');
+    assert.equal(battle.waves.length, touch ? 0 : 3);
+    battle.waves.forEach((wave, i, waves) => {
+      assert(!wave.guardian, 'The guardian waits for the collapse');
+      if (i) {
+        assert(wave.count > waves[i - 1].count);
+        assert(wave.level > waves[i - 1].level);
+      }
+    });
     assert(battle.outdoors && !battle.marching);
     assert.equal(battle.partySize, touch ? 1 : 10);
     if (!touch) {
@@ -282,7 +304,8 @@ try {
     assert(defenders.creatures > 1);
     assert.equal(defenders.guardianLevel, 10);
     if (!touch) {
-      report.assault = { fighters: battle.partySize, fortHealth: battle.initialHealth, guardianLevel: defenders.guardianLevel,
+      assert(defenders.spawned > battle.waves.at(-1).count);
+      report.assault = { fighters: battle.partySize, fortHealth: battle.initialHealth, waves: battle.waves, guardianLevel: defenders.guardianLevel,
         guardianHealth: defenders.guardianVigor, defendersSummoned: defenders.spawned };
       // Let the figures finish emerging from the circle for the battle portrait.
       await page.evaluate(() => {

@@ -20,6 +20,7 @@ import type { DevotionEvent } from '../../../../packages/engine/src/town-devotio
 import type { Building } from '../../../../packages/engine/src/town-models';
 import { serpentSighting } from '../../../../packages/native-renderer/src/serpent-ring';
 import type { WorldObjectRef } from '../../../../packages/native-renderer/src/world-picking-types';
+import { siegeLesson } from './dungeon-attack';
 
 /** A sentence for the phrase tables: `text` is the key, `values` fill its `{0}`, `{1}`... */
 export type Line = string | { readonly text: string; readonly values: readonly (string | number)[] };
@@ -256,7 +257,7 @@ const moments: GuideMoment[] = [
     title: 'A gate to another world',
     text: () => [
       'Raiders pour out of this dungeon and march on the camp. Press Attack to send your fighters.',
-      'Break the dungeon to draw out its guardian. Defeat the guardian and its brood before the dungeon rises again.',
+      siegeLesson,
     ],
     // A gate the map already knows of is no news until the player has it in front of them.
     spot: (scan) => {

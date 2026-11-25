@@ -19,7 +19,7 @@ const suggestedWeapons = {
 export function partyRecommendation({ tier, level, partySize }: ReturnType<typeof dungeonChallenge>): string[] {
   return [`Recommended: ${partySize} fighters at level ${level}`, suggestedWeapons[dungeonWeaponTier(tier)]];
 }
-export const siegeLesson = 'Break the dungeon to draw out its guardian. Defeat the guardian and its brood before the dungeon rises again.';
+export const siegeLesson = 'As the dungeon weakens, larger and stronger hordes emerge. The guardian leads the last wave. Defeat them all before the dungeon rises again.';
 
 interface AttackApp extends Pick<GameAppState, 'town' | 'chosen' | 'selectedDungeon' | 'dungeonAttackers' | 'status' | 'cues'> {
   selectPeople(ids: readonly number[]): void;

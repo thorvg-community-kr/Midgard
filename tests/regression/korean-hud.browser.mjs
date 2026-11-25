@@ -314,7 +314,7 @@ try {
   await page.evaluate(() => {
     const t = korean.town; t.time = t.sieges[korean.gate].summonAt; t.stir(0);
   });
-  // The guardian roused: the auto-pause, then its bar winding up a slam.
+  // The guardian rouses, pauses the game and warns before its slam.
   await page.evaluate(() => {
     const t = korean.town,
       g = t.creature(t.sieges[korean.gate].guardian),
@@ -336,7 +336,7 @@ try {
     korean.game.paused = true;
   });
   await frames(2, 0.001);
-  await shot('guardian-bar');
+  await shot('guardian-status');
 
   // A resident goes down: the auto-pause banner and the downed card with its tooltip.
   await page.evaluate(() => {

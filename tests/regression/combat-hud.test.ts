@@ -923,7 +923,7 @@ describe('auto-pause, the downed moment and the death moment', () => {
       ui.dispose();
     }
   });
-  it('shows the guardian bar with its health, the half notch and the wind-up', () => {
+  it('names the guardian and warns about its wind-up while its health stays hidden', () => {
     const ui = fixture();
     try {
       const { app, town } = ui,
@@ -932,11 +932,9 @@ describe('auto-pause, the downed moment and the death moment', () => {
       g.angry = true;
       realm(town, [a], g);
       ui.draw(() => combatOverlays(app, 1024, 768));
-      expect(ui.ids()).toContain('guardian-bar');
-      expect(ui.text()).toContain('60%');
-      const bar = ui.controls.mock.calls.find((call) => call[0] === 'guardian-bar')![1],
-        notch = ui.rects.mock.calls.find((call) => call[0].w === 2 && call[0].h > 9)![0];
-      expect(notch.x + 1).toBeCloseTo(bar.x + bar.w / 2, 0);
+      expect(ui.ids()).toContain('guardian-status');
+      expect(ui.text().some(text => /Guardian.*Level/.test(text))).toBe(true);
+      expect(ui.text().some(text => /\d%|Health/.test(text))).toBe(false);
       g.health = 40;
       g.windupUntil = town.clock() + 1.2;
       ui.draw(() => combatOverlays(app, 1024, 768));
@@ -946,7 +944,7 @@ describe('auto-pause, the downed moment and the death moment', () => {
       g.angry = false;
       app.renderer.visible = () => false;
       ui.draw(() => combatOverlays(app, 1024, 768));
-      expect(ui.ids()).not.toContain('guardian-bar');
+      expect(ui.ids()).not.toContain('guardian-status');
     } finally {
       ui.dispose();
     }

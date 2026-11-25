@@ -1,13 +1,10 @@
-// Thin flat health bars with a delayed chip, capped for a crowd, and the bleed-out ring over a downed resident.
-import { dungeonStatus } from '../../engine/src/dungeon-siege';
-import { gateCenter } from '../../engine/src/gate-progression';
-import { distance, project, type Point } from '../../engine/src/geometry';
-import { combatRules, MonsterRank } from '../../engine/src/combat-events';
-import { Role, type Hit, type Person } from '../../engine/src/person';
+// Settlers show a delayed chip when hurt and a bleed-out ring when downed.
+import { project } from '../../engine/src/geometry';
+import { combatRules } from '../../engine/src/combat-events';
+import { Role, type Person } from '../../engine/src/person';
 import type { Town } from '../../engine/src/town';
 import { ShapeNode } from './paint';
 import { appendArc, combatLayers, tone } from './combat-paint';
-import { monsterHeight } from './monster-rank-look';
 import type { WorldRendererState } from './world-renderer-state';
 
 /** How long the chip holds after a blow before it starts to catch up, and its catch-up speed. */
@@ -21,13 +18,10 @@ export interface BarTrack {
   chip: number;
   hurtAt: number;
   seen: number;
-  /** Highest health seen, standing in for an unknown full health. */
-  most: number;
 }
 interface Shapes {
   back: ShapeNode;
   chip: ShapeNode;
-  foe: ShapeNode;
   friend: ShapeNode;
   ringBack: ShapeNode;
   ring: ShapeNode;
@@ -45,33 +39,13 @@ export function barTracksOf(s: WorldRendererState): ReadonlyMap<string, BarTrack
 export function barShapesOf(s: WorldRendererState): Readonly<Shapes> | undefined {
   return states.get(s)?.shapes;
 }
-/** Width, height and priority of each rank's bar: a den's is the clearest, a swarmer's the thinnest. */
-const barStyle = (rank: MonsterRank): readonly [number, number, number] => {
-  switch (rank) {
-    case MonsterRank.Den:
-      return [28, 3.6, 100];
-    case MonsterRank.Guardian:
-      return [30, 3.4, 90];
-    case MonsterRank.Brute:
-      return [20, 2.6, 50];
-    case MonsterRank.Stalker:
-      return [13, 2.6, 40];
-    case MonsterRank.Swarmer:
-      return [9, 1.6, 20];
-    case MonsterRank.Spitter:
-      return [9, 1.6, 25];
-    default:
-      return [16, 2.6, 40];
-  }
-};
 /** Most bars drawn at once; the least important give way first. */
 export const maxBars = 40;
-const cell = (x: number, y: number) => Math.floor(x) * 65536 + Math.floor(y);
 
-function track(state: BarState, key: string, fraction: number, health: number, now: number): BarTrack {
+function track(state: BarState, key: string, fraction: number, now: number): BarTrack {
   let t = state.tracks.get(key);
   if (!t) {
-    t = { shown: fraction, chip: fraction, hurtAt: -1, seen: now, most: health };
+    t = { shown: fraction, chip: fraction, hurtAt: -1, seen: now };
     state.tracks.set(key, t);
   }
   const dt = Math.max(0, Math.min(0.25, now - t.seen));
@@ -81,12 +55,10 @@ function track(state: BarState, key: string, fraction: number, health: number, n
   else if (now - t.hurtAt >= chipHold)
     t.chip = Math.max(fraction, t.chip - dt * (chipRate * 0.4 + (t.chip - fraction) * chipRate * 4));
   t.seen = now;
-  t.most = Math.max(t.most, health);
   return t;
 }
 function bar(
   shapes: Shapes,
-  fill: ShapeNode,
   x: number,
   y: number,
   width: number,
@@ -96,7 +68,7 @@ function bar(
   shapes.back.appendRect(x - width / 2 - 1, y - 1, width + 2, height + 2, 1, 1);
   if (t.chip > t.shown)
     shapes.chip.appendRect(x - width / 2 + width * t.shown, y, width * (t.chip - t.shown), height);
-  if (t.shown > 0) fill.appendRect(x - width / 2, y, width * t.shown, height);
+  if (t.shown > 0) shapes.friend.appendRect(x - width / 2, y, width * t.shown, height);
 }
 const player = (p: Person) => p.faction === 0 && p.role === Role.Resident;
 
@@ -107,7 +79,6 @@ export function updateUnitBars(s: WorldRendererState, town: Town, selected: read
     const shapes: Shapes = {
       back: new ShapeNode().fill(...tone.ink, 215),
       chip: new ShapeNode().fill(...tone.peach),
-      foe: new ShapeNode().fill(...tone.rust),
       friend: new ShapeNode().fill(...tone.leaf),
       ringBack: new ShapeNode().fill(...tone.ink, 200),
       ring: new ShapeNode().fill(...tone.peach),
@@ -125,57 +96,8 @@ export function updateUnitBars(s: WorldRendererState, town: Town, selected: read
   }
   const now = town.clock(),
     seen = new Set<string>(),
-    chosen = new Set(selected),
-    // Recent blows by tile, so a crowd costs a lookup per monster instead of a scan of every blow.
-    struck = new Map<number, Hit[]>();
-  for (const h of town.hits()) {
-    if (now - h.at >= 3 || now < h.at) continue;
-    for (const at of [h.to, h.from]) {
-      const key = cell(at.x, at.y),
-        list = struck.get(key);
-      if (list) list.push(h);
-      else struck.set(key, [h]);
-    }
-  }
-  const touched = (at: Point) => {
-    for (let dx = -1; dx <= 1; dx++)
-      for (let dy = -1; dy <= 1; dy++)
-        for (const h of struck.get(cell(at.x + dx, at.y + dy)) ?? [])
-          if (distance(h.to, at) < 0.7 || distance(h.from, at) < 0.05) return true;
-    return false;
-  };
+    chosen = new Set(selected);
   const wanted: { priority: number; draw: () => void }[] = [];
-  town.sieges?.forEach((siege, gate) => {
-    if (!siege || siege.health <= 0) return;
-    const foot = gateCenter(town.map().dungeons()[gate]);
-    if (s.currentVisibility.sample(foot) < 119) return;
-    const key = `gate${gate}`, at = project(foot.x, foot.y);
-    const { health, maxHealth } = dungeonStatus(town, gate);
-    const meter = track(state, key, health / maxHealth, health, now);
-    seen.add(key);
-    wanted.push({ priority: 110, draw: () => bar(shapes, shapes.foe, at.x, at.y - 65, 54, 4, meter) });
-  });
-  for (const m of town.monsters()) {
-    if (m.insideLair || s.currentVisibility.sample(m.position) < 119) continue;
-    const key = `m${m.id}`,
-      before = state.tracks.get(key),
-      full = m.vigor > 0 ? m.vigor : Math.max(before?.most ?? 0, m.health),
-      fraction = full > 0 ? Math.max(0, Math.min(1, m.health / full)) : 1,
-      [width, height, rank] = barStyle(m.rank ?? MonsterRank.Grunt),
-      t = track(state, key, fraction, m.health, now);
-    seen.add(key);
-    const unhurt = fraction >= 0.999 && t.chip <= t.shown,
-      thin = height < 2;
-    // A den is always worth its bar; an unhurt swarmer never is.
-    if (unhurt && m.rank !== MonsterRank.Den && (thin || !(m.windupUntil > now || touched(m.position)))) continue;
-    wanted.push({
-      priority: rank + (now - t.hurtAt < 1 ? 8 : 0) + (1 - fraction) * 6,
-      draw: () => {
-        const foot = project(m.position.x, m.position.y);
-        bar(shapes, shapes.foe, foot.x, foot.y - monsterHeight(town, m, s) - (thin ? 5 : 8), width, height, t);
-      },
-    });
-  }
   for (const p of town.people()) {
     const arrival = s.figures.get(p.id)?.arrival, at = arrival?.foot ?? p.position;
     if (!player(p) || arrival?.rising || p.inside || p.visibility() < 0.5 || s.currentVisibility.sample(at) < 119)
@@ -193,12 +115,12 @@ export function updateUnitBars(s: WorldRendererState, town: Town, selected: read
     }
     const key = `p${p.id}`,
       fraction = Math.max(0, Math.min(1, p.health)),
-      t = track(state, key, fraction, p.health, now);
+      t = track(state, key, fraction, now);
     seen.add(key);
     if (fraction >= 0.995 && !chosen.has(p.id) && t.chip <= t.shown) continue;
     wanted.push({
       priority: (chosen.has(p.id) ? 85 : 70) + (1 - fraction) * 10,
-      draw: () => bar(shapes, shapes.friend, foot.x, foot.y - 31, 14, 2.2, t),
+      draw: () => bar(shapes, foot.x, foot.y - 31, 14, 2.2, t),
     });
   }
   if (wanted.length > maxBars) wanted.sort((a, b) => b.priority - a.priority);

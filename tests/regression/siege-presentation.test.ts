@@ -161,7 +161,7 @@ describe('outdoor siege presentation', () => {
       town.sieges[gate]!.health = 0.1;
       for (let step = 0; step < 100 && (town.sieges[gate]?.guardian ?? -1) < 0; step++) h.frame();
       expect(town.sieges[gate]?.guardian).toBeGreaterThanOrEqual(0);
-      expect(h.ids()).toContain('guardian-bar');
+      expect(h.ids()).toContain('guardian-status');
       expect(h.ids()).not.toContain('expedition-result-panel');
       expect(town.realmActive()).toBe(false);
       expect([h.app.camera.x, h.app.camera.y]).toEqual(camera);
@@ -188,6 +188,7 @@ describe('outdoor siege presentation', () => {
         const count = town.beasts.filter(m => m.brood === bosses[i].id && m.health > 0).length;
         return `Defenders left: ${count} · Dungeon rises in ${seconds}s`;
       };
+      const showsBoss = (i: number) => h.text().some(text => text.endsWith(` · Level ${bosses[i].level}`));
       combatFrame(h.app, 0);
       expect(h.app.combatHud.autoPause?.creature).toBe(bosses[0].id);
       h.app.paused = false;
@@ -199,22 +200,24 @@ describe('outdoor siege presentation', () => {
 
       // Zoomed in, the first battle is outside the view even though the town can see both.
       focus(1, 1.5);
-      expect(h.text()).toContain('75%');
+      expect(showsBoss(1)).toBe(true);
+      expect(h.text()).not.toContain('75%');
       expect(h.text()).toContain(countdown(1, 53));
       expect(h.text()).not.toContain(countdown(0, 87));
       // Both are now on screen. Moving the camera centre changes which battle is described.
       focus(1, .18);
-      expect(h.text()).toContain('75%');
+      expect(showsBoss(1)).toBe(true);
       focus(0, .18);
-      expect(h.text()).toContain('25%');
+      expect(showsBoss(0)).toBe(true);
+      expect(h.text()).not.toContain('25%');
       expect(h.text()).toContain(countdown(0, 87));
       // A dead boss still leaves a local clock for the rest of its horde.
       bosses[1].health = 0;
       focus(1, .18);
-      expect(h.text()).toContain('25%');
+      expect(showsBoss(0)).toBe(true);
       expect(h.text()).toContain(countdown(0, 87));
       focus(1, 1.5);
-      expect(h.ids()).not.toContain('guardian-bar');
+      expect(h.ids()).not.toContain('guardian-status');
       expect(h.text()).toContain(countdown(1, 53));
     } finally { h.dispose(); }
   });

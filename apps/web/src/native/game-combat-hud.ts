@@ -372,41 +372,30 @@ function siegeInView(app: GameHudApp, width: number, height: number) {
   }
   return { gate, guardian };
 }
-function guardianBar(app: GameHudApp, width: number, y: number, guardian: Monster | null): number {
+function guardianStatus(app: GameHudApp, width: number, y: number, guardian: Monster | null): number {
   const town = app.town;
   if (!guardian || !(guardian.angry || app.renderer.visible(guardian.position))) return y;
   const c = app.context,
     t = app.theme,
     { x, w } = column(width),
-    vigor = Math.max(0.01, guardian.vigor || town.guardianVigor()),
-    share = clamp(guardian.health / vigor, 0, 1),
     clock = town.clock(),
     windup = guardian.windupUntil > clock,
-    enraged = town.realmActive() && share < 0.5,
+    enraged = town.realmActive() && guardian.health < (guardian.vigor || town.guardianVigor()) / 2,
     site = town.map().dungeons()[town.realmActive() ? town.realmGate : guardian.lair],
     name = site ? worldName(town.map().destination(site)) : '',
-    h = windup ? 58 : 42,
+    h = windup ? 46 : 26,
     r = new Rect(x, y, w, h),
     pulse = windup && !app.reducedMotion() ? f32(0.5 + 0.5 * Math.sin(c.time() * 12)) : 1;
-  c.control('guardian-bar', r, undefined, true, false);
+  c.control('guardian-status', r, undefined, true, false);
   board(c, r, { trim: windup ? faded(t.danger, 140 + 115 * pulse) : t.border, trimWidth: windup ? 2 : 1 });
   const title = name ? `Guardian of ${name}` : 'Guardian';
-  c.text(new Rect(f32(x + 12), f32(y + 4), f32(w - 120), 18), c.elideText(`${title} · Level ${guardian.level}`, f32(w - 120), 12, true), t.text, 12, true);
-  c.text(
-    new Rect(f32(x + w - 112), f32(y + 4), 100, 18),
-    enraged ? 'Enraged' : `${Math.ceil(share * 100)}%`,
-    enraged ? t.danger : t.muted,
-    11,
-    enraged,
-    Align.End,
-  );
-  const bar = new Rect(f32(x + 12), f32(y + 25), f32(w - 24), 9);
-  meter(c, bar, share, t.danger);
-  // The notch marks where it enrages and calls its brood.
-  if (town.realmActive()) c.rect(new Rect(f32(bar.x + f32(bar.w / 2) - 1), f32(bar.y - 3), 2, f32(bar.h + 6)), t.text, 0);
+  const titleWidth = f32(w - (enraged ? 120 : 24));
+  c.text(new Rect(f32(x + 12), f32(y + 4), titleWidth, 18), c.elideText(`${title} · Level ${guardian.level}`, titleWidth, 12, true), t.text, 12, true);
+  if (enraged)
+    c.text(new Rect(f32(x + w - 112), f32(y + 4), 100, 18), 'Enraged', t.danger, 11, true, Align.End);
   if (windup) {
     c.text(
-      new Rect(f32(x + 12), f32(y + 38), f32(w - 24), 16),
+      new Rect(f32(x + 12), f32(y + 24), f32(w - 24), 16),
       `Winding up a slam: move away! (${Math.max(0, guardian.windupUntil - clock).toFixed(1)} s)`,
       faded(t.danger, 170 + 85 * pulse),
       11,
@@ -564,7 +553,7 @@ function downedAlerts(app: GameHudApp, width: number, y: number): void {
     c.text(new Rect(x, f32(y + cardH + 2), w, 14), `+${hurt.length - shown.length} more down`, t.danger, 10, true, Align.Center);
   c.requestFrameAt(c.time() + 0.25);
 }
-/** Top-centre combat overlays: the guardian bar, the auto-pause banner, the memorial and the downed alerts. */
+/** Top-centre combat overlays for the guardian, the auto-pause banner, the memorial and the downed alerts. */
 export function combatOverlays(app: GameHudApp, width: number, height: number): void {
   const state = app.combatHud;
   if (!app.paused) state.autoPause = null;
@@ -572,7 +561,7 @@ export function combatOverlays(app: GameHudApp, width: number, height: number): 
   if (!app.town.isTitleAutoplay() && height >= 360) {
     let y = f32(f32(app.skyBounds.y + app.skyBounds.h) + (app.town.raiding() ? 30 : 8));
     const siege = siegeInView(app, width, height);
-    y = guardianBar(app, width, y, siege.guardian ?? realmGuardian(app.town));
+    y = guardianStatus(app, width, y, siege.guardian ?? realmGuardian(app.town));
     y = siegeClock(app, width, y, siege.gate);
     y = swarmBanner(app, width, y);
     y = waveWarning(app, width, height, y);

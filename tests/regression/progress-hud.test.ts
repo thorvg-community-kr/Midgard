@@ -802,6 +802,8 @@ describe('inspectors', () => {
       expect(ui.words().join(' ')).toContain(`Dungeon tier ${tier}`);
       expect(ui.words().join(' ')).toContain(`Recommended: ${partySize} fighters at level ${level}`);
       expect(ui.words().join(' ')).toContain('Bring flint or stone weapons.');
+      expect(ui.words().join(' ')).toContain('larger and stronger hordes');
+      expect(ui.words().join(' ')).not.toContain('Dungeon health');
       expect(ui.words()).toContain(`Sealing grants the boon of ${boonName(gift)}`);
       expect(ui.words()).toContain('Attack');
       expect(ui.control('gate-attack')).toBeDefined();

@@ -6,6 +6,7 @@ import { Terrain } from '../../packages/engine/src/world-types';
 import { point } from '../../packages/engine/src/geometry';
 import { targetsInBox, worldTarget, hoveredTarget, targetKey } from '../../apps/web/src/native/world-targets';
 import type { GameCommandApp } from '../../apps/web/src/native/game-commands';
+import type { GameHudApp } from '../../apps/web/src/native/game-hud-contract';
 import { worldObjectPanel } from '../../apps/web/src/native/game-selection-panel';
 import { Rect } from '../../packages/native-ui/src';
 import { select } from '../../apps/web/src/native/game-input';
@@ -134,7 +135,7 @@ describe('presented world inspection', () => {
     expect(app.chosen).toEqual([]);
   });
 });
-it('shows a static landmark description without building or unit command actions', () => {
+function objectInspector() {
   const { app } = fixture();
   const text: string[] = [],
     controls: string[] = [],
@@ -150,7 +151,6 @@ it('shows a static landmark description without building or unit command actions
     border: color,
   };
   Object.assign(app, {
-    selectedObjects: [{ kind: 'landmark', id: 0 }],
     objectPage: 0,
     theme,
     context: {
@@ -166,8 +166,34 @@ it('shows a static landmark description without building or unit command actions
       paint: () => {},
     },
   });
-  worldObjectPanel.call(app as any, new Rect(0, 0, 420, 148));
+  const inspect = (ref: WorldObjectRef) => {
+    text.length = controls.length = 0;
+    app.selectedObjects = [ref];
+    worldObjectPanel.call(app as unknown as GameHudApp, new Rect(0, 0, 420, 148));
+  };
+  return { app, text, controls, inspect };
+}
+it('shows a static landmark description without building or unit command actions', () => {
+  const { text, controls, inspect } = objectInspector();
+  inspect({ kind: 'landmark', id: 0 });
   expect(text).toContain('Odin');
   expect(text.some((s) => s.includes('Allfather'))).toBe(true);
   expect(controls).toEqual(['objects-prev', 'objects-next']);
+});
+it('shows an enemy’s strength and level while keeping its health hidden', () => {
+  const { app, text, inspect } = objectInspector();
+  const monster = app.town.creature(6)!;
+  monster.health = 2;
+  monster.level = 4;
+  inspect({ kind: 'monster', id: monster.id });
+  expect(text).toContain('Monster · Level 4');
+  expect(text).toContain('Hostile · Strength 1.0');
+  expect(text.join(' ')).not.toContain('Health');
+  const cow = app.town.creature(7)!;
+  inspect({ kind: 'animal', id: cow.id });
+  expect(text).toContain('Health 3.0 · Neutral · Strength 1.0');
+  cow.angry = true;
+  inspect({ kind: 'animal', id: cow.id });
+  expect(text).toContain('Hostile · Strength 1.0');
+  expect(text.join(' ')).not.toContain('Health');
 });

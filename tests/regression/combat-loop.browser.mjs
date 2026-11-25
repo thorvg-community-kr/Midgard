@@ -413,8 +413,8 @@ try {
   });
   await frames(2);
   state = await snapshot();
-  assert(state.controls.some(c => c.id === 'guardian-bar'), 'The boss has a health bar outdoors');
-  await shot('guardian-bar');
+  assert(state.controls.some(c => c.id === 'guardian-status'), 'The battle identifies the guardian outdoors');
+  await shot('guardian-status');
   const pack = await page.evaluate(() => {
     const t = loop.game.town, boss = t.creature(t.sieges[gate].guardian);
     for (const p of [loop.member(3), loop.member(4)]) {

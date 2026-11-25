@@ -23,7 +23,6 @@ import { barShapesOf, barTracksOf, chipHold } from '../../packages/native-render
 import { MarkKind, markProgress, telegraphsOf } from '../../packages/native-renderer/src/ground-telegraphs';
 import { monsterHeight, rankScale } from '../../packages/native-renderer/src/monster-rank-look';
 import { monsterKind } from '../../packages/native-renderer/src/monster-figures';
-import { maxBars } from '../../packages/native-renderer/src/unit-bars';
 import { FieldKind, skillFieldsOf } from '../../packages/native-renderer/src/skill-fields';
 import { groundRadii } from '../../packages/native-renderer/src/combat-paint';
 import { maxEffects } from '../../packages/native-renderer/src/combat-effects';
@@ -368,19 +367,22 @@ describe('contact effects', () => {
 });
 
 describe('health bars', () => {
-  it('shows a hurt monster with a chip that holds, then catches up', () => {
-    const { town, s } = world(),
-      hero = resident(town, point(10, 10)),
-      foe = monster(town, point(10.6, 10));
+  it('shows the delayed damage chip only on a wounded settler', () => {
+    const { town, s } = world(), hero = resident(town, point(10, 10)),
+      boss = monster(town, point(10.6, 10), MonsterRank.Guardian);
+    town.sieges[boss.lair] = { health: 12, guardian: -1, summonAt: -1, reviveAt: -1, village: 0 };
     frame(s, town);
-    expect(barShapesOf(s)!.foe.commands).toHaveLength(0);
-    foe.health = 10;
-    blow(town, hero.position, foe.position, 100, { person: hero.id });
+    boss.health /= 2;
+    blow(town, hero.position, boss.position, 100, { person: hero.id });
     frame(s, town);
-    const track = barTracksOf(s).get(`m${foe.id}`)!;
+    expect(barShapesOf(s)!.back.commands).toHaveLength(0);
+    expect(barShapesOf(s)!.chip.commands).toHaveLength(0);
+    expect([...barTracksOf(s).keys()]).toEqual([`p${hero.id}`]);
+    hero.health = 0.5;
+    frame(s, town);
+    const track = barTracksOf(s).get(`p${hero.id}`)!;
     expect(track.shown).toBeCloseTo(0.5);
     expect(track.chip).toBeCloseTo(1);
-    expect(barShapesOf(s)!.foe.commands).toHaveLength(1);
     expect(barShapesOf(s)!.chip.commands).toHaveLength(1);
     advance(town, chipHold * 0.5);
     frame(s, town);
@@ -391,11 +393,6 @@ describe('health bars', () => {
     }
     expect(track.chip).toBeCloseTo(0.5, 3);
     expect(barShapesOf(s)!.chip.commands).toHaveLength(0);
-    // A guardian's bar is wider than a grunt's.
-    foe.rank = MonsterRank.Guardian;
-    frame(s, town);
-    const rect = barShapesOf(s)!.back.commands[0] as ['R', number, number, number, number, number, number];
-    expect(rect[3]).toBeGreaterThan(30);
   });
   it('shows residents when hurt or selected and a draining ring when downed', () => {
     const { town, s } = world(),
@@ -748,13 +745,8 @@ describe('swarms', () => {
     expect(combatTextOf(s).filter((f) => f.kind === TextKind.Dealt && swarmers.has(f.key))).toHaveLength(0);
     expect(combatTextOf(s).some((f) => f.kind === TextKind.Crit || f.kind === TextKind.Taken)).toBe(true);
     expect(peakText).toBeLessThan(28);
-    // Bars: the den always, hurt swarmers thin, never more than the cap, never an unhurt swarmer.
-    const rects = barShapesOf(s)!.back.commands as ['R', number, number, number, number][];
-    expect(rects.length).toBeLessThanOrEqual(maxBars);
-    expect(rects.some((r) => r[3] > 28)).toBe(true);
-    const fresh = horde.filter((m) => m.rank === MonsterRank.Swarmer && m.health === m.vigor);
-    expect(fresh.length).toBeGreaterThan(0);
-    for (const m of fresh) expect(barTracksOf(s).get(`m${m.id}`)?.shown ?? 1).toBe(1);
+    expect(barShapesOf(s)!.back.commands).toHaveLength(0);
+    expect([...barTracksOf(s).keys()].sort()).toEqual(party.map(p => `p${p.id}`).sort());
   });
 });
 

@@ -63,9 +63,11 @@ export function worldObjectPanel(this: GameHudApp, panel: Rect): void {
     let detail = '';
     if (target.kind === 'animal' || target.kind === 'monster') {
       const p = this.town.creature(target.id);
-      detail = p
-        ? `Health ${Math.max(0, p.health).toFixed(1)} · ${target.kind === 'monster' || p.angry ? 'Hostile' : 'Neutral'} · Strength ${p.strength.toFixed(1)}`
-        : '';
+      if (p) {
+        const hostile = target.kind === 'monster' || p.angry;
+        detail = hostile ? `Hostile · Strength ${p.strength.toFixed(1)}`
+          : `Health ${Math.max(0, p.health).toFixed(1)} · Neutral · Strength ${p.strength.toFixed(1)}`;
+      }
     }
     if (target.kind === 'road') {
       const r = this.town.roads().road(target.id);
@@ -157,9 +159,11 @@ export function worldObjectPanel(this: GameHudApp, panel: Rect): void {
     const husbandry = kind === AnimalKind.Chicken ? 'Lays eggs in the nest.' : young ? 'Growing in the pen.'
       : animal.ranchBornAt >= 0 ? 'Raised for meat.' : kind === AnimalKind.Pig ? 'Two pigs can raise piglets.' : 'Two cows can raise calves.';
     text(58, housed || farms.length ? husbandry : 'Food +' + spec.food + ' when hunted', t.muted);
-    const health = Math.max(0, Math.min(1, f32(animal.health / spec.health)));
-    text(79, 'Health ' + Math.ceil(f32(health * 100)) + '%', t.muted, 11);
-    meter(c, new Rect(f32(left + 78), f32(panel.y + 86), Math.max(1, f32(width - 78)), 7), health, t.success);
+    if (!animal.angry) {
+      const health = Math.max(0, Math.min(1, f32(animal.health / spec.health)));
+      text(79, 'Health ' + Math.ceil(f32(health * 100)) + '%', t.muted, 11);
+      meter(c, new Rect(f32(left + 78), f32(panel.y + 86), Math.max(1, f32(width - 78)), 7), health, t.success);
+    }
     if (housed) button(c, 'animal-ranch', new Rect(left, f32(panel.y + 104), width, 30),
       'View ranch', () => this.selectBuilding(animal.pen));
     else if (!led) button(c, 'animal-hunt', new Rect(left, f32(panel.y + 104), width, 30),

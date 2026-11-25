@@ -507,18 +507,14 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
         textRow(line, t.muted, 12);
     } else {
       const gate = this.selectedDungeon;
-      const { phase, health, maxHealth, remaining, creatures } = dungeonStatus(this.town, gate);
+      const { phase, remaining, creatures } = dungeonStatus(this.town, gate);
       if (phase === 'standing') {
         if (challenge) {
           for (const recommendation of partyRecommendation(challenge))
             for (const line of wrap(c, recommendation, inner, 12)) textRow(line, t.accent, 12, true);
         }
-        textRow(`Dungeon health: ${Math.ceil(health)} / ${maxHealth}`, t.text, 13, true);
-        const barY = y;
-        rows.push(() => meter(c, new Rect(left, top + barY + 2, inner, 8), health / maxHealth, t.danger));
-        y += 16;
         if (!gateActive(this.town, gate)) textRow('Dormant gate', t.muted, 12);
-        for (const line of wrap(c, siegeLesson, inner, 12)) textRow(line, t.muted, 12);
+        for (const line of wrap(c, siegeLesson, inner, 12, Infinity)) textRow(line, t.muted, 12);
         const at = y;
         rows.push(() => button(c, 'gate-attack', new Rect(left, top + at + 2, Math.min(inner, 220), this.touchMode ? 44 : 28),
           'Attack', () => attackDungeon(this, gate), ButtonStyle.Primary));
