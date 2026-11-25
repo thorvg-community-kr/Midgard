@@ -51,6 +51,8 @@ export enum CombatCue {
   BroodBreak,
   /** A raid wave is on its way. `amount` is its size; `position` is where it comes from. */
   Wave,
+  /** A breached dungeon summons its guardian and defenders at its mouth. */
+  SiegeHorde,
 }
 export interface CombatEvent {
   serial: bigint;

@@ -1,6 +1,4 @@
 import { isRanchHarvest, leadLivestock, livestockKind, localRanches, orderRanchHarvest, workWithLivestock } from '../../../../packages/engine/src/livestock';
-import { DungeonKind } from '../../../../packages/engine/src/world-types';
-import { openExpedition } from './expedition-window';
 // Direct translation of native game_commands.cpp.
 import type { GameInputApp } from './game-input';
 import { Tool, Order } from '../../../../packages/engine/src/game-tools';
@@ -235,16 +233,11 @@ export function issueOrder(this: GameCommandApp, order: Order): void {
     if (order === Order.Attack && !struck) this.town.orderAttackMove(ids, this.cursor);
     else if (order === Order.Attack) this.town.orderAttackPerson(ids, personTarget.id);
     else this.town.orderMove(ids, personTarget.position);
-  } else if (order === Order.Work && hit?.kind === 'dungeon') {
-    if (this.town.map().dungeons()[hit.id]?.kind === DungeonKind.Return) {
-      // Walking up to the way home gathers the party; leaving is the explicit Go home.
-      const plan = this.town.realmPlan();
-      if (plan) this.town.orderMove(ids, plan.entry);
+  } else if (hit?.kind === 'dungeon' && struck) {
+    if (!this.town.orderAttackDungeon(ids, hit.id)) {
+      this.status = 'No path to the dungeon';
       return;
     }
-    // A gate is entered only through the expedition window; the selection comes in already chosen.
-    if (!openExpedition(this, hit.id, ids)) this.town.orderMove(ids, this.cursor);
-    return;
   } else if (order === Order.Work && place && isPlayerBuilding(place) && place.built() && isCraftStation(place.kind)) {
     // A crafting station opens its recipes; it picks who gets an item itself, so the selection is not bound to it.
     openStation(this, place);

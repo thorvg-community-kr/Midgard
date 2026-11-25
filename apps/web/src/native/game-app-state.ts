@@ -18,9 +18,6 @@ import { GuideState } from './game-guide';
 import type { WorldObjectRef } from './world-targets';
 import type { PrayerDialog } from './game-prayer';
 import type { ResidentArrival } from './resident-arrival';
-import type { ExpeditionWindow } from './expedition-window';
-import type { ExpeditionResultWindow } from './expedition-result';
-import { StagingState } from './expedition-staging';
 import type {
   WorldHit,
   SelectionGeometry,
@@ -105,9 +102,6 @@ export class GameAppState {
   paused = false;
   prayer: PrayerDialog | null = null;
   residentArrival: ResidentArrival | null = null;
-  expedition: ExpeditionWindow | null = null;
-  /** The result screen at the end of an expedition. */
-  expeditionResult: ExpeditionResultWindow | null = null;
   card = -1;
   globalCard = -1;
   drawerOpen = false;
@@ -154,6 +148,8 @@ export class GameAppState {
   hudPointer = false;
   selected = -1;
   selectedDungeon = -1;
+  /** Residents selected immediately before inspecting this dungeon. */
+  dungeonAttackers: number[] = [];
   selectedTree = -1;
   selectedRock = -1;
   selectedAnimal = -1;
@@ -187,10 +183,6 @@ export class GameAppState {
   questBranch = GoalBranch.Trade;
   sagaDismissed = false;
   realmCollapsed = false;
-  realmSeen = 0;
-  realmGateSeen = -1;
-  /** Floor the next party sent to each gate will enter. */
-  gateFloor = new Map<number, number>();
   questsInitialized = false;
   questsAnimating = false;
   questsSeen = 0;
@@ -222,8 +214,6 @@ export class GameAppState {
   army = new ArmyState();
   /** First-time moments: what was told, the card on screen and the guide log. */
   guide = new GuideState();
-  /** The held moments when a party member falls beyond a gate. */
-  staging = new StagingState();
   constructor(
     public town: Town,
     public renderer: WorldRenderer,

@@ -1,22 +1,19 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { Town } from '../../packages/engine/src/town';
-import { WorldMap, worldName } from '../../packages/engine/src/world-map';
+import { WorldMap } from '../../packages/engine/src/world-map';
 import { DungeonKind, Layer, Terrain, makeTile, type Dungeon } from '../../packages/engine/src/world-types';
 import { Activity, AnimalKind, Calling, Monster, Person, Race, Role } from '../../packages/engine/src/person';
 import { Building } from '../../packages/engine/src/town-models';
 import { Resources, Structure } from '../../packages/engine/src/building-catalog';
-import { add, distance, point, type Point } from '../../packages/engine/src/geometry';
+import { distance, point, type Point } from '../../packages/engine/src/geometry';
 import { CombatCue, MonsterRank, combatRules } from '../../packages/engine/src/combat-events';
 import { Boon, boon, boonOfWorld } from '../../packages/engine/src/gate-boons';
-import { sealFloors, sealable } from '../../packages/engine/src/gate-seals';
-import { breedOf, lairOf, monsterBite, monsterEntrance } from '../../packages/engine/src/town-monsters';
+import { sealFloors } from '../../packages/engine/src/gate-seals';
+import { breedOf, monsterBite } from '../../packages/engine/src/town-monsters';
 import { RaidKind } from '../../packages/engine/src/raid-progression';
 import { canControl, controlReason } from '../../packages/engine/src/faction';
-import { rankRules } from '../../packages/engine/src/monster-ranks';
 import { animalSpec } from '../../packages/engine/src/wildlife';
 import { skillPower } from '../../packages/engine/src/skill-catalog';
-import { realmRules } from '../../packages/engine/src/town-realm';
-import { decodeTown, encodeTown } from '../../packages/engine/src/save-game';
 
 function fixture() {
   const map = new WorldMap();
@@ -504,163 +501,4 @@ describe('world boons', () => {
     expect(hunt(false)).toBe(animalSpec(AnimalKind.Cow).food);
     expect(hunt(true)).toBe(Math.round(animalSpec(AnimalKind.Cow).food * 1.25));
   });
-});
-
-describe('beyond a gate', () => {
-  let base: WorldMap;
-  beforeAll(() => {
-    base = WorldMap.generate(5);
-  }, 120000);
-  function expedition(callings: Calling[], level: number, floor = 0) {
-    const town = new Town(base, 176, false),
-      camp = new Building(0, Structure.Camp, town.map().camp(), 0, 0);
-    camp.village = 0;
-    town.placed.push(camp);
-    town.nextId = 1;
-    town.foundSettlement(0);
-    const gate = town
-      .map()
-      .dungeons()
-      .map((site, index) => ({ site, index }))
-      .filter((g) => sealable(g.site))
-      .sort((a, b) => distance(lairOf(a.site), camp.center) - distance(lairOf(b.site), camp.center))[0].index;
-    town.map().dungeons()[gate].discovered = true;
-    town.depth = town.map().dungeons().map((_, index) => (index === gate ? floor : 0));
-    const members = callings.map((calling) => {
-      const p = town.makePerson(Role.Resident, calling, monsterEntrance(town.map().dungeons()[gate]));
-      town.folk.push(p);
-      p.level = level;
-      p.activity = Activity.Expedition;
-      p.inside = true;
-      return p;
-    });
-    town.parties.push({ dungeon: gate, members: members.map((p) => p.id), floor });
-    town.advance(0.1);
-    return { town, gate, members };
-  }
-  it('ranks the floor: brutes in the larger dens, stalkers deeper down, a guardian in the heart', () => {
-    const { town } = expedition([Calling.Warrior, Calling.Ranger], 6),
-      foes = town.realmFoes();
-    expect(town.chronicle).toMatchObject({ partiesLed: 1, largestParty: 2 });
-    for (const foe of foes) expect(foe.vigor).toBe(foe.health);
-    expect(foes.find((foe) => foe.id === town.realmGuardian)!.rank).toBe(MonsterRank.Guardian);
-    expect(foes.some((foe) => foe.rank === MonsterRank.Brute)).toBe(true);
-    const brute = foes.find((foe) => foe.rank === MonsterRank.Brute)!,
-      grunt = foes.find((foe) => foe.rank === MonsterRank.Grunt)!;
-    expect(brute.health).toBeCloseTo(grunt.health * rankRules.bruteHealth, 3);
-    const deeper = expedition([Calling.Warrior], 6, 1).town.realmFoes();
-    expect(deeper.some((foe) => foe.rank === MonsterRank.Stalker)).toBe(true);
-  }, 120000);
-  it('telegraphs the guardian slam, lands it on whoever stays and spares whoever walks out', () => {
-    const { town, members } = expedition([Calling.Warrior, Calling.Warrior], 20),
-      [stay, leave] = members,
-      guardian = town.realmFoes().find((foe) => foe.id === town.realmGuardian)!;
-    town.beasts = town.beasts.filter((beast) => beast === guardian || !town.inRealm(beast.home));
-    town.realmPatrol = [];
-    for (const p of members) p.position = town.grid.nearestWalkable(add(guardian.position, point(0.8, 0)));
-    guardian.angry = true;
-    for (let i = 0; i < 100 && guardian.windupUntil < 0; ++i) town.advance(0.1);
-    expect(guardian.windupUntil).toBeGreaterThan(town.clock());
-    expect(cues(town, CombatCue.Telegraph).at(-1)).toMatchObject({ creature: guardian.id, radius: rankRules.slamRadius, duration: rankRules.firstSlamWindup });
-    const center = cues(town, CombatCue.Telegraph).at(-1)!.position;
-    const exits = [point(4, 0), point(-4, 0), point(0, 4), point(0, -4)]
-      .map((offset) => add(center, offset))
-      .filter((at) => town.grid.walkable(at) && town.grid.clear(leave.position, at, Infinity))
-      .sort((a, b) => distance(a, leave.position) - distance(b, leave.position));
-    expect(exits.length).toBeGreaterThan(0);
-    town.orderMove([leave.id], exits[0]);
-    town.orderMove([stay.id], stay.position);
-    const before = { stay: stay.health, leave: leave.health };
-    const since = town.clock();
-    town.advance(1);
-    expect(town.hits().filter((hit) => hit.onPerson && hit.at > since)).toHaveLength(0);
-    town.advance(rankRules.firstSlamWindup - 1.1);
-    expect(cues(town, CombatCue.Telegraph).at(-1)?.creature).toBe(guardian.id);
-    for (let i = 0; i < 30 && guardian.windupUntil >= 0; ++i) town.advance(0.1);
-    expect(cues(town, CombatCue.Slam)).toHaveLength(1);
-    expect(distance(leave.position, center)).toBeGreaterThan(rankRules.slamRadius);
-    expect(leave.health).toBeGreaterThanOrEqual(before.leave);
-    expect(stay.health).toBeLessThan(before.stay - 0.05);
-  }, 120000);
-  it('lets an Aimed Shot break the wind-up, and enrages once below half health', () => {
-    const { town, members } = expedition([Calling.Ranger], 20),
-      [ranger] = members,
-      guardian = town.realmFoes().find((foe) => foe.id === town.realmGuardian)!;
-    equip(ranger, 'weapon', 'bow');
-    town.beasts = town.beasts.filter((beast) => beast === guardian || !town.inRealm(beast.home));
-    town.realmPatrol = [];
-    ranger.position = town.grid.nearestWalkable(add(guardian.position, point(1.5, 0)));
-    guardian.angry = true;
-    town.setAbilityAuto([ranger.id], false);
-    for (let i = 0; i < 100 && guardian.windupUntil < 0; ++i) town.advance(0.1);
-    expect(guardian.windupUntil).toBeGreaterThan(0);
-    expect(town.useAbility([ranger.id])).toBe(1);
-    expect(guardian.windupUntil).toBe(-1);
-    town.advance(2.5);
-    expect(cues(town, CombatCue.Slam)).toHaveLength(0);
-    guardian.health = town.guardianVigor() * 0.4;
-    town.advance(0.2);
-    town.advance(0.2);
-    expect(cues(town, CombatCue.Enrage)).toHaveLength(1);
-    const brood = town.realmFoes().filter((foe) => foe !== guardian);
-    expect(brood.length).toBeGreaterThan(0);
-    for (const foe of brood) expect(foe.vigor).toBeGreaterThan(0);
-  }, 120000);
-  it('casts the party out gravely wounded when the last one falls, and the spoils are lost', () => {
-    const { town, gate, members } = expedition([Calling.Settler, Calling.Settler], 1);
-    town.realmLoot.gold = 50;
-    for (const p of members) town.strikeDown(p, 'Killed by monsters');
-    town.advance(0.1);
-    // The gate holds the fallen party for a beat before it casts them out.
-    expect(town.realmActive()).toBe(true);
-    town.advance(realmRules.castOutDelay + 0.1);
-    expect(town.realmActive()).toBe(false);
-    for (const p of members) {
-      expect(p).toMatchObject({ downedAt: -1, woundDays: 4 });
-      expect(p.health).toBeCloseTo(0.1, 1);
-      expect(town.inRealm(p.position)).toBe(false);
-      expect(distance(p.position, monsterEntrance(town.map().dungeons()[gate]))).toBeLessThan(4);
-    }
-    expect(town.stock(0).gold).toBe(0);
-    expect(town.notices.some((text) => text.includes('casts the fallen party back out'))).toBe(true);
-    expect(town.fallen).toHaveLength(0);
-  }, 120000);
-  it('leaves behind the downed nobody stands beside, and warns before it does', () => {
-    const { town, gate, members } = expedition([Calling.Warrior, Calling.Warrior, Calling.Warrior], 5),
-      [walker, carried, lost] = members,
-      plan = town.realmPlan()!;
-    walker.position = { ...plan.entry };
-    carried.position = town.grid.nearestWalkable(add(plan.entry, point(1, 0)));
-    lost.position = { ...plan.chambers.at(-1)!.center };
-    town.strikeDown(carried, 'Killed by monsters');
-    town.strikeDown(lost, 'Killed by monsters');
-    expect(town.realmLeftBehind()).toEqual([lost]);
-    const leave = town.canLeaveRealm();
-    expect(leave.ok).toBe(true);
-    expect(leave.reason).toContain(`${lost.name} would be left behind to die`);
-    expect(town.leaveRealm()).toBe(true);
-    const world = worldName(town.map().destination(town.map().dungeons()[gate]));
-    expect(town.fallen.map((record) => [record.id, record.place])).toEqual([[lost.id, world]]);
-    expect(carried.downedAt).toBeGreaterThanOrEqual(0);
-    expect(carried.activity).toBe(Activity.Downed);
-    expect(town.inRealm(carried.position)).toBe(false);
-    town.advance(0.1);
-    expect(town.person(lost.id)).toBeNull();
-  }, 120000);
-  it('keeps the patrol and the brood call across a save', () => {
-    const { town } = expedition([Calling.Warrior, Calling.Warrior], 10);
-    expect(town.realmPatrol.length).toBeGreaterThan(0);
-    town.realmBroodCalled = true;
-    const loaded = decodeTown(encodeTown(town), (map) => new Town(map, 176, false, true));
-    expect(loaded.realmPatrol).toEqual(town.realmPatrol);
-    expect(loaded.realmPatrolAt).toBe(town.realmPatrolAt);
-    expect(loaded.realmBroodCalled).toBe(true);
-    const homes = () =>
-      loaded.realmPatrol.map((id) => loaded.monsters().find((beast) => beast.id === id)?.home).filter(Boolean);
-    expect(homes()).toHaveLength(loaded.realmPatrol.length);
-    loaded.time = loaded.realmPatrolAt;
-    for (let i = 0; i < 5; ++i) loaded.advance(0.1);
-    expect(loaded.realmPatrolAt).toBeGreaterThan(town.realmPatrolAt);
-    expect(loaded.realmActive()).toBe(true);
-  }, 120000);
 });

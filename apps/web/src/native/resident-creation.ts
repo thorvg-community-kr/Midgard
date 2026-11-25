@@ -16,7 +16,7 @@ import {
   portraitBackground,
 } from '../../../../packages/native-renderer/src/portrait-background';
 import { PersonParts, personSprite } from '../../../../packages/native-renderer/src/world-sprites';
-import { portrait } from './expedition-window';
+import { portrait } from './resident-portrait';
 import type { GameAppState } from './game-app-state';
 import { hudPaint } from './hud-paint';
 import {

@@ -87,6 +87,7 @@ interface Run {
   /** Residents and altar cap when the first party set out. */
   peopleAtSend: number;
   capAtSend: number;
+  strikeLevels: number[];
   /** The day the first road was ordered, and the tiles of road laid by the third day and by the end. */
   roadDay: number;
   roadEarly: number;
@@ -113,7 +114,7 @@ function play(world: number, seed: number, days: number, stopAfterExpedition = t
   town.titleShowcase = true;
   const run: Run = {
     seed, world, days: 0, coreDay: -1, population: 0, cap: 0, fighters: [], raids: 0, sentDay: -1, endedDay: -1,
-    cleared: 0, withdrew: 0, fallenAtHome: 0, fallenBeyond: 0, calls, badFrames, refusedTwice: [], digest: '', ms: 0, core: '', peopleAtSend: 0, capAtSend: 0,
+    cleared: 0, withdrew: 0, fallenAtHome: 0, fallenBeyond: 0, calls, badFrames, refusedTwice: [], digest: '', ms: 0, core: '', peopleAtSend: 0, capAtSend: 0, strikeLevels: [],
     roadDay: -1, roadEarly: -1, road: 0, doors: 0, joined: 0, quickReturns: 0, watched: 0,
   };
   const started = performance.now(),
@@ -175,6 +176,7 @@ function play(world: number, seed: number, days: number, stopAfterExpedition = t
       run.sentDay = day;
       run.peopleAtSend = town.population();
       run.capAtSend = altarCap(town);
+      run.strikeLevels = player.party.members.map(id => town.person(id)!.level);
     }
     if (run.endedDay < 0 && player.party.cleared + player.party.withdrew > 0) run.endedDay = day;
     if (stopAfterExpedition && run.endedDay >= 0 && day > run.endedDay + 0.5) break;
@@ -252,10 +254,12 @@ describe('the title player', () => {
     // What is left is the town's own doing: everyone near a new site lends a hand for a moment.
     for (const r of runs) expect(r.quickReturns, `world ${r.world} seed ${r.seed}`).toBeLessThanOrEqual(12);
   });
-  it('sends a party the forecast calls ready, which clears its floor or comes home alive', () => {
+  it('leads ten trained settlers against the first dungeon and returns alive', () => {
     for (const r of runs) {
       expect(r.sentDay, `world ${r.world} seed ${r.seed}`).toBeGreaterThan(0);
       expect(r.endedDay).toBeGreaterThan(r.sentDay);
+      expect(r.strikeLevels).toHaveLength(10);
+      expect(r.strikeLevels.reduce((sum, n) => sum + n, 0) / 10).toBeGreaterThanOrEqual(9);
       expect(r.cleared + r.withdrew).toBeGreaterThan(0);
       expect(r.fallenBeyond).toBe(0);
     }

@@ -190,7 +190,7 @@ interface UnlockRule {
   remembrance: boolean;
 }
 const raidBeaten: [DeedKey, number, string] = ['raidsRepelled', 1, 'Beat off a raid'],
-  floorCleared: [DeedKey, number, string] = ['floors', 1, 'Clear a floor beyond a gate'],
+  floorCleared: [DeedKey, number, string] = ['floors', 1, 'Seal a dungeon'],
   gateSealed: [DeedKey, number, string] = ['seals', 1, 'Seal a gate'];
 function unlockRule(kind: Structure): UnlockRule {
   const rule: UnlockRule = { after: [Structure.Camp], deeds: [], population: 0, road: false, remembrance: false };
@@ -303,7 +303,7 @@ export function unlockRequirements(town: Town, kind: Structure): UnlockRequireme
   for (const [deed, count, text] of rule.deeds) out.push({ text, done: deedCount(town, deed) >= count });
   if (rule.road) out.push({ text: 'Complete a road', done: roadDone(town), road: true });
   if (rule.remembrance)
-    out.push({ text: 'Slay a floor guardian', done: deedCount(town, 'guardiansSlain') >= 1 || town.fallen.length > 0 });
+    out.push({ text: 'Slay a dungeon guardian', done: deedCount(town, 'guardiansSlain') >= 1 || town.fallen.length > 0 });
   const cost = structureSpec(kind).cost;
   if (cost.planks) facility(Structure.Sawmill);
   if (cost.cutStone) facility(Structure.Stoneworks);
@@ -331,6 +331,7 @@ export function toolNeeds(town: Town, tool: Tool): UnlockRequirement[] {
   return [];
 }
 export function toolAvailable(town: Town, tool: Tool): boolean {
+  if (tool < Tool.Select || tool >= Tool.Count) return false;
   const kind = toolStructure(tool);
   if (kind !== undefined) return buildingUnlock(town, kind).available;
   return toolNeeds(town, tool).every((need) => need.done);

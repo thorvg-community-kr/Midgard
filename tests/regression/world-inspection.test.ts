@@ -79,7 +79,7 @@ describe('presented world inspection', () => {
     const { app, geometry } = fixture();
     expect(hoveredTarget(app)).toEqual({ kind: 'monster', id: 6 });
     const target = worldTarget(app, { kind: 'monster', id: 6 })!;
-    expect(target).toMatchObject({ name: 'Monster', key: 'monster:6' });
+    expect(target).toMatchObject({ name: 'Monster · Level 1', key: 'monster:6' });
     expect(target.geometry).toBe(geometry.get('monster:6'));
     expect(target.bounds).toBe(target.geometry.bounds);
     expect(app.renderer.pick).not.toHaveBeenCalled();

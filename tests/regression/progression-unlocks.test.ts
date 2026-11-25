@@ -33,8 +33,8 @@ import {
 
 const added = [Structure.Watchtower, Structure.TrainingYard, Structure.Runestone];
 
-function settlement() {
-  const town = new Town(5, 32, false),
+function settlement(width = 32) {
+  const town = new Town(5, width, false),
     camp = new Building(0, Structure.Camp, town.map().camp(), 0, 0);
   camp.village = 0;
   town.placed.push(camp);
@@ -108,6 +108,17 @@ describe('new buildings', () => {
           expect(Math.abs(block.wallShade[i] - (lit * 0.68 + [46, 44, 84][i] * 0.32))).toBeLessThanOrEqual(1),
         );
     }
+  });
+  it('rejects retired wall tools and building commands', () => {
+    const { town, camp } = settlement();
+    for (const tool of [35, 36]) {
+      expect(toolAvailable(town, tool)).toBe(false);
+      expect(toolStructure(tool)).toBeUndefined();
+    }
+    for (const kind of [41, 42]) {
+      expect(town.place(kind, camp.center, 0)).toBe(false);
+    }
+    expect(town.placed).toEqual([camp]);
   });
   it('place, build and survive a save', () => {
     const { town, camp } = settlement();
@@ -269,7 +280,7 @@ describe('unlocks by deeds', () => {
     for (const kind of [Structure.Sawmill, Structure.Stoneworks]) facility(town, kind);
     const smith = facility(town, Structure.Weaponsmith);
     smith.variant = levelVariant(2);
-    expect(town.stationNeeds(smith.id).find((r) => !r.done)?.text).toBe('Clear a floor beyond a gate');
+    expect(town.stationNeeds(smith.id).find((r) => !r.done)?.text).toBe('Seal a dungeon');
     town.depth = town.map().dungeons().map((_, i) => (i === gate ? 1 : 0));
     expect(town.stationNeeds(smith.id).every((r) => r.done)).toBe(true);
     // The armorer is no longer built.
@@ -277,7 +288,7 @@ describe('unlocks by deeds', () => {
   });
   it('offers the runestone once there is a deed or a loss to remember, and the apothecary after the altar', () => {
     const { town } = settlement();
-    expect(buildingUnlock(town, Structure.Runestone).reason).toBe('Slay a floor guardian');
+    expect(buildingUnlock(town, Structure.Runestone).reason).toBe('Slay a dungeon guardian');
     town.chronicle.guardiansSlain = 1;
     expect(toolAvailable(town, Tool.Runestone)).toBe(true);
     town.chronicle.guardiansSlain = 0;
@@ -442,7 +453,8 @@ describe('quests that follow the combat loop', () => {
   }
   it('advances each branch in order and reports progress for every goal', () => {
     for (const branch of [GoalBranch.Core, GoalBranch.Trade, GoalBranch.Arms, GoalBranch.Faith, GoalBranch.Saga]) {
-      const { town } = settlement(),
+      // Saga awards the first seal and the last seal as separate goals.
+      const { town } = settlement(48),
         // The fixture already stands on a founded camp.
         chain = goals.filter((goal) => goal.branch === branch && goal.building !== Structure.Camp),
         seen: string[] = [];
@@ -604,7 +616,7 @@ describe('quests that follow the combat loop', () => {
     ]);
     expect(titles(GoalBranch.Saga)).toEqual([
       'Lead a party of three',
-      'Slay a floor guardian',
+      'Slay a dungeon guardian',
       'Revive a downed ally',
       'Raise a runestone',
       'Seal a gate',

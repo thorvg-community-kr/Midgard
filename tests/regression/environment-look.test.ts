@@ -253,14 +253,14 @@ describe('gates', () => {
         expect(drawn.bottom).toBeLessThanOrEqual(bounds.y + bounds.h);
       }
   });
-  it('shuts a sealed gate for good: a slab and rune, no pulse and no light', () => {
+  it('leaves a low, marked ruin at a sealed dungeon', () => {
     for (const kind of [DungeonKind.Cave, DungeonKind.Crypt, DungeonKind.Portal, DungeonKind.Ruin]) {
       const open = draw(kind, World.Helheim, false),
         sealed = draw(kind, World.Helheim, true),
         dormant = draw(kind, World.Helheim, false, true);
       expect(dormant.pulse).toBeNull();
       expect(dormant.lights.children).toHaveLength(0);
-      expect(dormant.objects.children).toHaveLength(sealed.objects.children.length - 1);
+      expect(gateBounds(sealed.objects)!.h).toBeLessThan(gateBounds(dormant.objects)!.h);
       expect(sealed.pulse, DungeonKind[kind]).toBeNull();
       expect(sealed.lights.children.length).toBe(0);
       expect(

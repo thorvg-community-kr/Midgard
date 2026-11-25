@@ -3,7 +3,7 @@ import type { Phrases } from '../phrases';
 /** The end of an expedition: the held moments when the party falls and the result screen. */
 export const expeditionResultPhrases: Phrases = {
   '{0} and {1} have died': '{0}, {1}이(가) 세상을 떠났습니다',
-  '{0} residents have died': '주민 {0}명이 세상을 떠났습니다',
+  '{0} residents have died': '정착민 {0}명이 세상을 떠났습니다',
   'No one is left standing. The gate casts the party out.':
     '서 있는 사람이 아무도 없습니다. 관문이 파티를 밖으로 내던집니다.',
   'No one is left alive beyond the gate.': '관문 너머에 살아남은 사람이 없습니다.',

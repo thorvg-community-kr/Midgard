@@ -14,7 +14,7 @@ export const gateCenter = (site: Dungeon): Point => point(site.origin.x + 1, sit
 const awaitingRaid = 2, lead = 4, flank = 8;
 export function gateActive(town: TownState, gate: number): boolean {
   const site = town.world.dungeons()[gate];
-  return !!site && sealable(site) && !gateSealed(town, gate) && (town.opened(gate) ||
+  return !!site && sealable(site) && town.sieges[gate]?.health !== 0 && !gateSealed(town, gate) && (town.opened(gate) ||
     (town.depth[gate] ?? 0) > 0 || town.realmGate === gate ||
     town.parties.some(party => party.dungeon === gate && party.members.length > 0));
 }

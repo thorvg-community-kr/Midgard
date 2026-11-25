@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'vite';
 import { chromium } from '@playwright/test';
 
-// Screenshots of the land, water, gates and the worlds beyond them; ENVIRONMENT_OUT overrides the folder.
+// Screenshots of the land, water and dungeons; ENVIRONMENT_OUT overrides the folder.
 const output = process.env.ENVIRONMENT_OUT ?? 'artifacts/regression/environment';
 const only = (process.env.ENVIRONMENT_ONLY ?? '').split(',').filter(Boolean);
 const wanted = (group) => !only.length || only.includes(group);
@@ -85,7 +85,6 @@ try {
       town = new Town(5);
     await loadNativeFonts(tvg);
     // The world renderer alone, without the HUD, so the pictures show only the land.
-    let seen = town.realmRevision;
     const game = {
         renderer,
         town,
@@ -96,10 +95,6 @@ try {
         ghostList: hiddenUnitGhosts,
         render(width, height, seconds, simulate, dt) {
           if (simulate) town.advance(dt);
-          if (seen !== town.realmRevision) {
-            seen = town.realmRevision;
-            renderer.invalidateMap();
-          }
           // The pictures judge the land itself: the mist is lifted unless a shot asks for fog.
           renderer.mistLifted = !this.fogged;
           const preview = new Preview();
@@ -522,39 +517,6 @@ try {
         town.depth[index] = sealed ? 3 : 0;
         town.changes++;
       },
-      enter(gate) {
-        const site = map.dungeons()[gate];
-        const party = town.folk.filter((p) => p.role === Role.Resident).slice(0, 3);
-        while (party.length < 3) {
-          const p = town.makePerson(Role.Resident, Calling.Warrior, monsterEntrance(site));
-          town.folk.push(p);
-          party.push(p);
-        }
-        for (const p of party) {
-          p.level = 22;
-          p.position = { ...monsterEntrance(site) };
-          p.activity = Activity.Expedition;
-          p.inside = true;
-          p.food = p.rest = p.hydration = 1;
-        }
-        town.parties.push({ dungeon: gate, members: party.map((p) => p.id), floor: 0 });
-        for (let i = 0; i < 8 && !town.realmActive(); ++i) this.live(0.2);
-        return town.realmActive();
-      },
-      realm() {
-        const area = town.realmArea,
-          plan = town.realmPlan();
-        return area && plan
-          ? { area, entry: plan.entry, heart: plan.chambers.find((c) => c.kind === 2).center }
-          : null;
-      },
-      leave() {
-        town.realmCleared = true;
-        for (const p of town.realmParty()) p.activity = Activity.Idle;
-        const left = town.leaveRealm();
-        this.frame();
-        return left;
-      },
       // Per-frame milliseconds (median) with every frame a water update, so the figure is the worst case.
       measure(frames, still) {
         game.renderer.reducedMotion = still;
@@ -589,6 +551,9 @@ try {
     },
     arg: { p, zoom, weather },
   });
+  if (wanted('founding-shore')) {
+    await shot('founding-shore', at({ x: places.camp.x + 2, y: places.camp.y + 2 }, 0.56));
+  }
   if (wanted('land')) {
     await shot('midgard-day', at(places.camp, 1.6));
     await shot('midgard-wide', at(places.camp, 0.8));
@@ -663,34 +628,6 @@ try {
       envProbe.seal(4, false);
     });
   }
-  if (wanted('worlds')) {
-    const names = [
-      'jotunheim',
-      'helheim',
-      'niflheim',
-      'muspelheim',
-      'asgard',
-      'alfheim',
-      'vanaheim',
-      'svartalfheim',
-    ];
-    for (let gate = 0; gate < 8; ++gate) {
-      const entered = await page.evaluate((gate) => envProbe.enter(gate), gate);
-      assert(entered, `The party enters gate ${gate}`);
-      const realm = await page.evaluate(() => envProbe.realm());
-      await shot(`world-${names[gate]}-island`, {
-        fn: (r) => {
-          envProbe.weather({});
-          envProbe.game.town.scout(r.area.x + r.area.size / 2, r.area.y + r.area.size / 2, r.area.size);
-          envProbe.look(r.area.x + r.area.size / 2, r.area.y + r.area.size / 2, 0.62);
-        },
-        arg: realm,
-      });
-      await shot(`world-${names[gate]}-entry`, at(realm.entry, 1.7));
-      await shot(`world-${names[gate]}-heart`, at(realm.heart, 1.4));
-      assert(await page.evaluate(() => envProbe.leave()), `The party leaves gate ${gate}`);
-    }
-  }
   if (wanted('trees')) {
     // The same cameras before and after a change to the trees: TREES_PREFIX names the set.
     const prefix = process.env.TREES_PREFIX ?? 'after',
@@ -726,11 +663,6 @@ try {
     const fall = await page.evaluate((cell) => envProbe.chop(cell, 'fall'), forest.cell);
     assert.equal(fall, 'fall', 'The tree falls');
     await treeShot('fallen', { fn: () => {}, arg: null });
-    const entered = await page.evaluate(() => envProbe.enter(5));
-    assert(entered, 'The party enters Alfheim');
-    const realm = await page.evaluate(() => envProbe.realm());
-    await treeShot('world-alfheim', at(realm.entry, 1.2));
-    assert(await page.evaluate(() => envProbe.leave()), 'The party leaves Alfheim');
   }
   if (wanted('mountains')) {
     const prefix = process.env.MOUNTAINS_PREFIX ?? 'after',
@@ -982,28 +914,6 @@ try {
       await measure(`no lava, ${when}`, places.camp, 1, hour);
       await measure(`a little lava, ${when}`, { x: v.x - 12, y: v.y + 14 }, 1, hour);
       await measure(`volcano, ${when}`, v, 0.55, hour);
-    }
-    const entered = await page.evaluate(() => envProbe.enter(3));
-    assert(entered, 'The party enters Muspelheim');
-    const realm = await page.evaluate(() => envProbe.realm()),
-      middle = { x: realm.area.x + realm.area.size / 2, y: realm.area.y + realm.area.size / 2 },
-      grid = [];
-    // Residents all over the island: every lane in sight, the worst case for cost.
-    for (let y = realm.area.y + 4; y < realm.area.y + realm.area.size; y += 8)
-      for (let x = realm.area.x + 4; x < realm.area.x + realm.area.size; x += 8) grid.push({ x, y });
-    await page.evaluate((points) => envProbe.stand(points), grid);
-    await page.evaluate(
-      (r) => envProbe.game.town.scout(r.area.x + r.area.size / 2, r.area.y + r.area.size / 2, r.area.size),
-      realm,
-    );
-    for (const [hour, name] of [
-      [11, 'day'],
-      [23, 'night'],
-    ]) {
-      await shot(`lava-muspelheim-${name}`, at(middle, 0.62, { hour }));
-      await shot(`lava-muspelheim-lane-${name}`, at(realm.heart, 1.2, { hour }));
-      await measure(`Muspelheim zoom 1, ${name}`, middle, 1, hour);
-      await measure(`Muspelheim zoom 0.45, ${name}`, middle, 0.45, hour);
     }
     report.lavaCost = lavaCost;
     console.log('lava frame cost (ms)', JSON.stringify(lavaCost));

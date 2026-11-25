@@ -369,7 +369,7 @@ function aiming(kind?: WorldObjectKind, id = 0) {
   return { app, town, marks, plates };
 }
 it.each([
-  ['monster', 11, 'Monster'],
+  ['monster', 11, 'Monster · Level 1'],
   ['animal', 10, 'Cow'],
   ['person', 2, 'Stranger'],
 ] as const)('an aimed attack marks the %s under the cursor as a hovered unit, beside the selection', (kind, id, name) => {

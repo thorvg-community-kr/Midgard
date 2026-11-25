@@ -1,6 +1,5 @@
 // Input and placement are translated from game_app.cpp; pixel thresholds are native values.
 import { GameAppState, Plan } from './game-app-state';
-import { openExpedition } from './expedition-window';
 import { Town } from '../../../../packages/engine/src/town';
 import {
   Tool,
@@ -416,7 +415,10 @@ export function cancelPointer(this: GameInputApp): void {
   this.context.setPointerPosition(-1, -1);
   this.context.cancelPointer();
 }
-function dropSelection(app: GameInputApp): void {
+function dropSelection(app: GameInputApp, target: WorldObjectRef | null): void {
+  if (target?.kind !== 'dungeon') app.dungeonAttackers = [];
+  else if (app.chosen.length || app.selectedDungeon !== target.id)
+    app.dungeonAttackers = [...app.chosen];
   rememberCrew(app, app.chosen);
   app.chosen = [];
   app.selectedObjects = [];
@@ -448,12 +450,12 @@ export function selectObject(this: GameInputApp, ref: WorldObjectRef): void {
     return;
   }
   this.selectTool(Tool.Select);
-  dropSelection(this);
+  dropSelection(this, ref);
   takeObject(this, ref);
 }
 export function select(this: GameInputApp): void {
-  dropSelection(this);
   const target = hoveredTarget(this as unknown as import('./game-commands').GameCommandApp);
+  dropSelection(this, target);
   if (!target) return;
   if (target.kind === 'person') {
     // A second click on the same resident soon after takes every one of their calling on screen.
@@ -628,10 +630,7 @@ export function pointerUp(this: GameInputApp, x: number, y: number, button: Poin
           -1;
       return;
     }
-    const before = [...this.chosen];
     this.select();
-    // A gate opens the expedition window, with whoever was selected already chosen.
-    if (this.selectedDungeon >= 0 && openExpedition(this, this.selectedDungeon, before)) this.chosen = [];
     return;
   }
   if (this.fieldFrom) {

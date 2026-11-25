@@ -1,3 +1,4 @@
+import { dungeonAttackProblem, targetedDungeon } from './dungeon-siege';
 // Explicit resident commands. Absolute order timers remain double precision.
 import { TownState } from './town-state';
 import { Building } from './town-models';
@@ -431,6 +432,11 @@ export function orderRelax(this: OrderTown, ids: number[], id: number): boolean 
 export function resumeOrder(this: OrderTown, p: Person): boolean {
   if (p.stressRecovery || p.faction !== this.controlFaction) return false;
   if (p.task === Activity.Idle) return false;
+  const gate = targetedDungeon(p);
+  if (gate >= 0 && !dungeonAttackProblem(this, gate)) {
+    p.activity = Activity.Fighting;
+    return true;
+  }
   if (p.task === Activity.Herding || isRanchHarvest(p.task)) return true;
   if (p.task === Activity.Tending) {
     this.tend(p);

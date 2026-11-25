@@ -4,7 +4,7 @@
 
 **Two settlers. A wild world. Gates to other worlds.**
 
-A Norse settlement game about building a home, raising a few precious people, and leading them against the swarms beyond the gates.
+A Norse settlement game about building a home, raising a few precious people, and leading them against the dungeons that send swarms to your doors.
 
 **Settlement building · Crafting in the world · Army combat · A living world · Creative tools**
 
@@ -63,31 +63,35 @@ _A day in the prepared town, at about three and a half times the pace of play._
 
 ## Odin's altar
 
-Four food and a free bed welcome a settler at Odin's altar. Lay out the supplies, keep the suggested name and appearance or make your own, then confirm. Each newcomer starts at half the living residents' average level, rounded down, with a minimum of level one. Give them tools and work to gain experience. A guild can later train them for a fighting calling.
+Four food and a free bed welcome a settler at Odin's altar. Lay out the supplies, keep the suggested name and appearance or make your own, then confirm. Each newcomer starts at half the living residents' average level, rounded down, with a minimum of level one. Settlers earn experience through work and fights, up to level 100. Weapon training strengthens their calling’s attributes every ten levels. Apprentices learn faster at work until they reach the recommended level of the strongest dungeon the settlement has sealed. A guild can train them for a fighting calling.
 
-A settler starts with one point randomly assigned to strength or vitality. Every four extra goods on the altar add another point, up to three extra. Food, water, bones, gold and stone all count equally. You can also keep the surplus to welcome more people. Clearing gate floors raises the settlement's resident limit.
+A settler starts with one point randomly assigned to strength or vitality. Every four extra goods on the altar add another point, up to three extra. Food, water, bones, gold and stone all count equally. You can also keep the surplus to welcome more people. Sealing a dungeon makes room for more residents.
 
 ![Goods gather on the altar before a settler joins the settlement](.github/media/midgard-altar.gif)
 
 ## Few against many
 
-Beyond each gate lies another world, three floors deep. Its monsters win by numbers: swarms pour out of dens that keep breeding until they are destroyed, and a guardian holds every floor. Your residents are few and precious. Choose a party and a floor in the gate's expedition window, then lead them through.
+A horseshoe of mountains shelters the founding shore. Its arms turn back toward the sea around the camp and a single hostile cave. Two passes lead inland toward the other dungeons. A giant's coastal dwelling is neutral.
 
-![The expedition window with a party of six chosen for the first floor](.github/media/midgard-expedition.png)
+When a dungeon sends out a raid, the monsters pour from its entrance and march overland. A watchtower fires on raiders within reach.
 
-_The expedition window of a gate, with a staged party of six._
+An unarmed settler can fell any member of the first raid with one blow. Later waves grow in number and level. In open country they spread abreast, then bunch together to pass a gap. Point at a raider to see its level.
+
+Click a dungeon and press **Attack** to send the group you selected. With no group selected, fighters and settlers with an equipped weapon go first. If none can reach the dungeon, other available settlers go.
+
+When the structure loses its last health, the collapse knocks nearby units back. A summoning circle appears at the entrance and a guardian emerges with its horde. Kill the guardian and every member of that horde before the dungeon rises again. A sealed dungeon pays its hoard and stops sending raids.
+
+The standard map has eight hostile dungeons. The first is tuned for ten level-10 fighters with flint weapons. Each following dungeon calls for one more fighter and ten more levels, up to seventeen level-80 fighters at the last dungeon. Later parties can carry iron and regional weapons. Inspect a dungeon to see its recommendation. The party can set out whenever you choose.
+
+![A summoning circle appears around the collapsed Howling Cleft](public/docs/dungeon-siege.png)
 
 Move ignores the enemy, attack-move fights on the way, and a chosen target comes first. A group move arrives in formation, with blades in front and bows and staves behind; Hold stands its ground and never chases. Put residents in control groups and fire each calling's two skills by hand or leave them on auto: a warrior's challenge and whirl, a ranger's aimed shot and volley, a mage's rune burst and frost ring, a cleric's mending and sanctuary, a bard's verse and dirge.
 
 ![A party is ordered to move, marks show where each will stand, and the party holds](.github/media/midgard-formation.gif)
 
-_A move order for the whole party: the marks on the ground show the formation, then the party holds. One and a half times the pace of play; the nearest packs were taken off this floor so the move stays a move._
+_The ground marks show where each fighter will stand after a group move._
 
-![A party fights a swarm round a den with skills until the den is destroyed](.github/media/midgard-army-fight.gif)
-
-_Six residents attack-move on a den beyond a gate; their skills fire on auto until the den falls. Real time; the party is staged, the fight is the game's own._
-
-A resident at the end of their strength is not lost at once: they fall and bleed out unless an ally reaches them and kneels beside them in time. When the party comes home, a result screen tells what was slain, how each member fared and what was won. Seal every gate to win.
+A resident who falls in combat bleeds out unless an ally reaches them and kneels beside them in time. Seal every dungeon to win.
 
 ![A warrior falls and a bard runs to kneel beside them and gets them up](.github/media/midgard-revive.gif)
 
@@ -204,8 +208,7 @@ Every picture above is captured from the actual renderer (see [Rebuilding the RE
 | Skills of the selection        | `Q` / `W` (ground skills: hold to aim, release to cast) |
 | Next calling on the skill card | `Tab` while residents of several callings are selected |
 | Control groups                 | `Ctrl+1-9` make, `Shift+1-9` add, `1-9` select, twice to look |
-| Select the fighters            | `F2` or `` ` `` (beyond a gate, `` ` `` selects the party) |
-| Recall the party beyond a gate | `R`                                                    |
+| Select the fighters            | `F2` or `` ` ``                                         |
 | Build with the selection       | `B`                                                    |
 | Pick a building to place       | Its letter key (any letter not on the command card); `R` rotates |
 | Pan the camera                 | Arrow keys or right-button drag                        |

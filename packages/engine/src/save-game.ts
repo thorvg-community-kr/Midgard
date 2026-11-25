@@ -5,6 +5,8 @@ import { realmPlan } from './town-realm';
 import { markPassage } from './realm-passage';
 import { coverDeposits } from './mining';
 import { preparePassage } from './realm-layout';
+import { migrateSiegeStrength, targetedDungeon, type DungeonSiege } from './dungeon-siege';
+import { gateSealed, sealable } from './gate-seals';
 import { rankRules } from './monster-ranks';
 import {
   SaveArchive,
@@ -41,7 +43,7 @@ import {
   type Dungeon,
   type River,
 } from './world-types';
-import { Building, Field } from './town-models';
+import { Building, Field, walkingObstacles } from './town-models';
 import { Road, RoadNetwork, type RoadAnchor } from './road-network';
 import { Climate, Sky } from './climate';
 import { Resources, Product, Structure, craftMaterialKeys, isSeat, structureSpec, type Stage } from './building-catalog';
@@ -71,6 +73,7 @@ export interface SaveTown extends TownState {
   camp(id?: number): Building | null;
   settlement(id: number): CampEconomy;
   migrateSettlements(): void;
+  retireExpeditions(): void;
   recount(): void;
 }
 export const maxSaveBytes = 96 * 1024 * 1024;
@@ -198,6 +201,11 @@ const roadCodec = record(() => new Road(0, [], []), {
   parentAt: f32,
 });
 const networkCodec = record(() => new RoadNetwork(), { list: vector(roadCodec), nextId: i32 });
+// V25–27 stored a stake bed (later a wooden wall) or stone barricade in these two slots.
+const retiredWallCosts = new Map<number, readonly ['wood' | 'stone', number]>([
+  [41, ['wood', 2]],
+  [42, ['stone', 3]],
+]);
 const buildingCodec = record(
   () => new Building(0, Structure.Camp, point(), 0, 0),
   {
@@ -219,9 +227,6 @@ const buildingCodec = record(
     faith: u8,
     owner: i32,
     health: f32,
-  },
-  (v) => {
-    if (v.kind >= Structure.Count) throw new Error('Invalid building kind');
   },
 );
 const fieldCodec = record(() => new Field(0, []), { id: i32, outline: vector(pointCodec) });
@@ -294,6 +299,10 @@ function monsterFields(a: SaveArchive, v: Monster): void {
   if (a.formatVersion >= 16) {
     a.fields(v, { brood: i32 });
     if (a.reading && v.brood < -1) throw new Error('Invalid monster brood');
+  }
+  if (a.formatVersion >= 26) {
+    a.fields(v, { level: u8 });
+    if (v.level < 1) throw new Error('Invalid monster level');
   }
   if (v.race !== null && v.race >= 3) throw new Error('Invalid creature race');
 }
@@ -578,6 +587,7 @@ const neutralCodec = record(
 );
 function townFields(a: SaveArchive, v: SaveTown): void {
   const legacy = a.reading ? new CampEconomy() : v.settlement(v.camp()?.id ?? -1);
+  const mayContainWalls = a.reading && a.formatVersion >= 25 && a.formatVersion <= 27;
   a.fields(v, {
     world: worldCodec,
     network: networkCodec,
@@ -586,6 +596,9 @@ function townFields(a: SaveArchive, v: SaveTown): void {
     folk: vector(personCodec),
     sky: skyCodec,
   });
+  for (const b of v.placed)
+    if (b.kind >= Structure.Count && !(mayContainWalls && retiredWallCosts.has(b.kind)))
+      throw new Error('Invalid building kind');
   if (a.reading) v.open = new Uint8Array(vector(u8).read(a));
   else vector(u8).write(a, v.open);
   a.fields(v, {
@@ -767,6 +780,27 @@ function townFields(a: SaveArchive, v: SaveTown): void {
         }
       }
     }
+    if (a.formatVersion >= 25) {
+      for (let gate = 0; gate < v.world.sites.length; ++gate) {
+        if (!a.value(boolean, !!v.sieges[gate])) continue;
+        const siege: DungeonSiege = v.sieges[gate] ?? { health: 0, summonAt: -1, reviveAt: -1, guardian: -1, village: -1 };
+        a.fields(siege, { health: f32, summonAt: f64, reviveAt: f64, guardian: i32, village: i32 });
+        if (a.reading) {
+          if (!sealable(v.world.sites[gate]) || gateSealed(v, gate) || siege.guardian < -1 || siege.village < -1 ||
+              ![siege.health, siege.summonAt, siege.reviveAt].every(Number.isFinite) || siege.health < 0 ||
+              (siege.health === 0 && (siege.summonAt < 0 || siege.reviveAt < siege.summonAt)) ||
+              (siege.health > 0 && (siege.summonAt !== -1 || siege.reviveAt !== -1 || siege.guardian !== -1)))
+            throw new Error('Invalid dungeon siege');
+          v.sieges[gate] = siege;
+          if (a.formatVersion < 27) migrateSiegeStrength(v, gate, siege, a.formatVersion);
+          const boss = v.beasts.find(b => b.id === siege.guardian && b.health > 0);
+          if (boss && boss.windupUntil >= 0) {
+            v.emit(CombatCue.Telegraph, boss.position, { creature: boss.id, radius: rankRules.slamRadius, duration: rankRules.slamWindup });
+            v.events[v.events.length - 1].at = boss.windupUntil - rankRules.slamWindup;
+          }
+        }
+      }
+    }
     const extent = a.cursor - start,
       stored = a.value(u32, extent);
     if (a.reading) {
@@ -885,14 +919,57 @@ function townFields(a: SaveArchive, v: SaveTown): void {
       )
         throw new Error('Invalid wildlife habitat');
     if (a.formatVersion < 19) settleOldStations(v);
+    if (mayContainWalls) retireWalls(v);
     releaseFormerWorkers(v);
     for (const b of v.placed) coverDeposits(v.world, b.footprint());
-    const obstacles = v.placed.filter((b) => b.kind !== Structure.Torch).map((b) => b.footprint());
+    const obstacles = walkingObstacles(v.placed);
     v.grid.rebuild(v.world, v.network, obstacles);
+    if (v.realmGate >= 0 || v.parties.length || v.folk.some(p => p.activity === Activity.Expedition || p.activity === Activity.Exploring))
+      v.retireExpeditions();
     v.walkRevision = v.changes = 1n;
     v.roadChanges = 1n;
     v.roadOnlyChanges = 0n;
     v.recount();
+  }
+}
+/** Keep all sections through archive ownership and material decoding, then remove them before rebuilding navigation. */
+function retireWalls(town: SaveTown): void {
+  const retired = new Set<number>();
+  for (const b of town.placed) {
+    const cost = retiredWallCosts.get(b.kind);
+    if (!cost) continue;
+    const [resource, amount] = cost;
+    town.settlement(b.village).stock[resource] += Math.min(amount, b.materials.delivered[resource]);
+    retired.add(b.id);
+  }
+  if (!retired.size) return;
+  town.placed = town.placed.filter(b => !retired.has(b.id));
+  for (const p of town.folk) {
+    const order = p.task === Activity.Building && retired.has(p.taskSite);
+    const supply = !p.supplyRoad && retired.has(p.supplyTarget);
+    if (order) {
+      p.task = Activity.Idle;
+      p.taskSite = -1;
+      p.ordered = p.approachingOrder = p.aggressive = false;
+      p.autoMode = true;
+    }
+    if (supply) p.supplyTarget = -1;
+    // The work order can be suspended while a resident rests, fights or receives care.
+    // A road crew can also be fetching a surplus from a wall. Only that trip ends.
+    const supplying = [Activity.FetchingMaterials, Activity.DeliveringMaterials, Activity.WaitingMaterials].includes(p.activity);
+    const clearingSite = [Activity.Idle, Activity.Moving, Activity.Holding, Activity.Felling, Activity.Mining, Activity.Collecting].includes(p.activity);
+    if ((order && clearingSite) || (p.activity === Activity.Building && retired.has(p.target)) ||
+        (supplying && (order || supply)) || (p.activity === Activity.FetchingMaterials && retired.has(p.target))) {
+      p.activity = Activity.Idle;
+      p.tree = p.target = -1;
+      p.path = [];
+      p.until = town.time;
+    }
+  }
+  for (const beast of town.beasts) {
+    if (!beast.raider || !retired.has(beast.prey)) continue;
+    beast.prey = -1;
+    beast.path = [];
   }
 }
 /** Earlier watchtowers and training yards had posts that could still be assigned in a saved game. */
@@ -1040,7 +1117,11 @@ export function encodeTownPayload(town: SaveTown): Uint8Array {
   const ranchCycle = town.placed.some(b => b.kind === Structure.Ranch &&
     (b.productionProgress > 0 || b.eggs > 0 || b.pigBreeding > 0 || b.cowBreeding > 0)) ||
     town.animals.some(a => a.ranchBornAt >= 0) || town.folk.some(p => isRanchHarvest(p.task));
-  a.formatVersion = ranchCycle ? 24 : livestockOrRefining ? 23 : expedition ? 22 : foundry ? 21 : town.folk.some((p) => p.birthStrength !== 0 || p.birthVitality !== 0)
+  const siege = town.folk.some(p => targetedDungeon(p) >= 0);
+  // Older readers accepted level 30 only as the cap, with no experience carried toward the next level.
+  const campaign = town.sieges.some(Boolean) || town.folk.some(p => p.level > 30 || (p.level === 30 && p.experience > 0));
+  const levelledMonsters = town.beasts.some(m => m.level > 1);
+  a.formatVersion = campaign ? 27 : levelledMonsters ? 26 : siege ? 25 : ranchCycle ? 24 : livestockOrRefining ? 23 : expedition ? 22 : foundry ? 21 : town.folk.some((p) => p.birthStrength !== 0 || p.birthVitality !== 0)
     ? 20
     : stations
     ? 19
@@ -1106,10 +1187,10 @@ export function decodeTown<T extends SaveTown>(encoded: string, create: (map: Wo
     endian = u32.read(a),
     appearanceSize = u32.read(a);
   let climateSize = 0;
-  if (version >= 2 && version <= 24) climateSize = u32.read(a);
+  if (version >= 2 && version <= 27) climateSize = u32.read(a);
   if (
     version < 2 ||
-    version > 24 ||
+    version > 27 ||
     endian !== 0x01020304 ||
     appearanceSize !== nativeAppearanceSize ||
     climateSize !== nativeClimateSize

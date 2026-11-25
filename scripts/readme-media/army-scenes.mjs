@@ -1,26 +1,26 @@
-// A party beyond a gate, as in tests/regression/realm.browser.mjs and combat-loop.browser.mjs: the expedition window,
-// a formation move and hold, a fight with skills against a den and its swarm, and a fallen resident raised by an ally.
-// The party is staged (six residents of the right callings, levelled and armed); the fight is the game's own.
-import { bootGame, recordGif, still, wants } from './capture-session.mjs';
+// A formation moves outside a dungeon in Midgard. The inspector sends the fighters to attack,
+// its guardian and horde emerge, and an ally raises a fallen resident.
+import { bootGame, clickControl, recordGif, still, wants } from './capture-session.mjs';
 
 const width = 1280,
   height = 720;
 
-/** Sets out a party of six through the first gate; leaves `media.party`. Returns the expedition window's state. */
-async function sendParty(page) {
+/** Stage the recommended first-dungeon party at the approach to its entrance. */
+async function stageParty(page) {
   await page.evaluate(async () => {
-    const [{ sealable }, { monsterEntrance }, ex, orders] = await Promise.all([
-      import('/packages/engine/src/gate-seals.ts'),
+    const [{ gateOrder }, { monsterEntrance }, { dungeonStatus, targetedDungeon }, orders] = await Promise.all([
+      import('/packages/engine/src/gate-progression.ts'),
       import('/packages/engine/src/town-monsters.ts'),
-      import('/apps/web/src/native/expedition-window.ts'),
+      import('/packages/engine/src/dungeon-siege.ts'),
       import('/apps/web/src/native/army-orders.ts'),
     ]);
     const { E, game } = media,
       t = game.town,
       map = t.map(),
-      gate = map.dungeons().findIndex(sealable),
+      gate = gateOrder(t)[0],
       site = map.dungeons()[gate];
-    media.expedition = ex;
+    media.condition = () => dungeonStatus(t, gate);
+    media.assaultOrdered = () => t.folk.some(p => targetedDungeon(p) === gate);
     // The clips play on through a fall or a roused guardian, which would pause a real game for the player.
     media.playOn = () => {
       game.paused = false;
@@ -34,51 +34,38 @@ async function sendParty(page) {
     t.completeConstruction();
     t.folk = [];
     const shape = (c) => (c === E.Calling.Warrior ? 'sword' : c === E.Calling.Ranger ? 'bow' : c === E.Calling.Mage ? 'staff' : 'mace');
-    for (const calling of [E.Calling.Warrior, E.Calling.Warrior, E.Calling.Ranger, E.Calling.Mage, E.Calling.Cleric, E.Calling.Bard]) {
+    for (const calling of [E.Calling.Warrior, E.Calling.Warrior, E.Calling.Warrior, E.Calling.Ranger, E.Calling.Ranger,
+      E.Calling.Mage, E.Calling.Mage, E.Calling.Cleric, E.Calling.Cleric, E.Calling.Bard]) {
       const p = t.makePerson(E.Role.Resident, calling, monsterEntrance(site));
-      p.level = 8;
+      p.level = 10;
       p.food = p.rest = p.hydration = p.health = 1;
-      const item = E.itemCatalog
-        .filter((i) => i.category === 'weapon' && i.visual === shape(calling) && i.minimumLevel <= p.level)
-        .sort((a, b) => b.attackBonus - a.attackBonus)[0];
-      if (item) {
-        p.inventory[0] = { item: item.id, quantity: 1 };
-        p.equipment.weapon = 1;
+      const gear = E.itemCatalog.filter(it => it.tier === 2 && it.minimumLevel <= p.level);
+      const weapon = gear.find(it => it.category === 'weapon' && it.visual === shape(calling));
+      const shield = weapon?.hands === 1 && gear.find(E.isShield);
+      const body = gear.find(it => it.category === 'armor' && it.slots.includes('body'));
+      for (const [slot, item] of [['weapon', weapon], ['offhand', shield], ['body', body]]) {
+        if (!item) continue;
+        const index = p.inventory.findIndex(stack => !stack);
+        p.inventory[index] = { item: item.id, quantity: 1 };
+        p.equipment[slot] = index + 1;
       }
       p.abilityAuto = p.abilityAuto2 = 1;
-      // Six different names, so the notices in the clips are plain about who is who.
-      p.name = ['Geirmund', 'Vigdis', 'Hallbera', 'Rannveig', 'Ingjald', 'Torvi'][t.folk.length];
       t.folk.push(p);
     }
+    media.party = t.folk.map(p => p.id);
+    media.entrance = monsterEntrance(site);
     for (const [i, p] of t.folk.entries())
-      p.position = t.grid.nearestWalkable({ x: site.origin.x + 2 + (i % 3) * 0.6, y: site.origin.y + 3 + Math.floor(i / 3) * 0.6 });
+      p.position = t.grid.nearestWalkable({ x: media.entrance.x + 1 + (i % 4) * 0.8, y: media.entrance.y + 1.5 + Math.floor(i / 4) });
     media.hour(11);
     game.objectivesCollapsed = true;
-    media.look({ x: site.origin.x + 1.5, y: site.origin.y + 1.5 }, 1.6);
-    media.frames(4, 0.05);
-    if (!ex.openExpedition(game, gate, t.folk.map((p) => p.id))) throw Error('The gate has no expedition window');
+    media.inspect = () => {
+      t.scout(media.entrance.x, media.entrance.y, 7);
+      media.look(media.entrance, 1.6);
+      game.selectObject({ kind: 'dungeon', id: gate });
+      media.frames(6, 0.05);
+    };
     media.quiet();
-    media.frames(6, 0.001);
-  });
-}
-
-async function arrive(page) {
-  return page.evaluate(() => {
-    const { game } = media,
-      key = (text) => ({ type: 'KeyDown', text, key: 0, x: 0, y: 0, delta: 0, button: 0, shift: false, control: false, alt: false, meta: false });
-    game.handleExpeditionEvent(key('return'));
-    if (game.expedition) throw Error('Enter did not set out');
-    for (let t = 0; t < 80 && !game.town.realmActive(); t += 0.2) {
-      game.town.advance(0.2);
-      game.dispatchWork();
-    }
-    if (!game.town.realmActive()) throw Error('The party did not arrive');
-    media.party = game.town.realmParty().map((p) => p.id);
-    game.selectPeople(media.party);
-    media.quiet();
-    media.frames(6, 0.05, true);
-    const plan = game.town.realmPlan();
-    return { foes: game.town.realmFoes().length, dens: game.town.realmDens().length, chambers: plan.chambers.length };
+    media.inspect();
   });
 }
 
@@ -87,26 +74,16 @@ export async function captureArmy(session) {
     page = await session.page(width, height);
   try {
     await bootGame(page, { width, height });
-    await sendParty(page);
+    await stageParty(page);
     if (wants('expedition')) out.expedition = await still(page, 'expedition');
-    out.arrival = await arrive(page);
 
     // Formation: a move order for the whole party, the marks of where each will stand, then Hold.
     const move = await page.evaluate(() => {
       const { E, game } = media,
         t = game.town,
-        plan = t.realmPlan(),
-        entry = plan.chambers[0],
-        next = plan.chambers[entry.links[0]],
-        spot = t.grid.nearestWalkable({
-          x: entry.center.x + (next.center.x - entry.center.x) * 0.3,
-          y: entry.center.y + (next.center.y - entry.center.y) * 0.3,
-        }),
         lead = t.person(media.party[0]).position,
+        spot = t.grid.nearestWalkable({ x: lead.x + 3, y: lead.y + 2 }),
         mid = { x: (spot.x + lead.x) / 2, y: (spot.y + lead.y) / 2 };
-      // Staged for a clear picture: the packs nearest the way in are taken off, so the move is not a fight.
-      t.beasts = t.beasts.filter((m) => m.rank === 6 || m.id === t.realmGuardian || Math.hypot(m.position.x - spot.x, m.position.y - spot.y) > 14);
-      game.realmCollapsed = true;
       media.view = mid;
       media.look(mid, 2);
       media.frames(2, 0.05, true);
@@ -127,9 +104,8 @@ export async function captureArmy(session) {
             media.game.pointerDown(at.x, at.y, 0);
             media.game.pointerUp(at.x, at.y, 0);
           }
-          const party = media.party.map((id) => media.town.person(id));
-          if (media.heldAt === undefined && i > 14 * media.rate && party.every((p) => !p.moving())) {
-            media.orders.holdPosition(media.game);
+          if (i === Math.round(50 * media.rate)) {
+            if (!media.orders.holdPosition(media.game)) throw Error('The formation did not hold');
             media.heldAt = i;
           }
           media.look(media.view, 2);
@@ -139,34 +115,13 @@ export async function captureArmy(session) {
         arg: move,
       });
 
-    // The fight: attack-move at the nearest den; both skills of every calling on auto. Filmed to the den's fall.
-    const den = await page.evaluate(() => {
-      const t = media.town,
-        lead = t.person(media.party[0]).position,
-        a = t.realmArea,
-        middle = { x: a.x + a.size / 2, y: a.y + a.size / 2 },
-        // The den nearest the island's middle, so the camera is free to follow the fight on every side.
-        gap = (m) => Math.hypot(m.position.x - middle.x, m.position.y - middle.y),
-        d = t.realmDens().sort((a, b) => gap(a) - gap(b))[0];
-      media.game.realmCollapsed = true;
-      media.den = d.id;
-      media.denAt = { ...d.position };
-      for (const id of media.party) t.person(id).holding = false;
-      media.attack = () => {
-        const { E, game } = media,
-          party = media.party.map((id) => game.town.person(id)).filter((p) => p.downedAt < 0),
-          c = party[0].position,
-          l = Math.hypot(c.x - media.denAt.x, c.y - media.denAt.y) || 1,
-          spot = { x: media.denAt.x + ((c.x - media.denAt.x) / l) * 1.2, y: media.denAt.y + ((c.y - media.denAt.y) / l) * 1.2 };
-        game.town.orderAttackMove(party.map((p) => p.id), spot);
-      };
-      media.attack();
-      // The order is given; the selection card would only cover the fight.
-      media.game.selectPeople([]);
-      media.camera = { ...lead };
-      return { id: d.id, at: media.denAt };
-    });
     if (wants('army-fight')) {
+      await page.evaluate(() => media.inspect());
+      await clickControl(page, 'gate-attack');
+      await page.evaluate(() => {
+        if (!media.assaultOrdered()) throw Error('Clicking Attack did not order the siege');
+        media.game.selectPeople([]);
+      });
       out.armyFight = await recordGif(page, 'army-fight', {
         count: 1400,
         last: 88,
@@ -176,29 +131,15 @@ export async function captureArmy(session) {
         clip: { x: 160, y: 56, width: 960, height: 540 },
         step: ([i]) => {
           media.playOn();
-          const t = media.town,
-            party = media.party.map((id) => t.person(id)),
-            up = party.filter((p) => p.downedAt < 0);
-          // Fallen are raised at once here: this clip is about the fight; the next one is about the rescue.
-          for (const p of party) if (p.downedAt >= 0 && t.clock() - p.downedAt > 4) t.revive?.(p);
-          if (i % Math.round(48 * media.rate) === Math.round(48 * media.rate) - 1) media.attack();
-          // The thick of it: the den and whoever of the party is near it (a straggler would pull the view away).
-          const near = up.filter((p) => Math.hypot(p.position.x - media.denAt.x, p.position.y - media.denAt.y) < 7),
-            group = near.length ? near : up,
-            c = group.reduce((s, p) => ({ x: s.x + p.position.x / (group.length + 1), y: s.y + p.position.y / (group.length + 1) }), {
-              x: media.denAt.x / (group.length + 1),
-              y: media.denAt.y / (group.length + 1),
-            });
-          media.camera.x += (c.x - media.camera.x) * 0.15;
-          media.camera.y += (c.y - media.camera.y) * 0.15;
-          media.look(media.camera, 1.9);
+          media.look(media.entrance, 1.9);
           media.frame(media.dt, true);
-          media.quiet();
-          if (!t.realmDens().some((d) => d.id === media.den) && media.fellAt === undefined) media.fellAt = i;
-          return media.fellAt !== undefined && i >= media.fellAt + 24 * media.rate;
+          if (media.condition().phase === 'defending' && media.fellAt === undefined) media.fellAt = i;
+          return media.fellAt !== undefined && i >= media.fellAt + 60 * media.rate;
         },
       });
-      out.armyFight.denFell = await page.evaluate(() => media.fellAt ?? -1);
+      out.armyFight.dungeonFell = await page.evaluate(() => media.fellAt ?? -1);
+      if (out.armyFight.dungeonFell < 0) throw Error('The guardian and horde did not emerge');
+      if (wants('revive')) await page.evaluate(() => media.live(120, () => media.condition().phase === 'sealed'));
     }
 
     // A fall and a rescue: a warrior is struck down; the bard runs to kneel beside them and gets them up.

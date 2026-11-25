@@ -5,13 +5,13 @@ export const combatPhrases: Phrases = {
   // Army keys and the fighters at hand
   'No fighter is free: the warriors, rangers, mages, clerics and bards are busy or indoors':
     '나설 수 있는 전투원이 없습니다: 전사, 순찰자, 마법사, 성직자, 음유시인이 모두 바쁘거나 실내에 있습니다',
-  'No one selected can hold here': '선택한 주민 중 이곳을 사수할 수 있는 이가 없습니다',
-  'Select a resident first.': '먼저 주민을 선택하세요.',
+  'No one selected can hold here': '선택한 정착민 중 이곳을 사수할 수 있는 이가 없습니다',
+  'Select a resident first.': '먼저 정착민을 선택하세요.',
   'No one can reach {0}': '{0}에게 갈 수 있는 이가 없습니다',
 
   // Control groups
-  'Select residents first, then Ctrl+{0} makes them group {1}': '먼저 주민을 선택하세요. Ctrl+{0} 키로 {1}번 부대를 지정합니다',
-  'Group {0} is empty: select residents and press Ctrl+{1}': '{0}번 부대가 비어 있습니다: 주민을 선택하고 Ctrl+{1} 키를 누르세요',
+  'Select residents first, then Ctrl+{0} makes them group {1}': '먼저 정착민을 선택하세요. Ctrl+{0} 키로 {1}번 부대를 지정합니다',
+  'Group {0} is empty: select residents and press Ctrl+{1}': '{0}번 부대가 비어 있습니다: 정착민을 선택하고 Ctrl+{1} 키를 누르세요',
   'Group {0}: {1}': '{0}번 부대: {1}',
   '{0} down. Health {1}% on average.': '{0}명 쓰러짐. 평균 체력 {1}%.',
   'Health {0}% on average.': '평균 체력 {0}%.',
@@ -20,9 +20,9 @@ export const combatPhrases: Phrases = {
     '{0} 키로 선택, {1} 키를 두 번 누르면 화면 이동. Ctrl+{2} 키로 다시 지정, Shift+{3} 키로 추가합니다.',
   'Make group {0}': '{0}번 부대 지정',
   'The selected residents become group {0}; tap its tab to select them again.':
-    '선택한 주민이 {0}번 부대가 됩니다. 부대 탭을 누르면 다시 선택합니다.',
+    '선택한 정착민이 {0}번 부대가 됩니다. 부대 탭을 누르면 다시 선택합니다.',
   'The selected residents become group {0} (Ctrl+{1}); press {2} to select them again.':
-    '선택한 주민이 {0}번 부대가 됩니다 (Ctrl+{1}). {2} 키를 누르면 다시 선택합니다.',
+    '선택한 정착민이 {0}번 부대가 됩니다 (Ctrl+{1}). {2} 키를 누르면 다시 선택합니다.',
 
   // Key hints beyond a gate
   'Q / W skills  ·  H hold or stop  ·  R recall': 'Q / W 기술  ·  H 사수·정지  ·  R 소집',
@@ -33,7 +33,7 @@ export const combatPhrases: Phrases = {
   // The orders card
   'Walk to the point you click and ignore enemies on the way. A group arrives in formation: blades in front, bows and staves behind.':
     '클릭한 곳으로 걸어가며 가는 길의 적은 무시합니다. 무리는 대형을 갖춰 도착합니다: 칼날은 앞에, 활과 지팡이는 뒤에 섭니다.',
-  'Choose a building for the selected residents to raise.': '선택한 주민이 지을 건물을 고르세요.',
+  'Choose a building for the selected residents to raise.': '선택한 정착민이 지을 건물을 고르세요.',
   'Attack-move': '공격 이동',
   'Walk to the point you click and fight whatever they meet. Click an enemy to make it everyone’s first target.':
     '클릭한 곳으로 걸어가며 마주치는 적과 싸웁니다. 적을 클릭하면 모두가 그 적부터 노립니다.',
@@ -44,7 +44,7 @@ export const combatPhrases: Phrases = {
   'Fell, mine, build, mend or tend what you tap next.': '다음에 누르는 것을 베고, 캐고, 짓고, 고치거나 돌봅니다.',
   'Wake everyone': '모두 깨우기',
   'Resting residents come outside and resume their orders.':
-    '쉬고 있는 주민들이 밖으로 나와 하던 일을 이어갑니다.',
+    '쉬고 있는 정착민들이 밖으로 나와 하던 일을 이어갑니다.',
   '{0}  ({1})': '{0}  ({1})',
   'Holding position: strikes what comes into reach, never chases': '위치 사수: 닿는 적을 치고 쫓지 않습니다',
   'No farm stands close enough to work this field': '이 밭을 돌볼 만큼 가까운 농장이 없습니다',
@@ -80,10 +80,10 @@ export const combatPhrases: Phrases = {
   '{0} more get it at level {1}.': '나머지 {0}명은 레벨 {1}에 배웁니다.',
   'Tap, then tap the ground where it should land.': '탭한 뒤 떨어질 곳의 땅을 탭하세요.',
   'Tap to use it for every selected resident of this calling who has it ready.':
-    '탭하면 선택한 이 직업 주민 중 준비된 모두가 씁니다.',
+    '탭하면 선택한 이 직업 정착민 중 준비된 모두가 씁니다.',
   '{0}: hold to see where it lands under the cursor, release to cast. Or click here, then the ground.':
     '{0}: 누르고 있으면 커서 아래에 떨어질 곳이 보이고, 떼면 시전합니다. 또는 여기를 클릭한 뒤 땅을 클릭하세요.',
-  '{0}: every selected resident who has it ready uses it.': '{0}: 선택한 주민 중 준비된 모두가 씁니다.',
+  '{0}: every selected resident who has it ready uses it.': '{0}: 선택한 정착민 중 준비된 모두가 씁니다.',
   '{0} comes at level {1}': '{0}: 레벨 {1}에 배웁니다',
   '{0} ×{1}': '{0} ×{1}',
   '{0}: {1}/{2} ready': '{0}: {1}/{2} 준비됨',
@@ -93,8 +93,8 @@ export const combatPhrases: Phrases = {
     '클릭하거나 Tab 키를 누르면 이 직업의 기술을 보여 줍니다. Q와 W는 그대로 선택한 모두가 씁니다.',
 
   // Firing skills
-  'No one selected has a second skill': '선택한 주민 중 두 번째 기술이 있는 이가 없습니다',
-  'No one selected has a skill': '선택한 주민 중 기술이 있는 이가 없습니다',
+  'No one selected has a second skill': '선택한 정착민 중 두 번째 기술이 있는 이가 없습니다',
+  'No one selected has a skill': '선택한 정착민 중 기술이 있는 이가 없습니다',
   'Second skills come at level {0}': '두 번째 기술은 레벨 {0}에 배웁니다',
   '{0} is ready in {1} s': '{0}: {1}초 뒤 준비됩니다',
   'Skills are recovering (the first is ready in {0} s)': '기술을 회복하는 중입니다 ({0}초 뒤 첫 기술 준비)',
@@ -161,7 +161,7 @@ export const combatPhrases: Phrases = {
   '{0} is down': '{0}이(가) 쓰러졌습니다',
   '{0} has died': '{0}이(가) 세상을 떠났습니다',
   '{0} and {1} are down': '{0}, {1}이(가) 쓰러졌습니다',
-  '{0} residents are down': '주민 {0}명이 쓰러졌습니다',
+  '{0} residents are down': '정착민 {0}명이 쓰러졌습니다',
   'Paused. You can give orders while paused.': '일시 정지됨. 멈춘 동안에도 명령할 수 있습니다.',
   'Go to them': '찾아가기',
   'Go to it': '살펴보기',
@@ -172,8 +172,8 @@ export const combatPhrases: Phrases = {
     '클릭하면 그곳을 비추고 도울 수 있는 가장 가까운 동료를 선택합니다. 그다음 쓰러진 이를 우클릭해 일으키세요.',
   '+{0} more down': '+{0}명 더 쓰러짐',
   'Downed: another resident must tend them before they bleed out.':
-    '쓰러짐: 숨을 거두기 전에 다른 주민이 돌봐야 합니다.',
-  'This resident has stepped into the gate.': '이 주민은 관문 안으로 들어갔습니다.',
+    '쓰러짐: 숨을 거두기 전에 다른 정착민이 돌봐야 합니다.',
+  'This resident has stepped into the gate.': '이 정착민은 관문 안으로 들어갔습니다.',
   '{0} is down and bleeding out': '{0}이(가) 쓰러져 피를 흘리고 있습니다',
   '{0} is back on their feet': '{0}이(가) 다시 일어섰습니다',
   '{0} has died of their wounds': '{0}이(가) 상처로 숨을 거두었습니다',

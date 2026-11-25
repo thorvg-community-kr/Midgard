@@ -1,3 +1,5 @@
+import { MonsterRank } from '../../../../packages/engine/src/combat-events';
+import { dungeonAttackProblem } from '../../../../packages/engine/src/dungeon-siege';
 import { harvestName, harvestProduct } from '../../../../packages/engine/src/harvest-material';
 import type { GameCommandApp } from './game-commands';
 import type { Point } from '../../../../packages/engine/src/geometry';
@@ -84,7 +86,10 @@ export function worldTarget(app: GameCommandApp, ref: WorldObjectRef): WorldTarg
     }
     case 'monster': {
       const monster = town.creature(ref.id);
-      if (monster) name = monster.giant() ? 'Giant' : monster.raider ? 'Raider' : 'Monster';
+      if (monster) {
+        const kind = monster.rank === MonsterRank.Guardian ? 'Guardian' : monster.giant() ? 'Giant' : monster.raider ? 'Raider' : 'Monster';
+        name = monster.giant() && !monster.angry ? kind : `${kind} · Level ${monster.level}`;
+      }
       break;
     }
     case 'tree':
@@ -128,6 +133,7 @@ export function hoveredTarget(app: GameCommandApp): WorldObjectRef | null {
 }
 /** Whether an Attack click on this hit strikes it: a creature, or a person who is no companion. */
 export function struckByAttack(app: Pick<GameCommandApp, 'town'>, hit: WorldObjectRef | null): boolean {
+  if (hit?.kind === 'dungeon') return !dungeonAttackProblem(app.town, hit.id);
   if (hit?.kind === 'person') {
     const person = app.town.person(hit.id);
     return !!person && !isPlayerResident(person);

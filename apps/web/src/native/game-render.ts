@@ -17,9 +17,6 @@ import { queueWorkSounds } from './work-audio';
 import { objectSelectionOverlay } from './selection-overlay';
 import { renderPrayer } from './game-prayer';
 import { measureArrivalHud, stepResidentArrival } from './resident-arrival';
-import { renderExpedition } from './expedition-window';
-import { renderExpeditionResult } from './expedition-result';
-import { stagingActive, stagingFrame, stagingHeld, stagingVeil } from './expedition-staging';
 import { keepTouchPlacementVisible } from './game-touch';
 import {
   type CharacterEditor,
@@ -179,7 +176,7 @@ export function render(
   if (resized) keepTouchPlacementVisible.call(this);
   const elapsed = !simulate || this.last < 0 ? 0 : clamp(seconds - this.last, 0, maxDelta);
   this.last = seconds;
-  if (!editing && !this.prayer && !this.expedition && !this.expeditionResult && (this.pan.x !== 0 || this.pan.y !== 0)) {
+  if (!editing && !this.prayer && (this.pan.x !== 0 || this.pan.y !== 0)) {
     const speed = f(f(620 / this.camera.zoom) * f(elapsed));
     this.camera.x = f(this.camera.x + f(this.pan.x * speed));
     this.camera.y = f(this.camera.y + f(this.pan.y * speed));
@@ -193,40 +190,14 @@ export function render(
     }
   }
   if (simulate) {
-    this.town.advance(editing || this.prayer || stagingHeld(this) ? 0 : elapsed * this.gameSpeed());
+    this.town.advance(editing || this.prayer ? 0 : elapsed * this.gameSpeed());
     if (!editing && !this.prayer) this.dispatchWork();
   }
-  if (this.realmSeen !== this.town.realmRevision || this.realmGateSeen !== this.town.realmGate) {
-    // Land was raised or sunk, or a save made beyond a gate was loaded: repaint
-    // the map and put the view and the selection on the party.
-    const entered = this.realmSeen !== this.town.realmRevision;
-    this.realmSeen = this.town.realmRevision;
-    this.renderer.invalidateMap();
-    const plan = this.town.realmPlan(),
-      party = plan ? this.town.realmParty() : [],
-      home = this.town.map().dungeons()[this.realmGateSeen],
-      focus = plan
-        ? entered || !party.length
-          ? plan.entry
-          : party[0].position
-        : home
-          ? { x: home.origin.x + 1, y: home.origin.y + 2.3 }
-          : null;
-    // An expedition that just ended keeps the view until its result screen is closed.
-    if (focus && !this.town.realmOutcome) {
-      const at = project(focus.x, focus.y);
-      this.camera.x = at.x;
-      this.camera.y = at.y;
-    }
-    if (party.length) this.selectPeople(party.map((p) => p.id));
-    this.realmGateSeen = this.town.realmGate;
-  }
-  if (simulate && !editing) stagingFrame(this, this.context.time());
   if (this.residentArrival && !editing)
     stepResidentArrival(this, presentationTime, this.personPanelBounds(width, height, true).y, this.theme.reducedMotion);
   this.chosen = this.chosen.filter((id) => !!this.town.person(id));
   for (const id of this.speakers.keys()) if (!this.town.person(id)) this.speakers.delete(id);
-  if (simulate && !editing && !this.prayer && !this.expedition && !this.expeditionResult) guideFrame(this);
+  if (simulate && !editing && !this.prayer) guideFrame(this);
   if (simulate || this.town.isTitleAutoplay()) {
     // The feed is drawn on the interface clock, so it is timed on it: the two clocks start apart.
     const feedNow = uiSeconds >= 0 ? uiSeconds : seconds;
@@ -289,17 +260,6 @@ export function render(
     this.context.end();
     return;
   }
-  if (this.expedition) {
-    renderExpedition.call(this, width, height);
-    this.context.end();
-    return;
-  }
-  if (this.expeditionResult) {
-    renderExpeditionResult.call(this, width, height);
-    this.context.end();
-    return;
-  }
-  if (!editing) stagingVeil(this, width, height);
   if (!editing) objectSelectionOverlay(this);
   else this.renderer.setGroundSelection([]);
   if (
@@ -377,7 +337,6 @@ export function animatingUi(this: GameRenderApp): boolean {
   if (this.prayer) return this.context.motionActive();
   return (
     !!this.residentArrival ||
-    stagingActive(this) ||
     this.dockProgress < 1 ||
     this.campResources.animating() ||
     this.context.motionActive() ||

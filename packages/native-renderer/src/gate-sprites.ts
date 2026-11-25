@@ -24,6 +24,7 @@ export interface GateLook {
   world: World;
   sealed: boolean;
   dormant?: boolean;
+  breached?: boolean;
 }
 const gateBodies = new WeakMap<SceneNode, readonly PaintNode[]>(),
   gateBoxes = new WeakMap<SceneNode, Rect>();
@@ -427,7 +428,12 @@ export function gateSprite(objects: SceneNode, lights: SceneNode, look: GateLook
     shadow = blob(c, [[-58, 10], [0, -14], [58, 10], [0, 30]], duskShade, 70);
   objects.add(shadow);
   let pulse: PaintNode | null;
-  switch (look.site.kind) {
+  if (look.breached || look.sealed) {
+    // The lintel has fallen into the mouth. After victory its seal is cut into the largest stone.
+    boulders(objects, c, [[-34, 4, 34, 21, 0.1], [12, 5, 64, 17, -0.14], [-13, 17, 43, 13, 0.1], [38, 16, 22, 11, 0]]);
+    if (look.sealed) shutDoor(objects, c, boulder(9, 6, 30, 19), [9, -3], true);
+    pulse = null;
+  } else switch (look.site.kind) {
     case DungeonKind.Cave:
       pulse = cave(objects, c, look);
       break;
@@ -449,6 +455,8 @@ export function gateSprite(objects: SceneNode, lights: SceneNode, look: GateLook
     objects.children.filter((paint) => paint !== pulse && paint !== shadow),
   );
   // No name is drawn here: hovering or selecting a gate shows it, like any other target.
-  gateBoxes.set(objects, new Rect(f(c.x - 72), f(c.y - 90), 144, 132));
+  gateBoxes.set(objects, look.breached || look.sealed
+    ? new Rect(c.x - 65, c.y - 23, 130, 56)
+    : new Rect(f(c.x - 72), f(c.y - 90), 144, 132));
   return pulse;
 }

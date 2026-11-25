@@ -23,8 +23,7 @@ export const titleOrders = [
   'orderMove',
   'orderTend',
   'orderRelax',
-  'sendExpedition',
-  'leaveRealm',
+  'orderAttackDungeon',
   'useSkill',
 ] as const;
 /** Town methods the title player reads; none changes the game. */

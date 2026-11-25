@@ -1,7 +1,8 @@
+import { attackDungeon, dungeonAttackProblem, targetedDungeon } from './dungeon-siege';
 import { belongsToFaction, canControl } from './faction';
 // Native town_monsters.cpp combat, raids, expeditions and damage. Native RNG order is retained.
 import { TownState } from './town-state';
-import { Person, Monster, Expedition, Role, Calling, Activity, adventurer } from './person';
+import { Person, Monster, Expedition, Role, Calling, Activity, adventurer, experienceForLevel } from './person';
 import { Building, Check } from './town-models';
 import { Structure, Resources, isSeat, structureSpec, describe } from './building-catalog';
 import { Dungeon, DungeonKind, impassable } from './world-types';
@@ -12,7 +13,7 @@ import { CampEconomy } from './camp-economy';
 import { animalSpec } from './wildlife';
 import { spreadFighter } from './person-navigation';
 import { planRaiderApproach } from './monster-navigation';
-import { campTier, dungeonThreat, raidKind, raidMight, raidMuster, raidShape, RaidKind } from './raid-progression';
+import { campTier, dungeonThreat, raidKind, raidMight, raidMonsterLevel, raidMuster, raidShape, RaidKind, siegeMonsterLevel } from './raid-progression';
 import { gateActive, gateCenter, inRaidedVillage, raidSeat, raidSources, updateGateOpenings } from './gate-progression';
 import { attackDamage, attackReach, armorProtection, combatItem, equippedItem, raisedShield } from './equipment';
 import { songOf, wardOf } from './calling-auras';
@@ -35,8 +36,6 @@ export interface CombatTown extends TownState {
   walkTo(p: Person, at: Point): boolean;
   staffed(kind: Structure): boolean;
   camp(id?: number): Building | null;
-  canSendExpedition(ids: number[], dungeon: number, floor?: number): Check;
-  walkTo(p: Person, at: Point): boolean;
   power(p: Person): number;
   settlementOf(p: Person | Building): number;
   settlementAt(at: Point): number;
@@ -51,8 +50,8 @@ export interface CombatTown extends TownState {
   resumeOrder(p: Person): boolean;
   changeRenown(village: number, amount: number): void;
   raze(id: number): void;
-  expeditionProblem(dungeon: number, floor: number): string;
-  deepestOpenFloor(dungeon: number): number;
+  orderAttackDungeon(ids: number[], gate: number): boolean;
+  setOrder(p: Person, task: Activity, target?: number): void;
 }
 export interface BiteTown extends TownState {
   hurtGuest(p: Person, killed: boolean): void;
@@ -69,8 +68,7 @@ export interface Breed {
   speed: number;
   pause: number;
 }
-// Long fights by design: monsters soak many unarmed blows and bite gently, so
-// crafted weapons and numbers decide how fast a fight ends.
+// The breed supplies the base stats. A raiding pack and a dungeon guardian use different scales.
 export function breedOf(kind: DungeonKind): Breed {
   switch (kind) {
     case DungeonKind.Cave:
@@ -125,13 +123,14 @@ export function summonRaid(this: CombatTown, kind = raidKind(this.world.seed(), 
   const sources = (warned ?? raidSources(this, kind)).filter(gate => gateActive(this, gate))
     .flatMap(index => {
       const seat = raidSeat(this, index);
-      return seat ? [{ index, site: this.world.dungeons()[index], seat }] : [];
+      return seat ? [{ index, site: this.world.dungeons()[index], seat, routes: new Map<number, Point[]>() }] : [];
     });
   if (!sources.length) return;
   if (kind === RaidKind.Pincer && sources.length < 2) kind = RaidKind.Pack;
   const prowling = this.beasts.filter((m) => m.raider).length,
-    pressure = dungeonThreat(this.days, lairOf(sources[0].site), this.placed),
-    shape = raidShape(kind, raidMight(settlementMight(this), pressure.week)),
+    level = raidMonsterLevel(this.days, this.raidCount),
+    pressure = dungeonThreat(this.days, lairOf(sources[0].site), this.placed, level),
+    shape = raidShape(kind, raidMight(settlementMight(this), this.raidCount ? pressure.week : 0)),
     // Leaders first, then the few brutes, then the swarm: a full settlement loses swarmers first.
     ranks = [
       ...Array<MonsterRank>(shape.count).fill(kind === RaidKind.Brutes ? MonsterRank.Brute : MonsterRank.Grunt),
@@ -141,24 +140,25 @@ export function summonRaid(this: CombatTown, kind = raidKind(this.world.seed(), 
   if (!ranks.length) return;
   ranks.forEach((rank, i) => {
     const source = sources[i % sources.length],
-      beast = new Monster(
-        this.nextMonster++,
-        source.index,
-        this.grid.nearestWalkable(
-          add(monsterEntrance(source.site), rotated(point(f(0.6 + 0.35 * Math.floor(i / 8)), 0), f(i * f(1.3)))),
-        ),
-      );
+      entrance = this.grid.nearestWalkable(monsterEntrance(source.site)),
+      place = Math.floor(i / sources.length),
+      // Fill the mouth from the centre out. A blocked side stays tucked inside the entrance.
+      slot = add(entrance, rotated(point(0.48 * Math.sqrt(place), 0), place * 2.39996)),
+      at = this.grid.walkable(slot) && this.grid.clear(entrance, slot, Infinity, true) ? slot : entrance,
+      beast = new Monster(this.nextMonster++, source.index, at);
     beast.raider = true;
     beast.home = { ...beast.position };
     beast.prey = source.seat.id;
     const leader = i < shape.count;
-    beast.health = f(breedOf(source.site.kind).health * pressure.health * (leader ? shape.health : 1));
-    beast.strength = f(pressure.damage * (leader ? shape.damage : 1));
+    beast.level = level;
+    beast.health = f(breedOf(source.site.kind).health * 0.24 * pressure.health * (leader ? shape.health : 1));
+    beast.strength = f(0.25 * pressure.damage * (leader ? shape.damage : 1));
     // The shape already makes leading brutes tough; the rank gives them their gait and look.
     rankMonster(beast, rank, !leader);
+    if (level === 1) beast.vigor = beast.health = Math.min(1, beast.health);
     if (rank === MonsterRank.Swarmer) beast.strength = f(beast.strength * raidMuster.swarmBite);
     this.beasts.push(beast);
-    planRaiderApproach(this, beast);
+    planRaiderApproach(this, beast, source.routes);
   });
   ++this.raidCount;
   sources.slice(0, ranks.length).forEach((source, i) => {
@@ -172,50 +172,18 @@ export function canSendExpedition(
   this: CombatTown,
   ids: number[],
   dungeon: number,
-  floor = this.deepestOpenFloor(dungeon),
+  _floor?: number,
 ): Check {
   const check = new Check();
-  check.reason = this.expeditionProblem(dungeon, floor);
-  if (check.reason) return check;
-  if (!this.folk.some((p) => canControl(p, this.controlFaction) && ids.includes(p.id))) {
+  check.reason = dungeonAttackProblem(this, dungeon);
+  if (!check.reason && !this.folk.some(p => ids.includes(p.id) && canControl(p, this.controlFaction)))
     check.reason = 'Select residents to send';
-    return check;
-  }
-  check.ok = true;
+  check.ok = !check.reason;
   return check;
 }
-/** The chosen residents walk to the gate; the world beyond is raised once all have stepped in. */
-export function sendExpedition(
-  this: CombatTown,
-  ids: number[],
-  dungeon: number,
-  floor = this.deepestOpenFloor(dungeon),
-): boolean {
-  if (!this.canSendExpedition(ids, dungeon, floor).ok) return false;
-  if (this.realmGate === dungeon) floor = this.realmFloor;
-  const party: Expedition = this.parties.find((other) => other.dungeon === dungeon) ?? {
-    dungeon,
-    members: [],
-    floor,
-  };
-  party.floor = floor;
-  for (const p of this.folk) {
-    if (!canControl(p, this.controlFaction) || !ids.includes(p.id) || party.members.includes(p.id)) continue;
-    if (!this.walkTo(p, monsterEntrance(this.world.dungeons()[dungeon]))) continue;
-    p.activity = Activity.Expedition;
-    p.target = dungeon;
-    p.ordered = p.holding = false;
-    p.task = Activity.Idle;
-    party.members.push(p.id);
-  }
-  if (!party.members.length) return false;
-  if (!this.opened(dungeon)) this.open[dungeon] = 1;
-  if (!this.parties.includes(party)) this.parties.push(party);
-  this.notify(
-    `${party.members.length} set out for floor ${floor + 1} beyond ${this.world.dungeons()[dungeon].name}`,
-  );
-  ++this.changes;
-  return true;
+/** Older clients' gate order now fights the structure on the main map. */
+export function sendExpedition(this: CombatTown, ids: number[], dungeon: number, _floor?: number): boolean {
+  return this.orderAttackDungeon(ids, dungeon);
 }
 /** One monster blow against a resident, shared by the overworld and the worlds beyond. */
 export function monsterBite(
@@ -270,7 +238,8 @@ export function monsterBite(
     strike: StrikeKind.Single,
     primary: true,
   });
-  prey.stress = Math.min(1, f(prey.stress + f(0.03)));
+  const alarm = beast.raider ? Math.min(1, beast.strength) : 1;
+  prey.stress = Math.min(1, f(prey.stress + f(0.03 * alarm)));
   town.hurtGuest(prey, prey.health <= 0);
   if (prey.health <= 0) {
     const cause = beast.giant()
@@ -294,9 +263,9 @@ export function monsterAt(this: TownState, p: Point, reach: number): number {
         best = beast;
   return best?.id ?? -1;
 }
-export function rewardExperience(this: TownState, p: Person, points: number): void {
+export function rewardExperience(this: TownState, p: Person, points: number, includeDowned = false): void {
   if (boon(this, Boon.Lore)) points = Math.round(points * boonRules.loreExperience);
-  if (p.gainExperience(points) > 0) {
+  if (p.gainExperience(points, includeDowned) > 0) {
     this.notify(p.name + ' reached level ' + p.level + '!');
     this.emit(CombatCue.LevelUp, p.position, { person: p.id, amount: p.level });
   }
@@ -331,9 +300,10 @@ export function hurtCreature(this: CombatTown, foe: Monster, damage: number, by:
   }
   const health =
       foe.animal !== null ? animalSpec(foe.animal).health : breedOf(this.world.dungeons()[foe.lair].kind).health,
-    points = lround(
-      f(health * (foe.animal !== null ? 2 : rankWorth(foe) * (foe.raider ? f(1.33) : 1))),
-    );
+    ordinary = foe.raider && foe.vigor > 0 ? Math.max(1, Math.round(foe.vigor * 1.33)) :
+      lround(f(health * (foe.animal !== null ? 2 : rankWorth(foe)))),
+    points = foe.animal === null && foe.level > 1 ? Math.max(ordinary,
+      Math.round(experienceForLevel(Math.min(foe.level, Person.maximumLevel - 1)) * rankWorth(foe) / 40)) : ordinary;
   for (const ally of this.folk)
     if (
       ally.health > 0 &&
@@ -347,13 +317,10 @@ export function hurtCreature(this: CombatTown, foe: Monster, damage: number, by:
 export function tallyKill(this: TownState, foe: Monster): void {
   const by = this.combatState.slayers.get(foe.id) ?? -1,
     killer = by >= 0 ? this.person(by) : null;
-  this.combatState.slayers.delete(foe.id);
-  this.combatState.taunts.delete(foe.id);
-  this.combatState.slamAt.delete(foe.id);
-  this.combatState.chilled.delete(foe.id);
-  this.combatState.dirged.delete(foe.id);
+  this.combatState.forgetCreature(foe.id);
   if (killer) ++killer.kills;
   if (foe.animal === null) ++this.chronicle.monstersSlain;
+  if (foe.rank === MonsterRank.Guardian && foe.brood === foe.id) ++this.chronicle.guardiansSlain;
   this.emit(CombatCue.Kill, foe.position, { person: killer?.id ?? -1, creature: foe.id });
   if (foe.rank === MonsterRank.Den)
     this.emit(CombatCue.DenDestroyed, foe.position, { person: killer?.id ?? -1, creature: foe.id });
@@ -484,6 +451,8 @@ export function fight(this: CombatTown, p: Person, dt: number): void {
     return;
   }
   if (p.holding) return holdGround(this, p, dt);
+  const dungeon = targetedDungeon(p);
+  if (dungeon >= 0) return attackDungeon(this, p, dungeon, dt);
   const notice = this.raiding() ? 10 : 5;
   // Distance first: the fog test walks every sight circle on the map.
   const threats = [...this.beasts, ...this.animals].filter(m =>
@@ -560,9 +529,10 @@ export function releaseMonster(this: CombatTown, at: Point): void {
       lair = d;
   if (lair < 0) return;
   const beast = new Monster(this.nextMonster++, lair, this.grid.nearestWalkable(at));
-  const pressure = dungeonThreat(this.days, lairOf(this.world.dungeons()[lair]), this.placed);
-  beast.health = f(breedOf(this.world.dungeons()[lair].kind).health * pressure.health);
-  beast.strength = pressure.damage;
+  const site = this.world.dungeons()[lair];
+  beast.level = siegeMonsterLevel(this.days, distance(lairOf(site), this.world.camp()));
+  beast.health = f(breedOf(site.kind).health * (1 + 0.18 * (beast.level - 1)));
+  beast.strength = f(1 + 0.08 * (beast.level - 1));
   beast.home = { ...beast.position };
   rankMonster(beast, MonsterRank.Grunt);
   this.beasts.push(beast);

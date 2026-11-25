@@ -1,4 +1,6 @@
 // Ground circles that fill before an area blow lands, and the eruption when it does.
+import { siegeRules } from '../../engine/src/dungeon-siege';
+import { monsterEntrance } from '../../engine/src/town-monsters';
 import { distance, project, unproject, type Point } from '../../engine/src/geometry';
 import { boxAt, DepthSlot, type Extent } from './combat-depth';
 import { CombatCue, type CombatEvent } from '../../engine/src/combat-events';
@@ -56,6 +58,7 @@ interface MarkState {
   next: bigint;
   marks: Mark[];
   bursts: Burst[];
+  summoning: ShapeNode | null;
 }
 const maxMarks = 12;
 /** A mark that ran out without its blow lingers this long, fading. */
@@ -215,13 +218,39 @@ export function updateGroundTelegraphs(s: WorldRendererState, town: Town): void 
   const layer = s.combatGround;
   if (!state || state.town !== town) {
     if (state) {
+      if (state.summoning) layer.remove(state.summoning);
       for (const item of state.marks) layer.remove(item.node);
       state.bursts.forEach(dropBurst);
     }
-    state = { town, next: 0n, marks: [], bursts: [] };
+    state = { town, next: 0n, marks: [], bursts: [], summoning: null };
     states.set(s, state);
   }
   const now = town.clock();
+  // Read the circle from the simulation so it also appears when loading mid-summon.
+  let marked = false;
+  town.sieges?.forEach((siege, gate) => {
+    if (!siege || siege.health > 0 || siege.guardian >= 0) return;
+    const at = monsterEntrance(town.map().dungeons()[gate]);
+    if (!onView(s, at, 180) || s.currentVisibility.sample(at) < 119) return;
+    const shape = state.summoning ??= new ShapeNode().fill(...tone.ochre, 235);
+    if (!marked) {
+      shape.reset();
+      if (!layer.children.includes(shape)) layer.add(shape);
+      marked = true;
+    }
+    const { x, y } = project(at.x, at.y), { rx, ry } = groundRadii(1.65);
+    appendArc(shape, x, y, rx, ry, 2.8, 0, 1);
+    const progress = unit(1 - (siege.summonAt - now) / siegeRules.summonSeconds);
+    appendArc(shape, x, y, rx * 0.79, ry * 0.79, 2.8, 0, progress);
+    for (let i = 0; i < 8; i++) {
+      const a = i * Math.PI / 4, u = Math.cos(a), v = Math.sin(a);
+      shape.moveTo(x + rx * 0.9 * u, y + ry * 0.9 * v)
+        .lineTo(x + rx * (0.72 * u - 0.07 * v), y + ry * (0.72 * v + 0.07 * u))
+        .lineTo(x + rx * 0.62 * u, y + ry * 0.62 * v)
+        .lineTo(x + rx * (0.72 * u + 0.07 * v), y + ry * (0.72 * v - 0.07 * u)).close();
+    }
+  });
+  if (!marked && state.summoning && layer.children.includes(state.summoning)) layer.remove(state.summoning);
   for (const event of cuesOf(town)) {
     if (event.serial < state.next) continue;
     state.next = event.serial + 1n;

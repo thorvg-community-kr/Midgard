@@ -8,6 +8,8 @@ import { canControl, isPlayerResident } from '../../../../packages/engine/src/fa
 import { distance, project, type Point } from '../../../../packages/engine/src/geometry';
 import { f32, clamp, hash01 } from '../../../../packages/engine/src/numeric';
 import { toolStructure } from '../../../../packages/engine/src/game-tools';
+import { dungeonStatus } from '../../../../packages/engine/src/dungeon-siege';
+import { monsterEntrance } from '../../../../packages/engine/src/town-monsters';
 import { worldName } from '../../../../packages/engine/src/world-map';
 import { injuryOf, Mood } from '../../../../packages/engine/src/person-look';
 import type { Town } from '../../../../packages/engine/src/town';
@@ -16,7 +18,6 @@ import { portraitBackdrop } from '../../../../packages/native-renderer/src/portr
 import { Cue, Sound, VoiceLine } from '../../../../packages/native-audio/src';
 import { combatSounds, CombatSoundState } from './game-combat-sound';
 import { swarmBanner, swarmFrame, waveWarning } from './swarm-hud';
-import { Beat, stagingBanner } from './expedition-staging';
 import { hudPaint } from './hud-paint';
 import type { GameAppState } from './game-app-state';
 import type { GameHudApp } from './game-hud-contract';
@@ -34,7 +35,8 @@ export class CombatHudState {
   town: object | null = null;
   heardEvent = 0n;
   fallenSeen = 0;
-  guardianEngaged = -1;
+  pendingGuardians: number[] = [];
+  realmGuardianEngaged = -1;
   realmRevision = -1;
   memorials: Fallen[] = [];
   autoPause: AutoPause | null = null;
@@ -247,10 +249,10 @@ export function goToDowned(app: GameHudApp, hurt: Person): void {
 
 // ---------------------------------------------------------------- per frame: events, sound, auto-pause
 
-function guardianOf(town: Town): Monster | null {
+function realmGuardian(town: Town): Monster | null {
   if (!town.realmActive() || town.realmCleared) return null;
-  const g = town.creature(town.realmGuardian);
-  return g && g.health > 0 ? g : null;
+  const guardian = town.creature(town.realmGuardian);
+  return guardian && guardian.health > 0 ? guardian : null;
 }
 function nextSerial(town: Town): bigint {
   let next = 0n;
@@ -274,15 +276,16 @@ export function combatFrame(app: CombatFrameApp, seconds: number): void {
     state.heardEvent = nextSerial(town);
     state.fallenSeen = town.fallen.length;
     state.memorials = [];
+    state.pendingGuardians = [];
     state.autoPause = null;
     state.realmRevision = town.realmRevision;
-    const guardian = guardianOf(town);
-    state.guardianEngaged = guardian?.angry ? guardian.id : -1;
+    const guardian = realmGuardian(town);
+    state.realmGuardianEngaged = guardian?.angry ? guardian.id : -1;
   }
   if (state.realmRevision !== town.realmRevision) {
     state.realmRevision = town.realmRevision;
-    const guardian = guardianOf(town);
-    state.guardianEngaged = guardian?.angry ? guardian.id : -1;
+    const guardian = realmGuardian(town);
+    state.realmGuardianEngaged = guardian?.angry ? guardian.id : -1;
   }
   const autoplay = town.isTitleAutoplay(),
     // The last one standing beyond a gate gets the longer held moment instead of a pause to rescue them.
@@ -294,6 +297,7 @@ export function combatFrame(app: CombatFrameApp, seconds: number): void {
     state.heardEvent = e.serial + 1n;
     if (autoplay) continue;
     heard.push(e);
+    if (e.cue === CombatCue.SiegeHorde && e.creature >= 0) state.pendingGuardians.push(e.creature);
     const person = e.cue === CombatCue.Downed && e.person >= 0 ? town.person(e.person) : null;
     if (person && isPlayerResident(person) && !(lost && town.inRealm(person.position))) downed.push(person);
   }
@@ -302,10 +306,18 @@ export function combatFrame(app: CombatFrameApp, seconds: number): void {
   if (town.fallen.length < state.fallenSeen) state.fallenSeen = town.fallen.length;
   for (; state.fallenSeen < town.fallen.length; ++state.fallenSeen)
     if (!autoplay) state.memorials.push(town.fallen[state.fallenSeen]);
-  const guardian = guardianOf(town),
-    roused = !!guardian && guardian.angry && state.guardianEngaged !== guardian.id;
-  if (guardian && roused) state.guardianEngaged = guardian.id;
-  if (autoplay || (!downed.length && !roused) || app.paused || app.gameSpeed() <= 0) return;
+  const legacy = realmGuardian(town);
+  if (legacy?.angry && state.realmGuardianEngaged !== legacy.id) {
+    state.realmGuardianEngaged = legacy.id;
+    state.pendingGuardians.push(legacy.id);
+  }
+  if (autoplay || app.paused || app.gameSpeed() <= 0) return;
+  let guardian: Monster | null = null;
+  while (!downed.length && state.pendingGuardians.length && !guardian) {
+    const candidate = town.creature(state.pendingGuardians.shift()!);
+    if (candidate && candidate.health > 0) guardian = candidate;
+  }
+  if (!downed.length && !guardian) return;
   app.paused = true;
   if (downed.length) {
     const first = downed[0];
@@ -317,7 +329,7 @@ export function combatFrame(app: CombatFrameApp, seconds: number): void {
       creature: -1,
     };
   } else if (guardian) {
-    const site = town.map().dungeons()[town.realmGate];
+    const site = town.map().dungeons()[town.realmActive() ? town.realmGate : guardian.lair];
     state.autoPause = {
       title: `The guardian of ${site ? worldName(town.map().destination(site)) : 'this world'} is roused`,
       detail: 'Its slam is marked on the ground before it lands: move away.',
@@ -334,9 +346,34 @@ function column(width: number): { x: number; w: number } {
   const w = Math.min(390, f32(width - 24));
   return { x: f32(f32(width - w) / 2), w };
 }
-function guardianBar(app: GameHudApp, width: number, y: number): number {
-  const town = app.town,
-    guardian = guardianOf(town);
+/** Select one battle for both overlays. A fallen guardian leaves its clock at the entrance. */
+function siegeInView(app: GameHudApp, width: number, height: number) {
+  const town = app.town;
+  let bestDistance = Infinity, gate = -1, guardian: Monster | null = null;
+  const visibleDistance = (at: Point) => {
+    if (!app.renderer.visible(at)) return Infinity;
+    const screen = app.camera.toScreen(project(at.x, at.y), width, height);
+    if (screen.x < 0 || screen.x > width || screen.y < 0 || screen.y > height) return Infinity;
+    return Math.hypot(screen.x - width / 2, screen.y - height / 2);
+  };
+  for (let i = 0; i < town.sieges.length; ++i) {
+    const siege = town.sieges[i];
+    if (!siege || siege.health > 0 || siege.guardian < 0) continue;
+    const boss = town.creature(siege.guardian);
+    const atBoss = boss && boss.health > 0 ? visibleDistance(boss.position) : Infinity;
+    const visibleBoss = Number.isFinite(atBoss) ? boss : null;
+    if (guardian && !visibleBoss) continue;
+    const gap = visibleBoss ? atBoss : visibleDistance(monsterEntrance(town.map().dungeons()[i]));
+    if ((visibleBoss && !guardian) || gap < bestDistance) {
+      gate = i;
+      guardian = visibleBoss;
+      bestDistance = gap;
+    }
+  }
+  return { gate, guardian };
+}
+function guardianBar(app: GameHudApp, width: number, y: number, guardian: Monster | null): number {
+  const town = app.town;
   if (!guardian || !(guardian.angry || app.renderer.visible(guardian.position))) return y;
   const c = app.context,
     t = app.theme,
@@ -345,15 +382,16 @@ function guardianBar(app: GameHudApp, width: number, y: number): number {
     share = clamp(guardian.health / vigor, 0, 1),
     clock = town.clock(),
     windup = guardian.windupUntil > clock,
-    enraged = share < 0.5,
-    site = town.map().dungeons()[town.realmGate],
+    enraged = town.realmActive() && share < 0.5,
+    site = town.map().dungeons()[town.realmActive() ? town.realmGate : guardian.lair],
     name = site ? worldName(town.map().destination(site)) : '',
     h = windup ? 58 : 42,
     r = new Rect(x, y, w, h),
     pulse = windup && !app.reducedMotion() ? f32(0.5 + 0.5 * Math.sin(c.time() * 12)) : 1;
   c.control('guardian-bar', r, undefined, true, false);
   board(c, r, { trim: windup ? faded(t.danger, 140 + 115 * pulse) : t.border, trimWidth: windup ? 2 : 1 });
-  c.text(new Rect(f32(x + 12), f32(y + 4), f32(w - 120), 18), c.elideText(name ? `Guardian of ${name}` : 'Guardian', f32(w - 120), 12, true), t.text, 12, true);
+  const title = name ? `Guardian of ${name}` : 'Guardian';
+  c.text(new Rect(f32(x + 12), f32(y + 4), f32(w - 120), 18), c.elideText(`${title} · Level ${guardian.level}`, f32(w - 120), 12, true), t.text, 12, true);
   c.text(
     new Rect(f32(x + w - 112), f32(y + 4), 100, 18),
     enraged ? 'Enraged' : `${Math.ceil(share * 100)}%`,
@@ -365,7 +403,7 @@ function guardianBar(app: GameHudApp, width: number, y: number): number {
   const bar = new Rect(f32(x + 12), f32(y + 25), f32(w - 24), 9);
   meter(c, bar, share, t.danger);
   // The notch marks where it enrages and calls its brood.
-  c.rect(new Rect(f32(bar.x + f32(bar.w / 2) - 1), f32(bar.y - 3), 2, f32(bar.h + 6)), t.text, 0);
+  if (town.realmActive()) c.rect(new Rect(f32(bar.x + f32(bar.w / 2) - 1), f32(bar.y - 3), 2, f32(bar.h + 6)), t.text, 0);
   if (windup) {
     c.text(
       new Rect(f32(x + 12), f32(y + 38), f32(w - 24), 16),
@@ -379,6 +417,17 @@ function guardianBar(app: GameHudApp, width: number, y: number): number {
   }
   return f32(y + h + 6);
 }
+/** Keep the revival clock visible after the guardian falls, until the last defender is gone. */
+function siegeClock(app: GameHudApp, width: number, y: number, gate: number): number {
+  const town = app.town;
+  if (gate < 0) return y;
+  const { remaining, creatures } = dungeonStatus(town, gate), { x, w } = column(width);
+  const r = new Rect(x, y, w, 26), c = app.context;
+  board(c, r);
+  c.text(r.inset(4), `Defenders left: ${creatures} · Dungeon rises in ${Math.ceil(remaining)}s`, app.theme.text, 11, true, Align.Center);
+  return y + r.h + 4;
+}
+
 function autoPauseBanner(app: GameHudApp, width: number, y: number): number {
   const pause = app.combatHud.autoPause;
   if (!pause) return y;
@@ -522,15 +571,13 @@ export function combatOverlays(app: GameHudApp, width: number, height: number): 
   state.drawn.clear();
   if (!app.town.isTitleAutoplay() && height >= 360) {
     let y = f32(f32(app.skyBounds.y + app.skyBounds.h) + (app.town.raiding() ? 30 : 8));
-    y = guardianBar(app, width, y);
+    const siege = siegeInView(app, width, height);
+    y = guardianBar(app, width, y, siege.guardian ?? realmGuardian(app.town));
+    y = siegeClock(app, width, y, siege.gate);
     y = swarmBanner(app, width, y);
     y = waveWarning(app, width, height, y);
-    const { x, w } = column(width),
-      moment = app.staging.moment;
-    y = stagingBanner(app, x, w, y, downedTitle, (text, inner) => wrapText(app.context, text, inner, 11, 2));
     y = autoPauseBanner(app, width, y);
-    // A death's memorial is the release of its held moment, not shown during it.
-    if (!moment || moment.beat === Beat.Down) y = memorialBanner(app, width, y);
+    y = memorialBanner(app, width, y);
     downedAlerts(app, width, y);
   }
   for (const [slot, entry] of state.portraits)

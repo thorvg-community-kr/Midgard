@@ -183,7 +183,7 @@ export const catalogPhrases: Phrases = {
   '{0} cut stone': '다듬은 돌 {0}',
   '{0} bones': '뼈 {0}',
   'Remains gathered from hunts and defeated monsters. Offered to Odin, who gives breath to a new settler.':
-    '사냥과 쓰러뜨린 몬스터에게서 모은 유해입니다. 오딘에게 바치면 새 주민에게 숨을 불어넣습니다.',
+    '사냥과 쓰러뜨린 몬스터에게서 모은 유해입니다. 오딘에게 바치면 새 정착민에게 숨을 불어넣습니다.',
   'Wooden axe': '나무 도끼',
   'Wooden pick': '나무 곡괭이',
   'Wooden mallet': '나무 망치',
@@ -410,19 +410,19 @@ export const catalogPhrases: Phrases = {
   'A timber lookout. While someone keeps watch, it shoots raiders and angry monsters that come near.':
     '나무로 지은 망대입니다. 누군가 망을 보는 동안 가까이 온 습격자와 성난 몬스터를 쏩니다.',
   'Posts and practice blades. Two residents drill here: each day of drilling brings experience up to level 10 and eases stress.':
-    '말뚝과 연습용 칼이 있는 곳입니다. 주민 두 명이 이곳에서 훈련하며, 하루 훈련할 때마다 10레벨까지 경험치를 얻고 스트레스가 줄어듭니다.',
+    '말뚝과 연습용 칼이 있는 곳입니다. 정착민 두 명이 이곳에서 훈련하며, 하루 훈련할 때마다 10레벨까지 경험치를 얻고 스트레스가 줄어듭니다.',
   'A carved stone that names the fallen. While one stands, the settlement grieves its dead less.':
     '쓰러진 이들의 이름을 새긴 돌입니다. 하나라도 서 있는 동안 정착지는 죽은 이를 덜 슬퍼합니다.',
   'A covered hall. Fully staffed, it becomes a grand bazaar.':
     '지붕을 얹은 회관입니다. 일꾼이 모두 차면 대시장이 됩니다.',
   'A first shelter for two. Once full, in a settlement of six, it becomes a cottage.':
-    '두 명이 머무는 첫 보금자리입니다. 가득 차고 정착지 주민이 6명이 되면 오두막이 됩니다.',
+    '두 명이 머무는 첫 보금자리입니다. 가득 차고 정착지 정착민이 6명이 되면 오두막이 됩니다.',
   'A grand hall for residents to take their one-time professional oath.':
-    '주민이 단 한 번의 직업 서약을 하는 웅장한 회관입니다.',
+    '정착민이 단 한 번의 직업 서약을 하는 웅장한 회관입니다.',
   'A hall of professional oaths. Residents visit to train once as a Warrior, Ranger, Mage, Cleric or Bard. Eight trained residents make it a guild hall.':
-    '직업 서약의 전당입니다. 주민이 찾아와 전사, 순찰자, 마법사, 성직자, 음유시인 중 하나로 한 번 훈련합니다. 훈련받은 주민이 8명이 되면 길드 회관이 됩니다.',
+    '직업 서약의 전당입니다. 정착민이 찾아와 전사, 순찰자, 마법사, 성직자, 음유시인 중 하나로 한 번 훈련합니다. 훈련받은 정착민이 8명이 되면 길드 회관이 됩니다.',
   'A house of prayer. Choose its faith to calm the faithful; new residents are born only at an altar.':
-    '기도의 집입니다. 신앙을 정해 신자들의 마음을 달래세요. 새 주민은 제단에서만 태어납니다.',
+    '기도의 집입니다. 신앙을 정해 신자들의 마음을 달래세요. 새 정착민은 제단에서만 태어납니다.',
   'Ale, songs and dice. Settlers and guests shed their stress here; guests pay.':
     '맥주와 노래, 주사위가 있는 곳입니다. 정착민과 손님이 스트레스를 풀며, 손님은 값을 치릅니다.',
   'A noble household with its own tower.': '탑을 갖춘 귀족의 저택입니다.',
@@ -432,7 +432,7 @@ export const catalogPhrases: Phrases = {
   'A timber camp shelters five. Build it well away from other camps. With twelve residents it becomes a palisade fort.':
     '통나무 캠프에는 다섯 명이 머물 수 있습니다. 다른 캠프와 멀리 떨어진 곳에 세우세요. 정착민이 12명이 되면 목책 요새가 됩니다.',
   'A timber-framed home for four. Once full, in a town of fourteen, it becomes a townhouse.':
-    '네 명이 사는 목조 주택입니다. 가득 차고 마을 주민이 14명이 되면 연립 주택이 됩니다.',
+    '네 명이 사는 목조 주택입니다. 가득 차고 마을 정착민이 14명이 되면 연립 주택이 됩니다.',
   'Caravans from distant lands trade here.': '먼 땅에서 온 대상들이 이곳에서 거래합니다.',
   'Draws mana from the ley lines.': '지맥에서 마나를 끌어옵니다.',
   'Draws water for everyone; each person drinks every day. It draws more beside a lake or river.':
@@ -440,11 +440,11 @@ export const catalogPhrases: Phrases = {
   'Farmers tend the fields around the farmhouse; more farmers tend more fields.':
     '농부가 농가 둘레의 밭을 돌봅니다. 농부가 많을수록 더 많은 밭을 돌봅니다.',
   'Forges blades: staffed, residents and guards strike harder, and adventurers buy here.':
-    '칼날을 벼립니다. 일꾼이 있으면 주민과 경비가 더 강하게 공격하고, 모험가가 이곳에서 물건을 삽니다.',
+    '칼날을 벼립니다. 일꾼이 있으면 정착민과 경비가 더 강하게 공격하고, 모험가가 이곳에서 물건을 삽니다.',
   'Mail and shields: staffed, monsters wound your people less, and adventurers buy here.':
     '사슬 갑옷과 방패를 만듭니다. 일꾼이 있으면 몬스터에게 입는 피해가 줄고, 모험가가 이곳에서 물건을 삽니다.',
   'Offer water, bones, gold, food and stone at the altar to shape a new resident.':
-    '제단에 물, 뼈, 골드, 식량, 석재를 바쳐 새 주민을 빚습니다.',
+    '제단에 물, 뼈, 골드, 식량, 석재를 바쳐 새 정착민을 빚습니다.',
   'Potions and salves: staffed, the wounded heal faster, and adventurers buy here.':
     '물약과 연고를 만듭니다. 일꾼이 있으면 부상자가 더 빨리 회복하고, 모험가가 이곳에서 물건을 삽니다.',
   'Room for 300 more of each wood, stone, food and water. What does not fit is lost.':
@@ -454,7 +454,7 @@ export const catalogPhrases: Phrases = {
   'Stonecutters. Needs rocky ground close by.':
     '석공들의 일터입니다. 가까이에 바위 지대가 있어야 합니다.',
   'Stores 240 additional food. Residents can collect meals here.':
-    '식량을 240 더 보관합니다. 주민이 이곳에서 식사를 가져갈 수 있습니다.',
+    '식량을 240 더 보관합니다. 정착민이 이곳에서 식사를 가져갈 수 있습니다.',
   'Stores 240 additional logs and planks. A depot for timber deliveries.':
     '통나무와 판자를 240 더 보관합니다. 목재를 들여오는 집하장입니다.',
   'Stores 240 additional rough and cut stone. A depot for stone deliveries.':
@@ -462,15 +462,15 @@ export const catalogPhrases: Phrases = {
   'Ten beds, a stable and a hall for paying temporary guests.':
     '돈을 내고 잠시 머무는 손님을 위한 침대 10개와 마구간, 홀이 있습니다.',
   'The camp grown into a stockade. With twenty residents it is rebuilt in stone.':
-    '캠프가 자라 목책이 되었습니다. 주민이 20명이 되면 돌로 다시 짓습니다.',
+    '캠프가 자라 목책이 되었습니다. 정착민이 20명이 되면 돌로 다시 짓습니다.',
   'The seat of your realm.': '당신이 다스리는 땅의 중심입니다.',
   'Three beds for paying travellers. Guests stay temporarily and never become residents. Earning 40 gold makes this an inn.':
-    '돈을 내는 여행자를 위한 침대 3개가 있습니다. 손님은 잠시 머물 뿐 주민이 되지 않습니다. 40골드를 벌면 큰 여관이 됩니다.',
+    '돈을 내는 여행자를 위한 침대 3개가 있습니다. 손님은 잠시 머물 뿐 정착민이 되지 않습니다. 40골드를 벌면 큰 여관이 됩니다.',
   "Traders' tents. Staff them to grow a market hall.": '상인들의 천막입니다. 일꾼을 배치하면 시장 회관으로 성장합니다.',
   'Two storeys. In a town of twenty-four, four huddled together merge into a manor.':
-    '2층 주택입니다. 마을 주민이 24명이 되면 모여 있는 네 채가 저택 하나로 합쳐집니다.',
+    '2층 주택입니다. 마을 정착민이 24명이 되면 모여 있는 네 채가 저택 하나로 합쳐집니다.',
   'Walls of stone. With twenty-six residents the realm raises a castle.':
-    '돌로 쌓은 성벽입니다. 주민이 26명이 되면 성을 세웁니다.',
+    '돌로 쌓은 성벽입니다. 정착민이 26명이 되면 성을 세웁니다.',
   'Woodcutters fell the trees around it and carry the logs in. Felled woods grow back slowly.':
     '나무꾼이 둘레의 나무를 베어 통나무를 나릅니다. 베어낸 숲은 천천히 다시 자랍니다.',
   'Workers dress two rough stones into one cut stone for advanced construction.':
@@ -482,7 +482,7 @@ export const catalogPhrases: Phrases = {
   'Complete {0}': '{0} 완성 필요',
   'Reach the quest "{0}"': '퀘스트 "{0}"까지 진행하세요',
   'Complete a road': '길 완성 필요',
-  'Needs {0} residents': '주민 {0}명 필요',
+  'Needs {0} residents': '정착민 {0}명 필요',
   'Clear a floor beyond a gate': '관문 너머 한 층 돌파 필요',
 
   // Goal progress
@@ -499,11 +499,11 @@ export const catalogPhrases: Phrases = {
   '{0} / {1} guardians slain': '처치한 수호자 {0} / {1}',
   '{0} / {1} parties led': '이끈 파티 {0} / {1}',
   'Largest party {0} / {1}': '가장 큰 파티 {0} / {1}',
-  '{0} / {1} downed residents revived': '일으킨 주민 {0} / {1}',
+  '{0} / {1} downed residents revived': '일으킨 정착민 {0} / {1}',
   '{0} / {1} weapons forged': '벼린 무기 {0} / {1}',
   '{0} / {1} monsters slain': '처치한 몬스터 {0} / {1}',
-  '{0} / {1} residents sworn to a calling': '직업을 서약한 주민 {0} / {1}',
-  '{0} / {1} residents with gear in hand': '장비를 든 주민 {0} / {1}',
+  '{0} / {1} residents sworn to a calling': '직업을 서약한 정착민 {0} / {1}',
+  '{0} / {1} residents with gear in hand': '장비를 든 정착민 {0} / {1}',
   '{0} / {1} crafted': '만든 것 {0} / {1}',
   Crafted: '제작 완료',
   'Wood {0} / {1} for {2}': '{2}에 쓸 목재 {0} / {1}',
@@ -528,43 +528,43 @@ export const catalogPhrases: Phrases = {
     '나무 검, 몽둥이, 창, 짧은 활은 맨주먹보다 세게 칩니다. 작업대에서 하나를 만드세요.',
   'Build a workbench': '작업대 짓기',
   'An open bench where residents craft wooden and stone tools and weapons, one at a time. It takes 4 wood.':
-    '주민이 한 명씩 나무와 돌로 도구와 무기를 만드는 야외 작업대입니다. 목재 4가 듭니다.',
+    '정착민이 한 명씩 나무와 돌로 도구와 무기를 만드는 야외 작업대입니다. 목재 4가 듭니다.',
   'Workbench': '작업대',
   'An open-air bench where residents craft wooden and stone tools and weapons, one at a time.':
-    '주민이 한 명씩 나무와 돌로 도구와 무기를 만드는 야외 작업대입니다.',
+    '정착민이 한 명씩 나무와 돌로 도구와 무기를 만드는 야외 작업대입니다.',
   'Crafted gear goes straight into a free hand. Give each founder a tool or a weapon of their own.':
     '만든 장비는 바로 빈 손에 듭니다. 개척자마다 자기 도구나 무기를 하나씩 주세요.',
   'Needs a guild and 10 residents. Forges iron tools and weapons, far better than wooden ones.':
-    '길드와 주민 10명이 필요합니다. 나무 장비보다 훨씬 나은 철 도구와 무기를 만듭니다.',
+    '길드와 정착민 10명이 필요합니다. 나무 장비보다 훨씬 나은 철 도구와 무기를 만듭니다.',
   "Craft an iron weapon at the weaponsmith from a resident's equipment. Camp-made weapons do not count.":
-    '주민의 장비 창에서 무기 대장간의 철 무기를 제작하세요. 캠프에서 만든 무기는 세지 않습니다.',
+    '정착민의 장비 창에서 무기 대장간의 철 무기를 제작하세요. 캠프에서 만든 무기는 세지 않습니다.',
   'Shelter the founders and make room for the newcomers to come.': '개척자에게 쉴 곳을 주고 앞으로 올 이들의 자리를 마련하세요.',
   'Establish a timber supply near trees; its workers fell faster with axes in hand.':
     '나무 가까이에 목재 공급처를 마련하세요. 일꾼이 도끼를 들면 더 빨리 벱니다.',
   'Needs the altar of Odin and 8 residents. Its healer treats the hurt and closes lasting wounds sooner.':
-    '오딘의 제단과 주민 8명이 필요합니다. 치료사가 다친 이를 돌보고 오래가는 상처를 더 빨리 아물게 합니다.',
+    '오딘의 제단과 정착민 8명이 필요합니다. 치료사가 다친 이를 돌보고 오래가는 상처를 더 빨리 아물게 합니다.',
   'Lay a road': '길 놓기',
   'Hold and draw a road from the camp: residents lay it by hand. Timber and stone yards are raised beside a road.':
-    '캠프에서 길을 눌러 그리세요. 주민이 맨손으로 길을 놓습니다. 벌목장과 채석장은 길 옆에 짓습니다.',
+    '캠프에서 길을 눌러 그리세요. 정착민이 맨손으로 길을 놓습니다. 벌목장과 채석장은 길 옆에 짓습니다.',
   'Build an altar': '제단 짓기',
   "Odin's altar needs 4 stone: builders break grey rock by hand. No rock in sight? Explore for it.":
     '오딘의 제단에는 돌 4가 필요합니다. 일꾼이 회색 바위를 맨손으로 깹니다. 바위가 보이지 않으면 탐험하세요.',
   "Pray at Odin's altar with 4 food and a free bed: a new resident joins when the prayer ends.":
-    '식량 4와 빈 침상을 두고 오딘의 제단에서 기도하세요. 기도가 끝나면 새 주민이 합류합니다.',
+    '식량 4와 빈 침상을 두고 오딘의 제단에서 기도하세요. 기도가 끝나면 새 정착민이 합류합니다.',
   'Choose a resident to pray at the altar. Offer 4 food and keep a home free; a new resident appears here the next day.':
-    '제단에서 기도할 주민을 고르세요. 식량 4를 바치고 빈 집을 하나 남겨 두면 다음 날 이곳에 새 주민이 나타납니다.',
+    '제단에서 기도할 정착민을 고르세요. 식량 4를 바치고 빈 집을 하나 남겨 두면 다음 날 이곳에 새 정착민이 나타납니다.',
   'Build a lumberyard': '벌목장 짓기',
   'Establish a timber supply near trees.': '나무 가까이에 목재 공급처를 마련하세요.',
   'Lay out a farm': '농장 일구기',
   'Pick Farm and drag an area: the farmhouse is raised in its corner and the rest is tilled as its field. It takes 15 wood.':
     '농장을 고르고 구역을 드래그하세요. 모서리에 농가를 짓고 나머지는 밭이 됩니다. 나무 15가 필요합니다.',
   'Build a well': '우물 짓기',
-  'Give your residents drinking water.': '주민에게 마실 물을 마련해 주세요.',
+  'Give your residents drinking water.': '정착민에게 마실 물을 마련해 주세요.',
   'Build a tent': '천막 짓기',
   'Provide housing for newcomers.': '새로 오는 이들이 살 집을 마련하세요.',
-  'Reach {0} residents': '주민 {0}명 달성',
+  'Reach {0} residents': '정착민 {0}명 달성',
   'Pray at the altar and keep homes and food available for next-day residents.':
-    '제단에서 기도하고, 다음 날 올 주민을 위해 집과 식량을 준비해 두세요.',
+    '제단에서 기도하고, 다음 날 올 정착민을 위해 집과 식량을 준비해 두세요.',
   'Build a quarry': '채석장 짓기',
   'Establish a supply of stone.': '석재 공급처를 마련하세요.',
   'Build a storehouse': '창고 짓기',
@@ -577,15 +577,15 @@ export const catalogPhrases: Phrases = {
     '원석 2개를 다듬은 돌 1개로 가공하세요. 고급 건설에 쓰입니다.',
   'Build a hostel': '여관 짓기',
   'Earn lodging income from temporary visitors. Guests never become residents.':
-    '잠시 머무는 방문객에게서 숙박 수입을 얻으세요. 손님은 주민이 되지 않습니다.',
+    '잠시 머무는 방문객에게서 숙박 수입을 얻으세요. 손님은 정착민이 되지 않습니다.',
   'Build a tavern': '선술집 짓기',
-  'Give residents somewhere to relax.': '주민이 쉴 곳을 마련해 주세요.',
+  'Give residents somewhere to relax.': '정착민이 쉴 곳을 마련해 주세요.',
   'Expand housing and supplies for growth.': '성장에 대비해 집과 물자를 늘리세요.',
   'Build a market': '시장 짓기',
-  'Needs a tavern and 6 residents. Let trade support the settlement.': '선술집과 주민 6명이 필요합니다. 교역으로 정착지를 뒷받침하세요.',
+  'Needs a tavern and 6 residents. Let trade support the settlement.': '선술집과 정착민 6명이 필요합니다. 교역으로 정착지를 뒷받침하세요.',
   'Build a guild': '길드 짓기',
   'Needs a quarry and 6 residents. Choose a resident to take a one-time professional oath at the guild.':
-    '채석장과 주민 6명이 필요합니다. 길드에서 단 한 번의 직업 서약을 할 주민을 고르세요.',
+    '채석장과 정착민 6명이 필요합니다. 길드에서 단 한 번의 직업 서약을 할 정착민을 고르세요.',
   'Support a larger working population.': '더 많은 일꾼을 부양하세요.',
   'Build a weaponsmith': '무기 대장간 짓기',
   'Crafted weapons turn a long brawl into a quick kill.': '제작한 무기가 있으면 긴 싸움도 금세 끝납니다.',
@@ -594,13 +594,13 @@ export const catalogPhrases: Phrases = {
   'Protect your fighters.': '싸우는 이들을 보호하세요.',
   'Build a chapel': '예배당 짓기',
   'Needs an altar and 10 residents. Gives residents a place to pray.':
-    '제단과 주민 10명이 필요합니다. 주민에게 기도할 곳이 생깁니다.',
-  'Make room for skilled residents.': '숙련된 주민이 머물 자리를 마련하세요.',
+    '제단과 정착민 10명이 필요합니다. 정착민에게 기도할 곳이 생깁니다.',
+  'Make room for skilled residents.': '숙련된 정착민이 머물 자리를 마련하세요.',
   'Build a mage tower': '마법탑 짓기',
   'Needs a chapel. Develops a source of mana.': '예배당이 필요합니다. 마나의 원천을 마련합니다.',
   'Keep a growing town supplied.': '커지는 마을에 물자가 끊기지 않게 하세요.',
   'Build an apothecary': '약제상 짓기',
-  'Provide treatment for injured residents.': '다친 주민을 치료할 곳을 마련하세요.',
+  'Provide treatment for injured residents.': '다친 정착민을 치료할 곳을 마련하세요.',
   'Step through a gate': '관문 넘어가기',
   "Select a party and right-click a discovered gate to lead it into the world beyond. Kill the floor's guardian and bring the party home.":
     '파티를 선택하고 발견한 관문을 우클릭해 너머의 세계로 보내세요. 그 층의 수호자를 처치하고 파티를 귀환시키세요.',
@@ -616,35 +616,35 @@ export const catalogPhrases: Phrases = {
     '길드를 선택하고 직업을 서약할 정착민을 고르세요. 직업마다 능력이 하나 있으며 Q를 눌러 씁니다.',
   'Build a training yard': '훈련장 짓기',
   'Needs a guild. Two residents drill there each day and gain experience, though fighting still teaches faster.':
-    '길드가 필요합니다. 주민 두 명이 매일 훈련하며 경험치를 얻지만, 실전이 더 빨리 가르칩니다.',
+    '길드가 필요합니다. 정착민 두 명이 매일 훈련하며 경험치를 얻지만, 실전이 더 빨리 가르칩니다.',
   'Beat off a raid': '습격 물리치기',
   'Raids are warned during the day. Gather your fighters by the camp and kill every raider that comes.':
     '습격은 낮에 미리 알려집니다. 싸울 이들을 캠프 곁에 모아 몰려오는 습격자를 모두 처치하세요.',
   'Build a watchtower': '망루 짓기',
   'Needs a training yard and a raid beaten off. A resident keeps watch and shoots raiders who come near.':
-    '훈련장이 있고 습격을 한 번 물리쳐야 합니다. 주민이 망을 보며 가까이 온 습격자를 쏩니다.',
+    '훈련장이 있고 습격을 한 번 물리쳐야 합니다. 정착민이 망을 보며 가까이 온 습격자를 쏩니다.',
   'Needs a training yard and 10 residents. Crafted weapons turn a long brawl into a quick kill.':
-    '훈련장과 주민 10명이 필요합니다. 제작한 무기가 있으면 긴 싸움도 금세 끝납니다.',
+    '훈련장과 정착민 10명이 필요합니다. 제작한 무기가 있으면 긴 싸움도 금세 끝납니다.',
   'Forge a weapon': '무기 벼리기',
   "Open a resident's equipment and craft a weapon at the weaponsmith. A crafted weapon ends fights far sooner.":
-    '주민의 장비 창을 열고 무기 대장간에서 무기를 제작하세요. 제작한 무기는 싸움을 훨씬 빨리 끝냅니다.',
+    '정착민의 장비 창을 열고 무기 대장간에서 무기를 제작하세요. 제작한 무기는 싸움을 훨씬 빨리 끝냅니다.',
   'Needs a floor cleared beyond a gate. Mail and shields keep your fighters on their feet.':
     '관문 너머 한 층을 돌파해야 합니다. 사슬 갑옷과 방패가 싸우는 이들을 버티게 합니다.',
   'Needs a chapel and 12 residents. Its healer treats the hurt and closes lasting wounds sooner.':
-    '예배당과 주민 12명이 필요합니다. 치료사가 다친 이를 돌보고 오래가는 상처를 더 빨리 아물게 합니다.',
+    '예배당과 정착민 12명이 필요합니다. 치료사가 다친 이를 돌보고 오래가는 상처를 더 빨리 아물게 합니다.',
   'Needs an apothecary. Develops a source of mana.': '약제상이 필요합니다. 마나의 원천을 마련합니다.',
   'Lead a party of three': '세 명의 파티 이끌기',
   'Select three residents and right-click a discovered gate to lead them into the world beyond.':
-    '주민 세 명을 선택하고 발견한 관문을 우클릭해 너머의 세계로 이끄세요.',
+    '정착민 세 명을 선택하고 발견한 관문을 우클릭해 너머의 세계로 이끄세요.',
   'Slay a floor guardian': '층의 수호자 처치하기',
   'Fight through to the heart of a floor and kill its guardian. When it winds up a slam, move your party off the marked ground.':
     '층의 중심까지 싸워 나아가 수호자를 처치하세요. 수호자가 내려치기를 준비하면 표시된 땅에서 파티를 옮기세요.',
   'Revive a downed ally': '쓰러진 동료 일으키기',
   'A resident at 0 health is downed, not dead. Select an ally and right-click the fallen one to revive them before they bleed out.':
-    '체력이 0이 된 주민은 죽은 것이 아니라 쓰러진 것입니다. 동료를 선택하고 쓰러진 이를 우클릭해 숨이 끊어지기 전에 일으키세요.',
+    '체력이 0이 된 정착민은 죽은 것이 아니라 쓰러진 것입니다. 동료를 선택하고 쓰러진 이를 우클릭해 숨이 끊어지기 전에 일으키세요.',
   'Raise a runestone': '룬석 세우기',
   'Opens once a guardian is slain or a resident has fallen. Carve the names of the fallen in stone: while it stands, the settlement grieves less.':
-    '수호자를 처치했거나 주민이 목숨을 잃은 뒤에 열립니다. 쓰러진 이들의 이름을 돌에 새기세요. 룬석이 서 있는 동안 정착지의 슬픔이 줄어듭니다.',
+    '수호자를 처치했거나 정착민이 목숨을 잃은 뒤에 열립니다. 쓰러진 이들의 이름을 돌에 새기세요. 룬석이 서 있는 동안 정착지의 슬픔이 줄어듭니다.',
   'Needs a mage tower, a guild and a sealed gate. Draws more visitors, and for 8 mana pulls a party home from beyond a gate, even mid-fight.':
     '마법탑과 길드, 봉인한 관문이 필요합니다. 방문객이 늘어나며, 마나 8로 관문 너머의 파티를 전투 중에도 귀환시킵니다.',
   'Seal every gate': '모든 관문 봉인하기',
@@ -660,8 +660,8 @@ export const catalogPhrases: Phrases = {
     '두 관문이 동시에 꿈틀댑니다. 오늘 밤 양쪽에서 습격자가 옵니다',
   'Fresh tracks lead from {0}: a raid will come tonight':
     '{0}에서 새 발자국이 이어집니다. 오늘 밤 습격이 옵니다',
-  'Week {0}: raiders are at their full strength. Only sealing the gates ends the raids.':
-    '{0}주차: 습격자가 최대로 강해졌습니다. 관문을 봉인해야만 습격이 끝납니다.',
+  'Week {0}: the dungeons can now send their largest hordes. Seal a dungeon to end its raids.':
+    '{0}주차: 이제 던전에서 가장 큰 무리가 출격할 수 있습니다. 던전을 봉인하면 그곳의 습격이 끝납니다.',
   'Week {0}: raiders grow stronger. Seal a gate to end its raids.':
     '{0}주차: 습격자가 더 강해졌습니다. 관문을 봉인하면 그 관문의 습격이 끝납니다.',
 
@@ -671,11 +671,11 @@ export const catalogPhrases: Phrases = {
   'Offer at least 4 resources to call a new life.': '새 생명을 부르려면 자원을 4 이상 바치세요.',
 
   // Control reasons
-  'This resident is unavailable.': '이 주민에게는 명령할 수 없습니다.',
+  'This resident is unavailable.': '이 정착민에게는 명령할 수 없습니다.',
   'Guests are visitors and cannot be commanded or hired.': '손님은 방문객이므로 명령하거나 고용할 수 없습니다.',
-  'This resident belongs to a neutral settlement.': '이 주민은 중립 정착지 소속입니다.',
+  'This resident belongs to a neutral settlement.': '이 정착민은 중립 정착지 소속입니다.',
   'Overwhelmed: resting until stress recovers.': '한계에 달함: 스트레스가 풀릴 때까지 쉽니다.',
-  'This resident is on an expedition.': '이 주민은 원정 중입니다.',
+  'This resident is on an expedition.': '이 정착민은 원정 중입니다.',
   'This building is unavailable.': '이 건물은 사용할 수 없습니다.',
   'This building belongs to a neutral settlement.': '이 건물은 중립 정착지 소속입니다.',
 
@@ -728,9 +728,9 @@ export const catalogPhrases: Phrases = {
   'Wrapped robe': '두른 로브',
   // The smithy and station levels: items, makes and goals
   "Smithy": "대장간",
-  "A forge and an anvil where residents make weapons, shields and armor, one at a time. Upgrade it for stone, then iron.": "주민이 화덕과 모루에서 무기, 방패, 갑옷을 하나씩 만듭니다. 업그레이드하면 돌로, 다시 철로 만듭니다.",
+  "A forge and an anvil where residents make weapons, shields and armor, one at a time. Upgrade it for stone, then iron.": "정착민이 화덕과 모루에서 무기, 방패, 갑옷을 하나씩 만듭니다. 업그레이드하면 돌로, 다시 철로 만듭니다.",
   "An old armorer’s forge. Smithies make armor now.": "옛 갑옷 대장간입니다. 이제 갑옷은 대장간에서 만듭니다.",
-  "An open-air bench where residents make tools and a pack basket, one at a time. Upgrade it for stone, then iron tools.": "주민이 도구와 등 바구니를 하나씩 만드는 야외 작업대입니다. 업그레이드하면 돌 도구, 다시 철 도구를 만듭니다.",
+  "An open-air bench where residents make tools and a pack basket, one at a time. Upgrade it for stone, then iron tools.": "정착민이 도구와 등 바구니를 하나씩 만드는 야외 작업대입니다. 업그레이드하면 돌 도구, 다시 철 도구를 만듭니다.",
   "Wooden staff": "나무 지팡이",
   "Flint sword": "부싯돌 검",
   "Flint spear": "부싯돌 창",
@@ -754,15 +754,15 @@ export const catalogPhrases: Phrases = {
   "Made at a workbench fitted for iron. The best tool of its kind; it can serve as a weapon at a pinch.": "철을 다루도록 갖춘 작업대에서 만듭니다. 같은 종류에서 가장 좋은 도구이며, 급할 때는 무기로도 쓸 수 있습니다.",
   "Forged in iron at the smithy at its highest level: the hardest-hitting of its kind.": "가장 높은 단계의 대장간에서 철로 벼립니다: 같은 종류에서 가장 세게 칩니다.",
   "Build a smithy": "대장간 짓기",
-  "An open bench where residents make tools, one at a time. It takes 4 wood.": "주민이 도구를 하나씩 만드는 열린 작업대입니다. 목재 4가 듭니다.",
+  "An open bench where residents make tools, one at a time. It takes 4 wood.": "정착민이 도구를 하나씩 만드는 열린 작업대입니다. 목재 4가 듭니다.",
   "Gather 12 wood and 8 stone. The smithy makes weapons, shields and armor.": "목재 12와 석재 8을 모으세요. 대장간에서 무기, 방패, 갑옷을 만듭니다.",
   "Make a weapon or a shield": "무기나 방패 만들기",
   "Upgrade the workbench": "작업대 업그레이드",
-  "Pay 10 wood and 6 stone at the workbench: a resident works on it, and then it makes stone tools.": "작업대에서 목재 10과 석재 6을 들이세요: 주민이 손보고 나면 돌 도구를 만듭니다.",
+  "Pay 10 wood and 6 stone at the workbench: a resident works on it, and then it makes stone tools.": "작업대에서 목재 10과 석재 6을 들이세요: 정착민이 손보고 나면 돌 도구를 만듭니다.",
   "Upgrade the smithy": "대장간 업그레이드",
-  "Needs a quarry and 4 residents. Pay 16 wood and 12 stone at the smithy: then it makes stone weapons, a reinforced shield and stone-studded armor.": "채석장과 주민 4명이 필요합니다. 대장간에서 목재 16과 석재 12를 들이면 돌 무기, 보강 방패, 돌 박은 갑옷을 만듭니다.",
+  "Needs a quarry and 4 residents. Pay 16 wood and 12 stone at the smithy: then it makes stone weapons, a reinforced shield and stone-studded armor.": "채석장과 정착민 4명이 필요합니다. 대장간에서 목재 16과 석재 12를 들이면 돌 무기, 보강 방패, 돌 박은 갑옷을 만듭니다.",
   "Raise the smithy to iron": "대장간을 철 단계로",
-  "Needs a floor cleared beyond a gate and 8 residents. Pay 20 gold, 8 planks and 8 cut stone at the smithy: then it forges iron.": "관문 너머 층 하나를 정리하고 주민 8명이 있어야 합니다. 대장간에서 골드 20, 판자 8, 다듬은 돌 8을 들이면 철을 벼립니다.",
+  "Needs a floor cleared beyond a gate and 8 residents. Pay 20 gold, 8 planks and 8 cut stone at the smithy: then it forges iron.": "관문 너머 층 하나를 정리하고 정착민 8명이 있어야 합니다. 대장간에서 골드 20, 판자 8, 다듬은 돌 8을 들이면 철을 벼립니다.",
   "Forge an iron weapon": "철 무기 벼리기",
   "Make an iron weapon at the smithy, or upgrade a stone one there.": "대장간에서 철 무기를 만들거나 돌 무기를 업그레이드하세요.",
   "Arm a fighter in iron": "전사를 철로 무장하기",

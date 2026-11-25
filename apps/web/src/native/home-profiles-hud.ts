@@ -6,7 +6,7 @@ import type { Building } from '../../../../packages/engine/src/town-models';
 import { f32 } from '../../../../packages/engine/src/numeric';
 import type { Town } from '../../../../packages/engine/src/town';
 import { centreOn, tooltip } from './game-combat-hud';
-import { portrait } from './expedition-window';
+import { portrait } from './resident-portrait';
 import type { GameHudApp } from './game-hud-contract';
 import type { InspectorRows } from './game-progress-hud';
 

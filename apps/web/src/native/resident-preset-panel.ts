@@ -12,7 +12,7 @@ import { Calling, Person, Race, Role } from '../../../../packages/engine/src/per
 import { translate } from '../../../../packages/localization/src';
 import { Mood, personPortrait } from '../../../../packages/native-renderer/src/person-portrait';
 import { portraitBackdrop } from '../../../../packages/native-renderer/src/portrait-background';
-import { portrait } from './expedition-window';
+import { portrait } from './resident-portrait';
 import type { GameAppState } from './game-app-state';
 import { hudPaint } from './hud-paint';
 import type { ResidentDraft } from './resident-draft';

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { Town } from '../../packages/engine/src/town';
 import { WorldMap } from '../../packages/engine/src/world-map';
-import { makeTile, Terrain, Layer } from '../../packages/engine/src/world-types';
-import { Person, Role, Calling, Race, Activity, Monster } from '../../packages/engine/src/person';
+import { makeTile, Terrain, Layer, DungeonKind } from '../../packages/engine/src/world-types';
+import { Person, Role, Calling, Race, Activity, Monster, experienceForLevel, experienceForLevels, workPracticeExperience } from '../../packages/engine/src/person';
 import { Building } from '../../packages/engine/src/town-models';
 import { Product, Resources, Structure } from '../../packages/engine/src/building-catalog';
 import { point, distance } from '../../packages/engine/src/geometry';
@@ -103,13 +103,67 @@ describe('owned equipment, personal inventory and crafting', () => {
     foe.health = 100;
     town.strike(person, foe);
     const first = 100 - foe.health;
-    person.gainExperience(100000);
+    person.gainExperience(2_000_000);
     expect(person.level).toBe(Person.maximumLevel);
     expect(person.vitalityMultiplier()).toBeGreaterThan(1);
     town.strike(person, foe);
     expect(first).toBe(1);
     expect(100 - first - foe.health).toBe(first);
     expect(town.power(person)).toBe(first);
+  });
+  it('earns experience at a workstation, keeps that experience on load, and trains late recruits from settled knowledge', () => {
+    const makeTool = (sealed: number) => {
+      const { town, person, bench } = fixture();
+      town.world.sites = [point(18, 18), point(26, 26)].map(origin => ({
+        kind: DungeonKind.Cave, origin, discovered: true, name: 'Old cave',
+      }));
+      town.open = [1, 1];
+      town.depth = [0, 0];
+      if (sealed >= 0) town.depth[sealed] = 3;
+      person.level = 2;
+      advance(town, 6);
+      expect(person.experience).toBe(0);
+      expect(town.orderCraft(person.id, bench.id, 'wooden-axe')).toBe(true);
+      for (let i = 0; i < 1200 && !person.inventory.some(s => s?.item === 'wooden-axe'); i++) town.advance(.05);
+      expect(person.inventory.some(s => s?.item === 'wooden-axe')).toBe(true);
+      const loaded = decodeTown(encodeTown(town), map => new Town(map, 32, false, true))!;
+      expect(loaded.person(person.id)?.experience).toBe(person.experience);
+      return experienceForLevels(2, person.level - 2) + person.experience;
+    };
+    const early = makeTool(-1), firstGate = makeTool(0), fartherGate = makeTool(1);
+    expect(early).toBeGreaterThan(0);
+    expect(firstGate).toBeGreaterThan(early);
+    expect(fartherGate).toBeGreaterThan(firstGate);
+  });
+  it('trains a late recruit to a proven tier quickly and gives veterans the normal pace', () => {
+    const productiveMinutes = (start: number, target: number, proven: number) => {
+      const { person } = fixture();
+      person.level = start;
+      let beats = 0;
+      while (person.level < target && beats < 5000) {
+        person.gainExperience(workPracticeExperience(person.level, proven));
+        ++beats;
+      }
+      expect(person.level).toBe(target);
+      return beats * 3 / 60;
+    };
+    expect(productiveMinutes(35, 70, 70)).toBeLessThan(12);
+    expect(productiveMinutes(35, 80, 70)).toBeLessThan(52);
+    expect(productiveMinutes(70, 80, 70)).toBe(productiveMinutes(70, 80, 0));
+    expect(productiveMinutes(5, 10, 0)).toBeGreaterThan(18);
+  });
+  it('rewards a trained settler through the final dungeon tier and saves the higher level', () => {
+    const { town, person } = fixture();
+    person.level = 80;
+    person.gainExperience(experienceForLevels(80, 5));
+    expect([person.level, person.experience]).toEqual([85, 0]);
+    person.gainExperience(experienceForLevel(85) - 1);
+    const encoded = encodeTown(town);
+    expect(encoded.startsWith('GoldFantasy-save\n1b000000')).toBe(true);
+    const loaded = decodeTown(encoded, map => new Town(map, 32, false, true))!;
+    expect(loaded.person(person.id)).toMatchObject({ level: 85, experience: experienceForLevel(85) - 1 });
+    for (let n = 85; n < 100; n++) person.gainExperience(experienceForLevel(n));
+    expect([person.level, person.experience]).toEqual([100, 0]);
   });
   it('uses the weapon grades and the wielder’s attributes for previews and real strikes at any eligible level', () => {
     const { town, person } = fixture();
@@ -128,7 +182,7 @@ describe('owned equipment, personal inventory and crafting', () => {
         town.strike(person, foe);
         expect(100 - foe.health).toBe(expected);
         person.level = 30;
-        expect(attackDamage(person)).toBe(expected);
+        expect(attackDamage(person)).toBeGreaterThan(expected);
         person.level = 7;
       }
     }

@@ -301,9 +301,9 @@ describe('the altar cap', () => {
     town.depth = depth;
     return town;
   };
-  it('starts at eight and rises by four per floor and four more per seal', () => {
-    expect(altarBaseCap).toBe(8);
-    expect([[], [0], [1], [2], [3]].map((d) => altarCap(withDepth(d)))).toEqual([8, 8, 12, 16, 24]);
+  it('starts at twelve and rises by four per floor and four more per seal', () => {
+    expect(altarBaseCap).toBe(12);
+    expect([[], [0], [1], [2], [3]].map((d) => altarCap(withDepth(d)))).toEqual([12, 12, 16, 20, 28]);
   });
   it('refuses at the cap and spends nothing', () => {
     const town = fixture();
@@ -321,7 +321,7 @@ describe('the altar cap', () => {
     expect(town.stock()).toEqual(stock);
     expect(town.population()).toBe(people);
     expect(rolls).not.toHaveBeenCalled();
-    expect(altarCapReason).toBe('Clear another floor beyond a gate to make room for more residents.');
+    expect(altarCapReason).toBe('Seal a dungeon to make room for more residents.');
     town.depth = [1];
     // Leave one bed free: the fixture's homes hold fewer than the base cap.
     while (town.population() > town.housing() - 1) town.folk.pop();

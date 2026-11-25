@@ -1,6 +1,6 @@
-import { add, point, segmentDistance } from './geometry';
-import { f32, hash01, u32 } from './numeric';
-import { DungeonKind, Giant, Region, Terrain, World, unsafeGround, isStone, isWater, type Dungeon, type TileCoord } from './world-types';
+import { point } from './geometry';
+import { f32, hash01 } from './numeric';
+import { DungeonKind, Giant, Region, World, unsafeGround, isStone, isWater, type Dungeon, type TileCoord } from './world-types';
 import type { WorldMap } from './world-map';
 const titles = [
     ['Tower of Ravens', 'The Broken Hall', "Bifrost's Foot", 'Valgrind'],
@@ -42,44 +42,42 @@ function clearEntrance(map: WorldMap, at: TileCoord, index: number): void {
             tile.trees = tile.wild = 0;
         }
 }
-export function reachable(map: WorldMap, start: TileCoord): Uint8Array {
-    const width = map.width(), height = map.height(), river = new Uint8Array(f32(width * height)), seen = new Uint8Array(f32(width * height)), stream = map.river();
-    for (let i = 1; i < stream.path.length; i++) {
-        if (stream.width[f32(i - 1)] <= 0 || stream.width[i] <= 0)
-            continue;
-        const a = stream.path[f32(i - 1)], b = stream.path[i], reach = f32(f32(stream.width[i] / 2) + f32(.7));
-        for (let y = Math.floor(f32(Math.min(a.y, b.y) - reach)); y <= Math.ceil(f32(Math.max(a.y, b.y) + reach)); y++)
-            for (let x = Math.floor(f32(Math.min(a.x, b.x) - reach)); x <= Math.ceil(f32(Math.max(a.x, b.x) + reach)); x++)
-                if (map.inside(x, y) && segmentDistance(point(f32(x + f32(.5)), f32(y + f32(.5))), a, b) <= reach)
-                    river[f32(f32(y * width) + x)] = 1;
-    }
-    const open = (x: number, y: number): boolean => { const terrain = map.at(x, y).terrain; return !unsafeGround(terrain) && (!isWater(terrain) || terrain === Terrain.Water && !!river[f32(f32(y * width) + x)]); };
-    const stack = [start];
-    seen[f32(f32(start.y * width) + start.x)] = 1;
-    while (stack.length) {
-        const at = stack.pop()!;
-        for (const step of [point(1, 0), point(-1, 0), point(0, 1), point(0, -1)]) {
-            const x = f32(at.x + step.x), y = f32(at.y + step.y);
-            if (!map.inside(x, y) || seen[f32(f32(y * width) + x)] || !open(x, y))
-                continue;
-            seen[f32(f32(y * width) + x)] = 1;
-            stack.push({ x, y });
-        }
+/** A sortie must be able to march home before the settlement has laid any bridges. */
+function reachable(map: WorldMap, start: TileCoord): Uint8Array {
+    const width = map.width(), height = map.height(), seen = new Uint8Array(width * height);
+    const queue = [start.y * width + start.x];
+    seen[queue[0]] = 1;
+    const visit = (x: number, y: number): void => {
+        if (!map.inside(x, y)) return;
+        const index = y * width + x;
+        if (seen[index]) return;
+        const terrain = map.tiles[index].terrain;
+        if (isWater(terrain) || unsafeGround(terrain)) return;
+        seen[index] = 1;
+        queue.push(index);
+    };
+    for (let i = 0; i < queue.length; ++i) {
+        const cell = queue[i], x = cell % width, y = Math.floor(cell / width);
+        visit(x + 1, y);
+        visit(x - 1, y);
+        visit(x, y + 1);
+        visit(x, y - 1);
     }
     return seen;
 }
 export function placeDungeons(map: WorldMap, sites: Dungeon[], start: TileCoord): void {
-    const reach = reachable(map, start);
+    const reach = reachable(map, start), span = Math.min(map.width(), map.height());
+    const outerDistance = Math.max(18, Math.min(38, span * .32));
     const gates = [[World.Jotunheim, DungeonKind.Cave], [World.Helheim, DungeonKind.Crypt], [World.Niflheim, DungeonKind.Portal], [World.Muspelheim, DungeonKind.Ruin], [World.Asgard, DungeonKind.Ruin], [World.Alfheim, DungeonKind.Portal], [World.Vanaheim, DungeonKind.Portal], [World.Svartalfheim, DungeonKind.Cave]] as const;
     for (let k = 0; k < gates.length; k++) {
         const [world, kind] = gates[k], home = k === 0;
-        let best = { x: -1, y: -1 }, bestScore = -1;
+        const preferredDistance = home ? 9 : Math.min(span * .58, k < 4 ? 48 : 73);
+        let best = { x: -1, y: -1 }, bestScore = -Infinity;
         for (let y = 2; y < f32(map.height() - 3); y++)
             for (let x = 2; x < f32(map.width() - 3); x++) {
-                let distance = f32(Math.hypot(f32(x - start.x), f32(y - start.y)));
-                if (home)
-                    distance = f32(Math.hypot(f32(f32(x + 1) - (f32(start.x + f32(.5)))), f32(f32(y + 1) - (f32(start.y + f32(.5))))));
-                if ((home ? distance < 7 || distance > f32(11.5) : distance < 18) || !fits(map, x, y, kind, home) || !reach[f32(f32(f32((f32(y + 2)) * map.width()) + x) + 1)])
+                const distance = Math.hypot(x + .5 - start.x, y + .5 - start.y);
+                if ((home ? distance < 7 || distance > 11.5 : distance < outerDistance) ||
+                    !reach[(y + 2) * map.width() + x + 1] || !fits(map, x, y, kind, home))
                     continue;
                 if (map.destination({ name: '', kind, origin: { x, y }, discovered: false }) !== world)
                     continue;
@@ -88,7 +86,7 @@ export function placeDungeons(map: WorldMap, sites: Dungeon[], start: TileCoord)
                 const giant = map.giant();
                 if (!home && giant && giant.sights().some(s => f32(Math.hypot(f32(f32(s.center.x - x) - 1), f32(f32(s.center.y - y) - 1))) <= f32(s.radius + f32(1.5))))
                     continue;
-                let score = f32(hash01(map.seed(), x, y, 90 + k) - f32(Math.abs(f32(distance - (home ? 9 : f32(24 + f32(Math.trunc(f32(k / 4)) * 30))))) * f32(.02)));
+                let score = hash01(map.seed(), x, y, 90 + k) - Math.abs(distance - preferredDistance) * .02;
                 if (home && giant)
                     score = f32(score + f32(f32((f32(f32(f32(f32(f32(x + 1) - giant.center().x) + y) + 1) - giant.center().y)) * f32(.7071)) * f32(.03)));
                 if (score > bestScore) {
@@ -104,17 +102,20 @@ export function placeDungeons(map: WorldMap, sites: Dungeon[], start: TileCoord)
     }
     const halls = ['Eastshore Stone Hall', 'The Tideworn Hall'];
     for (let k = 0; k < (map.width() >= 128 ? 2 : 1); k++) {
-        let best = { x: -1, y: -1 }, bestScore = -1;
+        let best = { x: -1, y: -1 }, bestScore = -Infinity;
         for (let y = 2; y < f32(map.height() - 3); y++)
             for (let x = 2; x < f32(map.width() - 3); x++) {
                 const door = point(f32(x + 1), f32(y + f32(2.3)));
                 if (!map.onEasternCoast(door) || !fits(map, x, y, DungeonKind.GiantHall, false) || !reach[f32(f32(f32((f32(y + 2)) * map.width()) + x) + 1)])
                     continue;
-                if (f32(Math.hypot(f32(x - start.x), f32(y - start.y))) < Math.min(18, f32(map.width() * f32(.2))))
+                const distance = Math.hypot(x - start.x, y - start.y);
+                if (distance < Math.min(18, span * .2))
                     continue;
                 if (sites.some(d => f32(Math.hypot(f32(d.origin.x - x), f32(d.origin.y - y))) < Math.min(12, f32(map.width() / 10))))
                     continue;
-                const score = f32(hash01(map.seed(), x, y, 171 + k) + (map.regionAt(door) === Region.Middle ? 2 : 0));
+                const shoreDistance = k === 0 ? Math.min(span * .25, 23) : outerDistance + 12;
+                const score = hash01(map.seed(), x, y, 171 + k) + (map.regionAt(door) === Region.Middle ? 2 : 0)
+                    - Math.abs(distance - shoreDistance) * (k === 0 ? .035 : .12);
                 if (score > bestScore) {
                     bestScore = score;
                     best = { x, y };

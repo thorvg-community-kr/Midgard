@@ -346,7 +346,7 @@ export const itemCatalog: readonly ItemSpec[] = [
   entry('mana', 'Mana', { product: Product.Mana }),
   entry('bones', 'Bones', { product: Product.Bones, description: 'Bones from hunts and fallen monsters can be offered to Odin or worked at the foundry.' }),
   entry('hides', 'Hides', { product: Product.Hides, description: 'Tough skins from hunts and fallen brutes. A smith cuts them into boots.' }),
-  entry('iron-ore', 'Iron ore', { product: Product.IronOre, description: 'Mine iron veins with a stone pick or bring ore home from a cleared floor.' }),
+  entry('iron-ore', 'Iron ore', { product: Product.IronOre, description: 'Mine iron veins with a stone pick or win ore by sealing a dungeon.' }),
   entry('cinder-ore', 'Cinder ore', { product: Product.CinderOre, description: 'Mine the dark veins on volcanic ground with an iron pick.' }),
   entry('frostwood', 'Frostwood', { product: Product.Frostwood, description: 'Fell a frostwood spruce on frozen ground with a stone axe.' }),
   refinedMaterial('iron-ingot', 'Iron ingot', Product.IronIngot, Resources.from({ ironOre: 2, wood: 1 }), 6,

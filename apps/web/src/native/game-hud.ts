@@ -33,7 +33,6 @@ import {
 } from '../../../../packages/engine/src/building-catalog';
 import { DungeonKind } from '../../../../packages/engine/src/world-types';
 import { isCraftStation } from '../../../../packages/engine/src/equipment';
-import { worldName } from '../../../../packages/engine/src/world-map';
 import { point, project, distance } from '../../../../packages/engine/src/geometry';
 import { f32, clamp } from '../../../../packages/engine/src/numeric';
 import type { Town } from '../../../../packages/engine/src/town';
@@ -64,8 +63,8 @@ import { guideHud } from './game-guide-panel';
 import { orderRail, unitOrderRail } from './unit-orders-card';
 import { groupTabs } from './control-groups';
 import { aimPrompt, currentAim } from './skill-commands';
-import { gateKindName, gateLock, openExpedition } from './expedition-window';
-import { gateSealed } from '../../../../packages/engine/src/gate-seals';
+import { attackDungeon, gateKindName, partyRecommendation, siegeLesson } from './dungeon-attack';
+import { dungeonChallenge, dungeonStatus } from '../../../../packages/engine/src/dungeon-siege';
 import { gateActive } from '../../../../packages/engine/src/gate-progression';
 const tools = toolInfo;
 /** Every group, in page order: a group's page number never changes while the settlement grows. */
@@ -163,7 +162,6 @@ export function hud(this: GameHudApp, width: number, height: number): void {
   }
   noticeToast(this, width, height, guided ? 28 : 0, right);
   this.objectives(width, height, this.touchMode ? (this.timeExpanded ? 116 : 64) : width < 900 ? 104 : 64);
-  this.realmPanel(width, height);
   this.timeControls(width);
   this.campSupplies(width, height);
   this.calendarDetails(width);
@@ -171,7 +169,6 @@ export function hud(this: GameHudApp, width: number, height: number): void {
   unitOrderRail(this, width, height);
   if (!this.town.isTitleAutoplay()) groupTabs(this, height);
   combatOverlays(this, width, height);
-  this.realmRewardBanner(width, height);
   this.sagaBanner(width, height);
   guideHud(this, width, height);
 }
@@ -240,14 +237,15 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
     return civicInspector.call(this, building, panel, draw);
   let y = 12;
   const station = building && isCraftStation(building.kind),
-    left = f32(panel.x + (station ? 14 : 112)),
-    inner = f32(panel.w - (station ? 28 : 128)),
+    lowDungeon = !building && this.viewHeight > 1 && this.viewHeight < 460,
+    left = f32(panel.x + (station || !building ? 14 : 112)),
+    inner = f32(panel.w - (station || !building ? 28 : 128)),
     top = panel.y,
     frame = station
       ? new Rect(left, f32(top + y), 44, 44)
       : new Rect(f32(panel.x + 12), f32(top + y), 84, 94),
     rows: (() => void)[] = [],
-    textRow = (text: string, color: Color, size = 13, bold = false, lineHeight = size + 9) => {
+    textRow = (text: string, color: Color, size = 13, bold = false, lineHeight = size + (lowDungeon ? 4 : 9)) => {
       const at = y;
       rows.push(() => c.text(new Rect(left, f32(top + at), inner, f32(lineHeight - 1)), text, color, size, bold));
       y = f32(y + lineHeight);
@@ -478,13 +476,10 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
   } else {
     const site = this.town.map().dungeons()[this.selectedDungeon];
     textRow(site.name, t.text, 16, true);
-    textRow(
-      site.kind === DungeonKind.Return
-        ? 'Rift  -  the way back to Midgard'
-        : `${dungeonKind(site.kind)}  -  a way to ${worldName(this.town.map().destination(site))}`,
-      t.accent,
-      13,
-    );
+    const challenge = site.kind === DungeonKind.Return || site.kind === DungeonKind.GiantHall
+      ? null : dungeonChallenge(this.town, this.selectedDungeon);
+    const kind = dungeonKind(site.kind);
+    textRow(challenge ? `${kind} · Dungeon tier ${challenge.tier}` : kind, t.accent, 13);
     if (site.kind === DungeonKind.Return) {
       for (const line of wrap(
         c,
@@ -501,37 +496,32 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
         12,
       ))
         textRow(line, t.muted, 12);
-    } else if (!gateActive(this.town, this.selectedDungeon) && !gateSealed(this.town, this.selectedDungeon)) {
-      textRow('Dormant gate', t.muted, 12, true);
     } else {
-      const gate = this.selectedDungeon,
-        floors = this.town.gateFloors(gate),
-        lock = gateLock(this.town, gate);
-      textRow(
-        floors.sealed ? 'Sealed: no raid leaves this gate' : `Floors cleared: ${floors.cleared} of ${floors.total}`,
-        floors.sealed ? t.success : t.text,
-        12,
-        true,
-      );
-      for (const line of wrap(
-        c,
-        lock || 'Click the gate, or the button below, to choose a party and a floor and set out.',
-        inner,
-        12,
-      ))
-        textRow(line, lock && !floors.sealed ? t.danger : t.muted, 12);
-      const at = y;
-      rows.push(() =>
-        button(
-          c,
-          'gate-expedition',
-          new Rect(left, f32(f32(top + at) + 2), Math.min(inner, 220), this.touchMode ? 44 : 28),
-          'Plan an expedition',
-          () => openExpedition(this, gate, this.chosen),
-          ButtonStyle.Primary,
-        ),
-      );
-      y = f32(y + (this.touchMode ? 52 : 36));
+      const gate = this.selectedDungeon;
+      const { phase, health, maxHealth, remaining, creatures } = dungeonStatus(this.town, gate);
+      if (phase === 'standing') {
+        if (challenge) {
+          for (const recommendation of partyRecommendation(challenge))
+            for (const line of wrap(c, recommendation, inner, 12)) textRow(line, t.accent, 12, true);
+        }
+        textRow(`Dungeon health: ${Math.ceil(health)} / ${maxHealth}`, t.text, 13, true);
+        const barY = y;
+        rows.push(() => meter(c, new Rect(left, top + barY + 2, inner, 8), health / maxHealth, t.danger));
+        y += 16;
+        if (!gateActive(this.town, gate)) textRow('Dormant gate', t.muted, 12);
+        for (const line of wrap(c, siegeLesson, inner, 12)) textRow(line, t.muted, 12);
+        const at = y;
+        rows.push(() => button(c, 'gate-attack', new Rect(left, top + at + 2, Math.min(inner, 220), this.touchMode ? 44 : 28),
+          'Attack', () => attackDungeon(this, gate), ButtonStyle.Primary));
+        y += this.touchMode ? 52 : 36;
+      } else if (phase === 'sealed') {
+        textRow('Sealed: no raid leaves this gate', t.success, 12, true);
+      } else if (phase === 'summoning') {
+        textRow('The guardian is rising', t.danger, 13, true);
+      } else {
+        textRow(`Defenders left: ${creatures}`, t.text, 13, true);
+        textRow(`Dungeon rises in ${Math.ceil(remaining)}s`, t.danger, 12);
+      }
     }
     const progress: InspectorRows = { rows, left, inner, top, y };
     progressInspector(this, null, this.selectedDungeon, progress);
@@ -539,8 +529,8 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
   }
   const h = Math.max(126, f32(y + 10));
   if (!draw) return h;
-  pictureFrame(c, frame);
   if (building) {
+    pictureFrame(c, frame);
     const art = frame.inset(station ? 4 : 10),
       kind = building.kind;
     c.paint(

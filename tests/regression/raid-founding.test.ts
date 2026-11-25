@@ -310,10 +310,11 @@ describe('raids against a real new game', () => {
     expect(town.chronicle.raidsRepelled).toBeGreaterThanOrEqual(run.waves.length - 1);
     expect(town.fallen).toHaveLength(0);
     expect(alive.length).toBeGreaterThanOrEqual(4);
-    // The first raid is a probe: no brutes, a handful of swarmers and at most one leader.
+    // The first raid is a broad, fragile wave, with at most one leader among the swarmers.
     expect(run.waves[0]).toMatchObject({ brutes: 0 });
     expect(run.waves[0].grunts).toBeLessThanOrEqual(1);
-    expect(run.waves[0].size).toBeLessThanOrEqual(2 * run.waves[0].residents + 1);
+    expect(run.waves[0].size).toBeGreaterThanOrEqual(10);
+    expect(run.waves[0].size).toBeLessThanOrEqual(14);
     // Waves follow what the settlement has, not the calendar alone.
     for (const w of run.waves) expect(w.size).toBeLessThanOrEqual(3 * w.residents + 3);
   });

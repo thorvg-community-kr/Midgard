@@ -1,13 +1,13 @@
 import type { TownState } from './town-state';
 import { sealFloors, sealable } from './gate-seals';
 
-/** Population limit before any floor beyond a gate is cleared: a working settlement with a first party to spare. */
-export const altarBaseCap = 8;
+/** The first dungeon calls for ten fighters. A pair of settlers can still tend the village. */
+export const altarBaseCap = 12;
 /** Added for each floor cleared for the first time, and again for each gate sealed. */
 export const altarFloorBonus = 4;
 export const altarSealBonus = 4;
 
-/** Floors first cleared and gates sealed, read from the depth record the realm already saves. */
+/** The old depth record preserves population places earned before outdoor sieges. A seal earns the full grant. */
 export function altarProgress(town: TownState): { floors: number; seals: number } {
   let floors = 0,
     seals = 0;
@@ -26,5 +26,5 @@ export function altarCap(town: TownState): number {
   return altarBaseCap + altarFloorBonus * floors + altarSealBonus * seals;
 }
 
-export const altarCapReason = 'Clear another floor beyond a gate to make room for more residents.';
+export const altarCapReason = 'Seal a dungeon to make room for more residents.';
 export const altarCapLine = (cap: number): string => `Your settlement can now grow to ${cap} residents.`;

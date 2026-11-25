@@ -59,4 +59,15 @@ export class CombatState {
   skillCheckAt = new Map<number, number>();
   /** Day the wound countdown last ran for. */
   woundDay = -1;
+  /** Clear short-lived effects on a slain creature or on a defender reclaimed by its dungeon. */
+  forgetCreature(id: number): void {
+    this.slayers.delete(id);
+    this.taunts.delete(id);
+    this.slamAt.delete(id);
+    this.slamCenter.delete(id);
+    this.chilled.delete(id);
+    this.dirged.delete(id);
+    this.steering.delete(id);
+    this.struckAt.delete(id);
+  }
 }

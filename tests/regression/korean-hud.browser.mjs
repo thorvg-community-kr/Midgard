@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'vite';
 import { chromium } from '@playwright/test';
 
-// Pictures of the army, a fight beyond a gate and the newer buildings in Korean, to look at for English left behind
+// Pictures of the army, an outdoor assault and the newer buildings in Korean, to look at for English left behind
 // and for words that do not fit their boxes.
 const output = 'artifacts/regression/korean';
 const report = { errors: [], passed: false, shots: [], untranslated: [] };
@@ -72,6 +72,7 @@ try {
       import('/packages/localization/src/index.ts'),
       import('/packages/engine/src/road-network.ts'),
     ]);
+    (await import('/apps/web/src/native/guide-preferences.ts')).setGuidePreference('cards', false);
     const tvg = await initializeWebCanvas('gl'),
       element = document.createElement('canvas');
     element.style.cssText = 'display:block;width:1280px;height:800px';
@@ -170,6 +171,7 @@ try {
       now: 1,
       frame(dt = 0.05) {
         this.now += dt;
+        app.dirty = true;
         host.render(this.now);
       },
       frames(count, dt = 0.05) {
@@ -198,14 +200,14 @@ try {
       member(calling) {
         return town.folk.find((p) => p.calling === calling);
       },
-      enterGate() {
+      muster() {
         const entry = monsterEntrance(site);
-        for (const p of this.fighters()) {
-          p.position = { ...entry };
-          p.activity = Activity.Expedition;
-          p.inside = true;
+        for (const [i, p] of this.fighters().entries()) {
+          p.position = town.grid.nearestWalkable({ x: entry.x + (i - 2) * 0.6, y: entry.y + 2 });
         }
-        town.parties.push({ dungeon: gate, members: this.fighters().map((p) => p.id), floor: 0 });
+        town.scout(entry.x, entry.y, 12);
+        game.selectPeople(this.fighters().map(p => p.id));
+        this.look(entry, 1.5);
       },
       controls() {
         return game.context.controls.map((c) => ({ id: c.id, bounds: { ...c.bounds }, enabled: c.enabled }));
@@ -254,12 +256,12 @@ try {
   });
   await frames(8);
   await settle();
-  await shot('expedition-forecast');
+  await shot('dungeon-condition');
 
-  // Beyond the gate: the party selected, the orders card and the skill card.
+  // The fighters at the dungeon, with their orders and skills.
   await page.evaluate(() => {
     korean.clear();
-    korean.enterGate();
+    korean.muster();
   });
   await frames(6);
   await settle();
@@ -297,31 +299,25 @@ try {
   await shot('control-groups-new-tooltip');
   await away();
 
-  // A den falls: the banner, the dens counter in the realm panel.
+  // The breach and its defenders on the main map.
   await page.evaluate(() => {
-    const t = korean.town,
-      den = t.realmDens()[0],
-      warrior = korean.member(korean.Calling.Warrior);
-    korean.game.selectPeople(korean.fighters().map((p) => p.id));
-    for (const p of korean.fighters()) p.position = { x: den.position.x - 2, y: den.position.y + 1 };
-    korean.look(den.position, 1.5);
-    den.health = 0;
-    t.combatState.slayers.set(den.id, warrior.id);
+    const t = korean.town, fighters = korean.fighters(), gate = korean.gate;
+    // Stage the last stretch of the assault to capture the localized breach and guardian notices.
+    t.sieges[gate] = { health: 36, summonAt: -1, reviveAt: -1, guardian: -1, village: t.camp().id };
+    t.orderAttackDungeon(fighters.map(p => p.id), gate);
+    for (let i = 0; i < 400 && t.sieges[gate]?.health !== 0; ++i) t.advance(0.1);
+    if (!t.sieges[gate] || t.sieges[gate].health > 0) throw new Error('Dungeon still standing');
+    korean.game.selectPeople(fighters.map(p => p.id));
   });
-  await frames(4);
-  const banner = await page.evaluate(() => ({
-    banners: korean.game.army.banners.map((b) => ({ ...b })),
-    time: korean.game.context.time(),
-    cues: korean.town.combatEvents().slice(-6).map((e) => [e.cue, e.at]),
-    clock: korean.town.clock(),
-  }));
-  assert(banner.banners.length, 'A den falling raises a banner ' + JSON.stringify(banner));
-  await shot('swarm-den-banner');
-
+  await frames(2, 0.001);
+  await shot('summoning-circle');
+  await page.evaluate(() => {
+    const t = korean.town; t.time = t.sieges[korean.gate].summonAt; t.stir(0);
+  });
   // The guardian roused: the auto-pause, then its bar winding up a slam.
   await page.evaluate(() => {
     const t = korean.town,
-      g = t.creature(t.realmGuardian),
+      g = t.creature(t.sieges[korean.gate].guardian),
       p = korean.member(korean.Calling.Warrior).position;
     g.position = { x: p.x + 1.6, y: p.y + 0.6 };
     g.home = { ...g.position };
@@ -334,7 +330,7 @@ try {
   await page.keyboard.press('Space');
   await page.evaluate(() => {
     const t = korean.town,
-      g = t.creature(t.realmGuardian);
+      g = t.creature(t.sieges[korean.gate].guardian);
     g.health = g.vigor * 0.42;
     g.windupUntil = t.clock() + 1.6;
     korean.game.paused = true;
@@ -345,7 +341,7 @@ try {
   // A resident goes down: the auto-pause banner and the downed card with its tooltip.
   await page.evaluate(() => {
     const t = korean.town,
-      g = t.creature(t.realmGuardian);
+      g = t.creature(t.sieges[korean.gate].guardian);
     g.windupUntil = -1;
     korean.game.paused = false;
     korean.game.combatHud.autoPause = null;
@@ -357,8 +353,6 @@ try {
   await shot('downed-auto-pause');
   await hover(`downed-${bard}`);
   await shot('downed-card-tooltip');
-  await hover(`realm-member-${bard}`);
-  await shot('realm-member-tooltip');
   await away();
 
   // The bard bleeds out: the memorial.
@@ -400,29 +394,16 @@ try {
     korean.game.combatHud.memorials = [];
     korean.game.combatHud.autoPause = null;
   });
-  // Home again: the party walks out through the portal-free way home.
+  // The final defender falls. The settlement remains on the same map.
   await page.evaluate(() => {
-    const t = korean.town;
-    for (const g of t.realmFoes()) g.health = 0;
-    t.stir(0.1);
-    t.realmReward = null;
-    for (const p of t.realmParty()) {
-      if (p.downedAt >= 0) t.revive(p);
-      p.activity = korean.Activity.Idle;
-    }
-    t.leaveRealm();
+    const t = korean.town, gate = korean.gate;
+    for (const m of t.monsters()) if (m.lair === gate && m.brood === t.sieges[gate].guardian) m.health = 0;
+    t.stir(0);
+    for (const p of t.folk) if (p.downedAt >= 0) t.revive(p);
     korean.clear();
     korean.game.paused = false;
   });
   await frames(4);
-  // Going home opens the expedition's result screen; Enter returns to Midgard.
-  await page.evaluate(() => {
-    const key = { type: 'KeyDown', text: 'return', key: 0, x: 0, y: 0, delta: 0, button: 0, shift: false, control: false, alt: false, meta: false };
-    if (!korean.game.handleResultEvent(key)) throw new Error('No result screen on the way home');
-    korean.game.paused = false;
-  });
-  await frames(2);
-
   // The settlement's newer buildings.
   for (const [name, kind] of [
     ['altar', 13],

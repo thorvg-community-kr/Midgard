@@ -232,6 +232,12 @@ function facility(town: Town, kind: Structure, workers = 1): Building {
 }
 
 describe('Korean tables', () => {
+  it('uses the settler name for the population counter and settlement notices', () => {
+    const settler = korean.translate('Settler');
+    expect(korean.translate('Residents')).toBe(settler);
+    expect(korean.translate('Residents: 2 / 4')).toContain(settler);
+    expect(korean.translate('Residents strike harder.')).toContain(settler);
+  });
   it('use only syllables the Korean font subset carries, and keep every placeholder', () => {
     // The subset holds the KS X 1001 syllables, which are exactly the two-byte Hangul of EUC-KR.
     const decoder = new TextDecoder('euc-kr'),
@@ -701,87 +707,18 @@ describe('the settlement in Korean', () => {
   });
 });
 
-describe('beyond a gate in Korean, from the engine', () => {
-  let base: WorldMap;
-  beforeAll(() => {
-    base = WorldMap.generate(5);
-  }, 120000);
-  function expedition(level: number) {
-    const town = new Town(base, 176, false),
-      camp = new Building(0, Structure.Camp, town.map().camp(), 0, 0);
-    camp.village = 0;
-    town.placed.push(camp);
-    town.nextId = 1;
-    town.foundSettlement(0);
-    const gate = town
-      .map()
-      .dungeons()
-      .map((site, index) => ({ site, index }))
-      .filter((g) => sealable(g.site))
-      .sort((a, b) => distance(lairOf(a.site), camp.center) - distance(lairOf(b.site), camp.center))[0].index;
-    town.map().dungeons()[gate].discovered = true;
-    const members = [Calling.Warrior, Calling.Cleric, Calling.Mage].map((calling) => {
-      const p = town.makePerson(Role.Resident, calling, monsterEntrance(town.map().dungeons()[gate]));
-      town.folk.push(p);
-      p.level = level;
-      p.food = p.rest = p.hydration = 1;
-      p.activity = Activity.Expedition;
-      p.inside = true;
-      return p;
-    });
-    town.parties.push({ dungeon: gate, members: members.map((p) => p.id), floor: 0 });
-    town.advance(0.1);
-    return { town, members };
-  }
-  it('says what a den, the guardian, the brood and the way home do, and why the way is shut', () => {
-    const { town, members } = expedition(10),
-      guardian = town.realmFoes().find((m) => m.id === town.realmGuardian)!,
-      [first, ...others] = town.realmDens(),
-      reasons: string[] = [];
-    guardian.health = town.guardianVigor() * 0.4;
-    town.advance(0.1);
-    guardian.health = 0;
-    town.stir(0.1);
-    first.health = 0;
-    town.combatState.slayers.set(first.id, members[0].id);
-    town.stir(0.1);
-    for (const den of others) den.health = 0;
-    town.stir(0.1);
-    expect(town.realmCleared).toBe(true);
-    reasons.push(...(town.realmReward ? [town.realmReward.title, ...town.realmReward.lines] : []));
-    // One goes down far away and would be left behind; then the party walks out.
-    town.strikeDown(members[2], 'Killed by monsters');
-    reasons.push(town.canLeaveRealm().reason);
-    town.leaveRealm();
-    expect(town.realmActive()).toBe(false);
-    reasons.push(town.canLeaveRealm().reason);
-    const names = namesOf(town);
-    expectKorean(town.notices, names);
-    expectKorean(reasons.filter(Boolean), names);
-  }, 120000);
-  it('warns who would be left behind, and says so when they are', () => {
-    const { town, members } = expedition(10),
-      plan = town.realmPlan()!,
-      [kept, other, lost] = members;
-    for (const p of [kept, other]) p.position = town.grid.nearestWalkable(plan.entry);
-    town.strikeDown(lost, 'Killed by monsters');
-    lost.position = town.grid.nearestWalkable(plan.chambers.at(-1)!.center);
-    const warned = town.canLeaveRealm().reason;
-    kept.activity = Activity.Fighting;
-    const fighting = town.canLeaveRealm().reason;
-    kept.activity = Activity.Idle;
-    expect(warned).toContain(lost.name);
-    town.leaveRealm();
-    expect(town.fallen.map((f) => f.name)).toEqual([lost.name]);
-    const names = namesOf(town);
-    expectKorean([warned, fighting, ...town.fallen.flatMap((f) => memorialLines(f))], names);
-    expectKorean(town.notices, names);
-  }, 120000);
-  it('says so when the last one standing falls and the gate casts the party out', () => {
-    const { town, members } = expedition(22);
-    for (const p of members) town.strikeDown(p, 'Killed by monsters');
-    town.advance(2.2);
-    expect(town.realmActive()).toBe(false);
-    expectKorean(town.notices, namesOf(town));
-  }, 120000);
+describe('outdoor dungeon combat in Korean', () => {
+  it('explains how to break the dungeon, finish its defenders, and recognize its return', () => {
+    const name = 'The Howling Cleft';
+    expectKorean([
+      'Raiders pour out of this dungeon and march on the camp. Press Attack to send your fighters.',
+      'No settler is available to attack.',
+      'The falling stones push everyone back. The guardian and its brood will rise from the marked ground.',
+      `${name} has fallen. A guardian is gathering its horde.`,
+      `Defeat the guardian and every defender before ${name} rises again.`,
+      `${name} has risen again.`,
+      'Dungeon tier 3 · Dungeon health: 23 / 43', 'Recommended: 5 fighters at level 4', 'Defenders left: 4', 'Dungeon rises in 37s', 'Attack dungeon',
+      'Bring flint or stone weapons.', 'Bring iron weapons.', 'Bring embersteel or frostwood weapons.',
+    ], new Set([name]));
+  });
 });

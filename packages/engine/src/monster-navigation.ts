@@ -7,7 +7,7 @@ import { MonsterRank } from './combat-events';
 import type { Building } from './town-models';
 import { Structure, isSeat } from './building-catalog';
 import { inRaidedVillage, raidSeat } from './gate-progression';
-import { add, distance, point, rotated, scale, sub, type Point } from './geometry';
+import { add, distance, lerp, point, rotated, scale, sub, type Point } from './geometry';
 import { f32 as f } from './numeric';
 
 const attackReach = f(0.7);
@@ -32,7 +32,48 @@ function attackPoints(building: Building): Point[] {
     }
   return points;
 }
-function approach(town: TownState, beast: Monster, target: Building): Point[] | null {
+/** Neighbours in the muster take alternating sides of the route. The centre stays open for others. */
+function flank(id: number): number {
+  const file = id % 9;
+  return Math.ceil(file / 2) * (file % 2 ? 0.85 : -0.85);
+}
+/** Fit a broad front to each long stretch of the walk. Gates and narrow passes retain the ordinary route.
+ * Called only when planning. Each monster then follows the same saved waypoints as any other march. */
+function spreadMarch(town: TownState, beast: Monster, path: Point[]): Point[] {
+  const side = flank(beast.id);
+  if (!side || path.length < 2) return path;
+  const route = [path[0]];
+  for (let i = 1; i < path.length; ++i) {
+    const from = path[i - 1], to = path[i], span = distance(from, to);
+    if (span >= 4) {
+      const offset = Math.sign(side) * Math.min(Math.abs(side), span * 0.21);
+      const lateral = scale(point(from.y - to.y, to.x - from.x), offset / span);
+      const a = add(lerp(from, to, 0.28), lateral), b = add(lerp(from, to, 0.72), lateral);
+      if (town.grid.clear(from, a, Infinity, true) && town.grid.clear(a, b, Infinity, true) &&
+          town.grid.clear(b, to, Infinity, true)) route.push(a, b);
+    }
+    route.push(to);
+  }
+  return route;
+}
+/** Join the same wave's route near the mouth and leave it at the camp for an individual attack slot.
+ * A wall or a headland between two nearby endpoints may require a short local walk. */
+function joinMarch(town: TownState, from: Point, to: Point, route: readonly Point[]): Point[] {
+  const grid = town.grid, first = route[0], last = route[route.length - 1];
+  const entry = grid.clear(from, route[1], Infinity, true) ? [from, route[1]]
+    : grid.clear(from, first, Infinity, true) ? [from, first, route[1]] : [];
+  if (!entry.length) {
+    const link = grid.path(from, first, true);
+    if (!link.length) return [];
+    entry.push(...link, route[1]);
+  }
+  const turn = Math.max(1, route.length - 2);
+  entry.push(...route.slice(2, turn + 1));
+  if (grid.clear(route[turn], to, Infinity, true)) return [...entry, to];
+  const exit = grid.clear(last, to, Infinity, true) ? [last, to] : grid.path(last, to, true);
+  return exit.length ? [...entry, ...exit] : [];
+}
+function approach(town: TownState, beast: Monster, target: Building, routes?: Map<number, Point[]>): Point[] | null {
   const reservations = town.beasts.filter(other => other !== beast && other.health > 0 &&
     other.raider && other.prey === target.id).map(other => other.path.at(-1) ?? other.position);
   const candidates = attackPoints(target).map((at, index) => {
@@ -43,9 +84,18 @@ function approach(town: TownState, beast: Monster, target: Building): Point[] | 
   candidates.sort((a, b) => a.score - b.score);
   for (const { at } of candidates) {
     if (distance(beast.position, at) < f(0.02)) return [];
-    const path = town.grid.clear(beast.position, at, Infinity)
-      ? [{ ...beast.position }, at] : town.grid.path(beast.position, at);
-    if (path.length) return path;
+    if (town.grid.clear(beast.position, at, Infinity, true))
+      return spreadMarch(town, beast, [beast.position, at]);
+    const corridor = routes?.get(target.id);
+    if (corridor) {
+      const joined = joinMarch(town, beast.position, at, corridor);
+      if (joined.length) return spreadMarch(town, beast, joined);
+    }
+    const path = town.grid.path(beast.position, at, true);
+    if (path.length) {
+      if (!corridor && path.length >= 2) routes?.set(target.id, path);
+      return spreadMarch(town, beast, path);
+    }
   }
   return null;
 }
@@ -53,17 +103,20 @@ function useful(target: Building): boolean {
   return target.kind !== Structure.Torch && (!isSeat(target.kind) || target.health > f(0.1));
 }
 
+const stalledRaiders = new WeakMap<Monster, { revision: bigint; retry: number }>();
+
 /** Keep the chosen building and perimeter slot until they become unavailable. */
-export function planRaiderApproach(town: TownState, beast: Monster): void {
+export function planRaiderApproach(town: TownState, beast: Monster, waveRoutes?: Map<number, Point[]>): void {
+  const stalled = stalledRaiders.get(beast);
+  if (stalled && stalled.revision === town.walkRevision && town.time < stalled.retry) return;
   const seat = raidSeat(town, beast.lair);
   const inVillage = (b: Building): boolean => inRaidedVillage(town, b, seat);
   const previous = town.building(beast.prey);
   const chosen = previous && inVillage(previous) ? previous : null;
   const end = beast.path.at(-1);
-  const sharedEnd = end && town.beasts.some(other => other !== beast && other.health > 0 &&
-    other.raider && other.id < beast.id && other.prey === beast.prey &&
-    distance(end, other.path.at(-1) ?? other.position) < f(0.05));
-  const valid = !!chosen && !sharedEnd && (!end
+  // The planning pass assigns the least crowded slot. Once the perimeter fills, arrivals may share it
+  // without rerunning a path search every tick while their wave is still marching.
+  const valid = !!chosen && (!end
     ? chosen.footprint().contains(beast.position, attackReach)
     : chosen.footprint().contains(end, attackReach) && town.grid.walkable(end) &&
       town.grid.clear(beast.position, beast.path[0], Infinity));
@@ -82,7 +135,7 @@ export function planRaiderApproach(town: TownState, beast: Monster): void {
   });
   for (const target of candidates) {
     if (target === chosen && valid) return;
-    const path = approach(town, beast, target);
+    const path = approach(town, beast, target, waveRoutes);
     if (path === null) continue;
     beast.prey = target.id;
     beast.path = path;
@@ -90,6 +143,65 @@ export function planRaiderApproach(town: TownState, beast: Monster): void {
   }
   beast.prey = -1;
   beast.path = [];
+  stalledRaiders.set(beast, { revision: town.walkRevision, retry: town.time + 1.2 + (beast.id % 7) * .05 });
+}
+
+/** A building can cover the centre of an otherwise walkable tile. Join the ordinary grid through an
+ * adjacent cell on the same side of the building, as a resident leaves a workbench apron. */
+function pursuitEntry(town: TownState, at: Point): Point {
+  const x = Math.floor(at.x), y = Math.floor(at.y), grid = town.grid;
+  if (grid.cost(x, y) > 0) return at;
+  let nearest = at, gap = Infinity;
+  for (const [dx, dy] of neighbours) {
+    const next = point(x + dx + 0.5, y + dy + 0.5), d = distance(at, next);
+    if (d < gap && grid.walkable(next) && grid.clear(at, next, Infinity, true)) {
+      nearest = next;
+      gap = d;
+    }
+  }
+  return nearest;
+}
+
+/** Keep the route to a moving resident until the resident moves away from its end. Failed searches retry
+ * on a staggered clock. A raider with no route keeps marching against the settlement in between. */
+const pursuit = new WeakMap<Monster, { goal: Point; person: number; retry: number; failed: boolean }>();
+export function pursueResident(town: TownState, beast: Monster, resident: Person, step: number): boolean {
+  const grid = town.grid, remembered = pursuit.get(beast);
+  const sameGoal = remembered?.person === resident.id && distance(remembered.goal, resident.position) <= 0.8;
+  if (sameGoal && remembered.failed && town.time < remembered.retry) return false;
+  if (beast.path.length && (beast.prey >= 0 || !sameGoal)) beast.path = [];
+  beast.prey = -1;
+  let waypoint = beast.path[0] ?? resident.position;
+  if (!beast.path.length && (beast.raider || beast.brood >= 0)) {
+    const remaining = distance(beast.position, resident.position), axis = sub(resident.position, beast.home);
+    const span = Math.hypot(axis.x, axis.y);
+    if (span > 1 && remaining > 1.4) {
+      const width = flank(beast.id) * Math.min(1, (remaining - 1.4) / 5) / span;
+      const side = add(resident.position, point(-axis.y * width, axis.x * width));
+      if (grid.walkable(side)) waypoint = side;
+    }
+  }
+  const gap = distance(beast.position, waypoint);
+  const next = step >= gap ? { ...waypoint } : add(beast.position, scale(sub(waypoint, beast.position), step / gap));
+  if (grid.clear(beast.position, next, Infinity, true)) {
+    beast.position = next;
+    if (step >= gap && beast.path.length) beast.path.shift();
+    return true;
+  }
+  if (sameGoal && town.time < remembered.retry) return true;
+  const entry = pursuitEntry(town, beast.position), exit = pursuitEntry(town, resident.position);
+  const route = grid.path(entry, exit, true);
+  beast.path = entry === beast.position ? route.slice(1) : route;
+  if (route.length && exit !== resident.position) beast.path.push({ ...resident.position });
+  const failed = !beast.path.length;
+  pursuit.set(beast, { person: resident.id, goal: { ...resident.position }, failed,
+    retry: town.time + 0.8 + (beast.id % 7) * 0.05 });
+  return !failed;
+}
+
+/** Release the old approach when a resident slips away. A raider can resume a building order immediately. */
+export function losePrey(beast: Monster): void {
+  if (pursuit.delete(beast) && beast.prey < 0) beast.path = [];
 }
 
 /** A simultaneous, bounded displacement avoids order-dependent pushes or snaps. */
@@ -111,7 +223,7 @@ export function separateMonsters(town: TownState, dt: number): void {
       shifts[j] = sub(shifts[j], push);
     }
   for (let i = 0; i < beasts.length; ++i) {
-    if (beasts[i].rank === MonsterRank.Den) continue;
+    if (beasts[i].rank === MonsterRank.Den || beasts[i].windupUntil >= 0) continue;
     const amount = distance(point(), shifts[i]);
     if (amount < f(0.001)) continue;
     const shift = scale(shifts[i], Math.min(1, f(dt * 0.35 / amount)));
@@ -121,7 +233,7 @@ export function separateMonsters(town: TownState, dt: number): void {
     // to plan its approach again on the next tick.
     if (target?.footprint().contains(beasts[i].position, attackReach) &&
       !target.footprint().contains(at, attackReach)) continue;
-    if (town.grid.walkable(at) && town.grid.clear(beasts[i].position, at, Infinity))
+    if (town.grid.walkable(at) && town.grid.clear(beasts[i].position, at, Infinity, true))
       beasts[i].position = at;
   }
 }

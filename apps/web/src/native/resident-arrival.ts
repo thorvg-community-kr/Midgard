@@ -83,7 +83,7 @@ export function stepResidentArrival(app: GameAppState, now: number, dockTop: num
   stage.start ??= now;
   const age = Math.max(0, now - stage.start);
   const person = app.town === stage.town && app.town.person(stage.person);
-  if (!person || app.prayer || app.expedition || app.expeditionResult) {
+  if (!person || app.prayer) {
     app.residentArrival = null;
     return;
   }

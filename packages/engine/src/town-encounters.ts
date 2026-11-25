@@ -1,20 +1,21 @@
+import { advanceSieges, guardianSlam } from './dungeon-siege';
 import { nativeRandomRadial } from './native-random-order';
 // Translated from Town::stir in src/game/town_monsters.cpp.
 import { TownState } from './town-state';
-import { Activity, Calling, Role, type Monster, type Person } from './person';
+import { Role, type Monster, type Person } from './person';
 import { Resources, Structure } from './building-catalog';
 import type { Building } from './town-models';
 import type { CampEconomy } from './camp-economy';
-import { point, add, sub, scale, rotated, normalized, distance, type Point } from './geometry';
+import { point, add, sub, scale, distance, type Point } from './geometry';
 import { f32 as f, lround } from './numeric';
-import { breedOf, monsterBite, steps } from './town-monsters';
+import { breedOf, monsterBite } from './town-monsters';
 import { raidDue, raidKind, raidWarning, RaidKind } from './raid-progression';
 import { CombatCue, combatRules } from './combat-events';
 import { clearMuster, firstRaidDue, gateActive, musterRaid, musteredGates, raidSeat, updateGateOpenings } from './gate-progression';
 import { belongsToFaction } from './faction';
 import { Season, type Calendar } from './town-models';
-import { planRaiderApproach, separateMonsters } from './monster-navigation';
-import { choosePrey, rankPace, tauntedBy } from './monster-ranks';
+import { losePrey, planRaiderApproach, pursueResident, separateMonsters } from './monster-navigation';
+import { choosePrey, rankPace, slowedBy, tauntedBy } from './monster-ranks';
 export interface EncounterTown extends TownState {
   wakeGiants(): void;
   stirWildlife(dt: number): void;
@@ -30,8 +31,9 @@ export interface EncounterTown extends TownState {
   wreck(beast: Monster, dt: number): void;
   settlementAt(at: Point): number;
   credit(gain: Resources, id: number): void;
+  changeRenown(village: number, amount: number): void;
+  rewardExperience(p: Person, points: number): void;
   economy(id: number): CampEconomy;
-  advanceRealm(dt: number): void;
   defendSettlement(dt: number): void;
   realmKill(beast: Monster): void;
   tallyKill(beast: Monster): void;
@@ -51,23 +53,7 @@ export function stir(this: EncounterTown, dt: number): void {
   const hour = this.dayFraction(), night = hour > f(0.5) && this.climate().night > f(0.6);
   // Take the dusk muster before admitting a gate that awakens after dark.
   if (!night) updateGateOpenings(this);
-  const fire = this.camp(),
-    roaming = this.beasts.filter((m) => !m.raider && !m.giant() && !this.inRealm(m.home)).length;
-  if (
-    fire &&
-    this.days >= 1 &&
-    roaming < Math.min(8, 2 + Math.trunc(this.days / 7)) &&
-    this.roll() < (dt / TownState.secondsPerDay) * 1.5
-  ) {
-    for (let attempt = 0; attempt < 12; ++attempt) {
-      const at = add(fire.center, nativeRandomRadial(() => this.roll(), 16, 24, 6.2832));
-      const x = Math.floor(at.x),
-        y = Math.floor(at.y);
-      if (!this.world.inside(x, y) || !this.grid.walkable(at)) continue;
-      this.releaseMonster(at);
-      break;
-    }
-  }
+  const fire = this.camp();
   if (this.raidedDay !== this.days && (night || (fire && hour > f(0.3) && this.raidWarnedDay !== this.days))) {
     const kind = raidKind(this.world.seed(), this.days);
     const due = raidDue(this.world.seed(), this.days, this.calendar().season === Season.Winter) || firstRaidDue(this);
@@ -97,7 +83,9 @@ export function stir(this: EncounterTown, dt: number): void {
       this.roamGiant(beast, dt);
       continue;
     }
-    const breed = breedOf(this.world.dungeons()[beast.lair].kind);
+    // Old saves and newly finished buildings can leave a creature on an impassable tile.
+    if (!this.grid.walkable(beast.position)) beast.position = this.grid.nearestWalkable(beast.position);
+    const breed = breedOf(this.world.dungeons()[beast.lair].kind), pace = rankPace(beast) * slowedBy(this, beast);
     const scent = beast.raider ? 9 : beast.angry ? 7 : 4;
     let prey = tauntedBy(this, beast, scent * 1.5) ?? undefined;
     if (beast.raider && prey && !belongsToFaction(prey)) prey = undefined;
@@ -115,36 +103,21 @@ export function stir(this: EncounterTown, dt: number): void {
               distance(p.position, beast.position) < scent,
           ),
         ) ?? undefined;
+    if (guardianSlam(this, beast, prey)) continue;
     if (prey) {
       const gap = distance(prey.position, beast.position);
-      beast.path = [];
-      beast.prey = -1;
-      if (gap > f(0.7)) {
-        let next = add(
-          beast.position,
-          scale(
-            normalized(sub(prey.position, beast.position)),
-            Math.min(gap, f(f(breed.speed * f(0.8) * rankPace(beast)) * f(dt))),
-          ),
-        );
-        const stone = (at: Point): boolean => this.world.giant()?.covers(at) ?? false;
-        if (beast.raider && stone(next))
-          for (const turn of [f(0.785), f(1.571), f(-0.785), f(-1.571)]) {
-            const round = add(beast.position, rotated(sub(next, beast.position), turn));
-            if (!stone(round)) {
-              next = round;
-              break;
-            }
-          }
-        if (
-          beast.giant() ? this.grid.walkable(next) : (beast.raider && !stone(next)) || steps(this.world, next)
-        )
-          beast.position = next;
-      } else if (this.time >= beast.ready) {
-        monsterBite(this, beast, prey, breed);
+      if (gap <= f(0.7)) {
+        if (this.grid.clear(beast.position, prey.position, Infinity, true)) {
+          beast.prey = -1;
+          if (beast.path.length) beast.path = [];
+          if (this.time >= beast.ready) monsterBite(this, beast, prey, breed);
+          continue;
+        }
       }
-      continue;
+      const step = f(f(breed.speed * f(0.8) * pace) * f(dt));
+      if (pursueResident(this, beast, prey, step)) continue;
     }
+    if (!prey) losePrey(beast);
     beast.angry = false;
     beast.provokedBy = -1;
     if (beast.giant()) {
@@ -154,22 +127,18 @@ export function stir(this: EncounterTown, dt: number): void {
     if (beast.raider) {
       planRaiderApproach(this, beast);
     } else if (!beast.path.length && this.roll() < dt * 0.3) {
-      beast.path = [
-        this.grid.nearestWalkable(
-          add(beast.home, nativeRandomRadial(() => this.roll(), 1.5, 4, 6.2832)),
-        ),
-      ];
+      const at = this.grid.nearestWalkable(add(beast.home, nativeRandomRadial(() => this.roll(), 1.5, 4, 6.2832)));
+      beast.path = this.grid.clear(beast.position, at, Infinity, true) ? [at] : this.grid.path(beast.position, at, true).slice(1);
     }
     this.wreck(beast, dt);
-    let step = f((beast.raider ? f(breed.speed * f(0.8) * rankPace(beast)) : f(0.5)) * f(dt));
+    let step = f((beast.raider ? f(breed.speed * f(0.8) * pace) : f(0.5)) * f(dt));
     while (step > 0 && beast.path.length) {
       const gap = distance(beast.position, beast.path[0]),
         next =
           gap <= step
             ? { ...beast.path[0] }
             : add(beast.position, scale(sub(beast.path[0], beast.position), f(step / gap)));
-      if ((!beast.raider && !steps(this.world, next)) ||
-        (beast.raider && this.grid.walkable(beast.position) && !this.grid.clear(beast.position, next, Infinity))) {
+      if (!this.grid.clear(beast.position, next, Infinity, true)) {
         // A leg can pass the coarse check and still clip the corner of a blocked cell. Refused outright, the
         // same step is planned again for ever and the raid never ends: the raider slides along the corner.
         const along = point(next.x, beast.position.y),
@@ -178,7 +147,7 @@ export function stir(this: EncounterTown, dt: number): void {
           slide = !beast.raider
             ? undefined
             : (wider ? [along, aside] : [aside, along]).find(
-                (to) => distance(to, beast.position) > f(1e-4) && this.grid.clear(beast.position, to, Infinity),
+                (to) => distance(to, beast.position) > f(1e-4) && this.grid.clear(beast.position, to, Infinity, true),
               );
         if (slide) beast.position = slide;
         else beast.path = [];
@@ -199,15 +168,14 @@ export function stir(this: EncounterTown, dt: number): void {
       this.realmKill(beast);
       continue;
     }
-    const bounty = lround(
-        f(breedOf(this.world.dungeons()[beast.lair].kind).health * (beast.raider ? f(0.5) : f(0.4))),
-      ),
+    const bounty = beast.raider && beast.vigor > 0 ? Math.max(1, lround(beast.vigor * 0.5)) :
+        lround(f(breedOf(this.world.dungeons()[beast.lair].kind).health * (beast.raider ? f(0.5) : f(0.4)))),
       village = this.settlementAt(beast.position);
     this.credit(new Resources(bounty), village);
     this.economy(village).today.bounty += bounty;
     this.raidBounty += beast.raider ? bounty : 0;
     if (beast.raider) ++this.raidKills;
-    else this.notify((beast.giant() ? 'A giant is slain (+' : 'A monster is slain (+') + bounty + ' gold)');
+    else if (beast.brood < 0) this.notify((beast.giant() ? 'A giant is slain (+' : 'A monster is slain (+') + bounty + ' gold)');
   }
   this.beasts = this.beasts.filter((m) => m.health > 0);
   if (raidOn && !this.raiding()) {
@@ -215,5 +183,5 @@ export function stir(this: EncounterTown, dt: number): void {
     this.notify(`The raid is beaten off (${this.raidKills} slain, +${this.raidBounty} gold)`);
     this.raidKills = this.raidBounty = 0;
   }
-  this.advanceRealm(dt);
+  advanceSieges(this);
 }

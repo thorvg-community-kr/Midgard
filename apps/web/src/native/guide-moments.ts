@@ -12,7 +12,7 @@ import { Season } from '../../../../packages/engine/src/town-models';
 import { isPlayerBuilding, isPlayerResident } from '../../../../packages/engine/src/faction';
 import { burdenFrom, carriedWeight } from '../../../../packages/engine/src/carried-resources';
 import { carriedTools, equipmentSlots, equippedItem } from '../../../../packages/engine/src/equipment';
-import { gateSealed, sealFloors, sealProgress, sealable } from '../../../../packages/engine/src/gate-seals';
+import { gateSealed, sealProgress, sealable } from '../../../../packages/engine/src/gate-seals';
 import { completedFacility, deedCount } from '../../../../packages/engine/src/settlement-progression';
 import { secondSkillLevel } from '../../../../packages/engine/src/skill-catalog';
 import { playing } from '../../../../packages/engine/src/bard-phrases';
@@ -110,7 +110,6 @@ const bones = (town: Town) =>
     0,
   );
 const fighters = (town: Town) => residents(town).some((p) => p.calling >= Calling.Warrior);
-const realmSpot = (town: Town): Point | null => town.realmParty()[0]?.position ?? null;
 
 const craftedNotice = /^(.+) crafted (.+)$/,
   inHandNotice = /^(.+) in hand · /,
@@ -256,8 +255,8 @@ const moments: GuideMoment[] = [
     key: 'gate',
     title: 'A gate to another world',
     text: () => [
-      'At an open gate, choose a party and a floor. Destroy its dens and guardian to clear the floor.',
-      'Clear the last floor and the gate is sealed: its raids stop and the settlement keeps a boon of that world.',
+      'Raiders pour out of this dungeon and march on the camp. Press Attack to send your fighters.',
+      'Break the dungeon to draw out its guardian. Defeat the guardian and its brood before the dungeon rises again.',
     ],
     // A gate the map already knows of is no news until the player has it in front of them.
     spot: (scan) => {
@@ -457,7 +456,7 @@ const moments: GuideMoment[] = [
     key: 'raid',
     title: 'A raid is coming',
     text: () => [
-      'Each open gate sends raiders toward the nearest camp. Their numbers and strength grow week by week.',
+      'The first raiders fall to a single blow. Later waves bring more enemies and their levels rise.',
       'Gather fighters at the camp named in the warning before nightfall. A watchtower shoots approaching raiders.',
     ],
     spot: (scan) => {
@@ -482,63 +481,31 @@ const moments: GuideMoment[] = [
     met: (town) => town.raids() > 0,
   },
   {
-    key: 'beyond',
-    title: 'Beyond the gate',
-    text: () => [
-      'Swarmers pour out of dens until the dens are destroyed. Destroy every den and the guardian to clear the floor.',
-      'Press R to call the party home, ` to select it, and Space to pause and give orders.',
-    ],
-    spot: (scan) => (scan.town.realmActive() && scan.town.realmParty().length ? { at: null } : null),
-    met: (town) => town.chronicle.partiesLed > 0,
-  },
-  {
-    key: 'den',
-    title: 'A den',
-    text: () => [
-      'A den does not move or bite, but swarmers keep climbing out of it until it is destroyed.',
-      'Break the dens first and the brood thins out.',
-    ],
-    spot: (scan) => {
-      const den = scan.town.dens().find((d) => scan.sees(d.position));
-      return den ? { at: den.position, about: [beast(den.id)] } : null;
+    key: 'breach',
+    title: 'The guardian is rising',
+    text: () => ['The falling stones push everyone back. The guardian and its brood will rise from the marked ground.'],
+    spot: ({ town, sees }) => {
+      for (const [gate, siege] of town.sieges.entries()) {
+        if (!siege || siege.health > 0 || siege.guardian >= 0) continue;
+        const at = gateFront(town, gate);
+        if (at && sees(at)) return { at };
+      }
+      return null;
     },
-    met: (town) => town.chronicle.partiesLed > 0,
-  },
-  {
-    key: 'den-destroyed',
-    title: 'A den destroyed',
-    text: () => [
-      'No more swarmers come from it.',
-      'When every den and the guardian of a floor are gone, what is left of the brood dies with them.',
-    ],
-    spot: (scan) => {
-      const e = fresh(scan, CombatCue.DenDestroyed, false);
-      return e ? { at: e.position } : null;
-    },
-    met: (town) => deedCount(town, 'floors') > 0,
+    met: town => town.chronicle.partiesLed > 0,
   },
   {
     key: 'guardian',
     title: 'The guardian',
     text: () => [
-      'It marks its slam on the ground before it lands: get out of the ring. Below half health it rages and calls its brood.',
+      'When the guardian marks the ground, move your residents out of the ring before the blow lands.',
       'An Aimed Shot breaks its wind-up.',
     ],
     spot: (scan) => {
-      const g = scan.town.realmActive() ? scan.town.creature(scan.town.realmGuardian) : null;
-      return g && g.health > 0 && scan.sees(g.position) ? { at: g.position, about: [beast(g.id)] } : null;
+      const g = scan.town.monsters().find(m => m.rank === MonsterRank.Guardian && m.health > 0 && scan.sees(m.position));
+      return g ? { at: g.position, about: [beast(g.id)] } : null;
     },
     met: (town) => town.chronicle.guardiansSlain > 0 || deedCount(town, 'floors') > 0,
-  },
-  {
-    key: 'floor',
-    title: 'A floor cleared',
-    text: () => [
-      'The party can go home with what it found.',
-      line('Clear all {0} floors of a gate to seal it.', sealFloors),
-    ],
-    spot: (scan) => (scan.town.realmActive() && scan.town.realmCleared ? { at: realmSpot(scan.town) } : null),
-    met: (town) => deedCount(town, 'floors') > 0,
   },
   {
     key: 'sealed',
@@ -561,7 +528,7 @@ const moments: GuideMoment[] = [
     key: 'level',
     title: 'A new level',
     text: () => [
-      'Experience from fighting raises a resident\'s level. Levels improve endurance and unlock gear. Larger weapon bonuses mean that attribute adds more to each attack.',
+      'Work and combat earn experience. Levels improve endurance and unlock gear. Every ten levels, a settler’s training strengthens their weapon attacks.',
       line('Callings learn their second skill at level {0}.', secondSkillLevel),
     ],
     spot: (scan) => {

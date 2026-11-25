@@ -9,22 +9,32 @@ export function campTier(kind: Structure): number {
   return kind === Structure.Castle ? 3 : kind === Structure.Keep ? 2 : kind === Structure.Palisade ? 1 : 0;
 }
 
-/** Raiders stop growing after this many weeks, so a late town can still win a night. */
+/** The number in a wave stops growing with the calendar after this many weeks. */
 export const threatWeeks = 12;
-export const raidHealth = (week: number): number => 1 + Math.min(threatWeeks, week) * 0.18;
-/** Threat changes only on seven-day boundaries. A fortified seat never makes raids worse. */
-export function dungeonThreat(days: number, origin: Point, buildings: readonly Building[]) {
+/** A creature keeps the level it had when it left its dungeon. */
+const highestWaveLevel = 16;
+export function raidMonsterLevel(days: number, previousRaids: number): number {
+  if (previousRaids === 0) return 1;
+  return Math.min(highestWaveLevel, 1 + Math.max(Math.floor(days / 7), Math.floor((previousRaids + 1) / 2)));
+}
+export function siegeMonsterLevel(days: number, distanceFromCamp: number): number {
+  const distanceLevels = Math.floor(Math.max(0, distanceFromCamp - 12) / 12);
+  return Math.min(highestWaveLevel, 1 + Math.floor(days / 7) + distanceLevels);
+}
+/** A wave keeps the threat of its muster. Fortifying the target does not increase damage or health. */
+export function dungeonThreat(days: number, origin: Point, buildings: readonly Building[], level?: number) {
   const nearest = buildings
     .filter((b) => isSeat(b.kind) && b.built() && distance(b.center, origin) <= TownState.campReach * 2)
     .sort((a, b) => distance(a.center, origin) - distance(b.center, origin))[0];
   const week = Math.max(0, Math.floor(days / 7)),
+    growth = level === undefined ? Math.min(threatWeeks, week) : level - 1,
     tier = nearest ? campTier(nearest.kind) : 0;
   return {
     week,
     tier,
     count: Math.min(12, 2 + week),
-    health: raidHealth(week),
-    damage: 1 + Math.min(threatWeeks, week) * 0.08,
+    health: 1 + growth * 0.32,
+    damage: 1 + growth * 0.08,
   };
 }
 
@@ -60,11 +70,11 @@ export const raidMuster = {
   /** How much of a settlement's fighting strength an opening gate can match in the first week. */
   openingMight: 6,
   /** Swarmers per point of might; a leader for every `leaderMight`, an extra brute for every `bruteMight`. */
-  swarm: 1,
-  leastSwarm: 3,
+  swarm: 2.2,
+  leastSwarm: 10,
   leaderMight: 6,
   bruteMight: 14,
-  /** A raiding swarmer bites this much softer than one beyond a gate, where the brood is at home. */
+  /** A swarmer bites more softly than the wave's larger fighters. */
   swarmBite: 0.46,
 };
 /** Gates learn to field larger forces over time. Well-armed founders still get a first week of scouting packs. */
@@ -99,5 +109,5 @@ export const pressureNotice = (week: number): string =>
   week > threatWeeks
     ? ''
     : week === threatWeeks
-      ? `Week ${week}: raiders are at their full strength. Only sealing the gates ends the raids.`
+      ? `Week ${week}: the dungeons can now send their largest hordes. Seal a dungeon to end its raids.`
       : `Week ${week}: raiders grow stronger. Seal a gate to end its raids.`;

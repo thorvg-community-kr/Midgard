@@ -136,13 +136,18 @@ function play(): Run {
       else gather(p, false);
     }
   };
-  // As the station panel's Upgrade button does; the rest gather what the step costs.
+  // The chosen resident's Craft tab can upgrade the station. The rest gather what the step costs.
   const upgrade = (goal: SettlementGoal): void => {
     const site = station(goal.building);
     if (!site) return;
     const folk = residents();
-    if (folk.some((p) => p.task === Activity.Crafting && p.craftWorkshop === site.id)) return;
-    const free = folk.filter((p) => !busy(p));
+    const free = folk.filter((p) => !busy(p) && !p.recoveringHealth && p.downedAt < 0);
+    const assigned = folk.find((p) => p.task === Activity.Crafting && p.craftWorkshop === site.id);
+    if (assigned) {
+      // The station's Cancel button frees an unstarted upgrade when its worker is recovering from a raid.
+      if (!assigned.recoveringHealth || assigned.craftProgress > 0 || !free.length) return;
+      if (!town.cancelCraft(assigned.id)) return;
+    }
     const crafter = free.find((p) => !town.stationUpgradeReason(p.id, site.id));
     if (crafter) {
       town.orderStationUpgrade(crafter.id, site.id);
@@ -325,7 +330,7 @@ describe('the founding chain in a real new game', () => {
   });
   it('counts only gear the residents really own and use', () => {
     const town = run.town;
-    // The smithy stands, at level 2; iron waits for a cleared floor.
+    // The smithy stands at level 2. Iron waits until the first dungeon is sealed.
     expect(toolAvailable(town, Tool.Weaponsmith)).toBe(true);
     expect(town.chronicle.weaponsForged).toBe(0);
     const founders = town.people().filter((q) => foundingPeople.some((f) => f.name === q.name));

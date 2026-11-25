@@ -157,7 +157,7 @@ describe('first-time moments', () => {
     ['skill', (town, p) => town.emit(CombatCue.Ability, p.position, { person: p.id, text: 'Challenge', skill: 'challenge' })],
     ['downed', (town, p) => town.emit(CombatCue.Downed, p.position, { person: p.id })],
     ['wave', (town) => town.emit(CombatCue.Wave, point(40, 40), { amount: 12 })],
-    ['den-destroyed', (town) => town.emit(CombatCue.DenDestroyed, point(40, 40), { creature: 901 })],
+    ['breach', (town) => { town.sieges[0] = { health: 0, guardian: -1, summonAt: town.time + 3, reviveAt: town.time + 123, village: 0 }; }],
     ['craft', (town, p) => town.notify(`${p.name} crafted Wooden axe`)],
     ['night', (town) => town.editHour(23)],
     ['built:Farm', (town) => town.placed.push(new Building(town.nextId++, Structure.Farm, point(20, 14), 0, 0))],

@@ -3,7 +3,7 @@ import { nativeRandomRadial } from './native-random-order';
 // Translated from src/game/title_autoplay.cpp; invoked only on disposable title worlds.
 import { TownState } from './town-state';
 import { titleAutoplayRate } from './work-timing';
-import { Building, type Check, type Forecast, type Placement } from './town-models';
+import { Building, type Check, type Forecast, type Placement, walkingObstacles } from './town-models';
 import { Resources, Product, Structure, structureSpec, isLodging } from './building-catalog';
 import { Activity, Role, Calling, type Person } from './person';
 import { Sky, Weather } from './climate';
@@ -562,7 +562,7 @@ export function prepareTitlePreview(this: TownState): void {
   this.blows = [];
   this.timberEvents = [];
   this.titleAnchors = [];
-  const walls = this.placed.filter((b) => b.built() && b.kind !== Structure.Torch).map((b) => b.footprint());
+  const walls = walkingObstacles(this.placed);
   this.grid.rebuild(this.world, this.network, walls);
   for (const p of this.folk) {
     if (p.inside || p.crossingDoorway()) p.position = { ...p.entrance };

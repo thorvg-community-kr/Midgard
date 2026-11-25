@@ -1,41 +1,33 @@
-// The title player's fighting: beating off raids at home, sending a party through a gate when the game's own
-// forecast calls it ready, and leading it beyond: focus the dens, pull the hurt back, kneel by the downed, step
-// out of a marked slam, carry the spoils home, or withdraw when the fight turns.
 import type { Town } from '../../../../packages/engine/src/town';
 import { Activity, Calling, type Person } from '../../../../packages/engine/src/person';
-import { CombatCue, MonsterRank } from '../../../../packages/engine/src/combat-events';
-import { ChamberKind } from '../../../../packages/engine/src/realm-layout';
+import { CombatCue } from '../../../../packages/engine/src/combat-events';
+import { dungeonChallenge, dungeonStatus } from '../../../../packages/engine/src/dungeon-siege';
 import { add, distance, normalized, point, scale, sub, type Point } from '../../../../packages/engine/src/geometry';
 import { equippedItem } from '../../../../packages/engine/src/equipment';
 import { TownState } from '../../../../packages/engine/src/town-state';
 import { sealable } from '../../../../packages/engine/src/gate-seals';
 import { RaidKind, raidKind } from '../../../../packages/engine/src/raid-progression';
 import { lairOf } from '../../../../packages/engine/src/town-monsters';
-import { floorLevel, partyVerdict, Verdict } from './swarm-hud';
 import { isFighter } from './title-gear';
 import { beyond, living, order, take, type TitleContext } from './title-roster';
 
-/** Largest party the title player sends; the rest keep the settlement. */
-const mostMembers = 6;
 /** Seconds between fresh orders to a fighting group, so blows land between them. */
 const regroupSeconds = 2;
 
 export interface PartyState {
-  /** Residents sent through the gate on this expedition. */
+  /** Residents committed to the outdoor assault. */
   members: number[];
   gate: number;
-  floor: number;
   lastEvent: bigint;
   dodgeUntil: number;
   orderedAt: number;
-  withdrawing: boolean;
+  breached: boolean;
   /** Expeditions sent, cleared and withdrawn, for the log and the tests. */
   sent: number;
   cleared: number;
   withdrew: number;
   castOut: number;
-  /** The realm the party is in, and when it got there. */
-  realm: number;
+  /** When the attack was ordered. */
   enteredAt: number;
   homeOrderedAt: number;
   /** When the fighters were last sent out after raiders that hang back. */
@@ -46,16 +38,14 @@ export interface PartyState {
 export const partyState = (): PartyState => ({
   members: [],
   gate: -1,
-  floor: 0,
   lastEvent: -1n,
   dodgeUntil: -1,
   orderedAt: -1e9,
-  withdrawing: false,
+  breached: false,
   sent: 0,
   cleared: 0,
   withdrew: 0,
   castOut: 0,
-  realm: -1,
   enteredAt: 0,
   homeOrderedAt: -1e9,
   salliedAt: -1e9,
@@ -135,52 +125,37 @@ function tendDowned(ctx: TitleContext, helpers: readonly Person[], downed: reado
 /** Fighters fit to go: healthy, fed, rested and unwounded, best first. */
 function fitFighters(town: Town): Person[] {
   return living(town)
-    .filter((p) => isFighter(p) && !beyond(town, p) && p.health >= 0.75 && p.woundDays <= 0 && p.food > 0.3 && p.rest > 0.3)
-    // Nobody goes through a gate with bare hands, or from behind a door.
-    .filter((p) => !!equippedItem(p, 'weapon') && !p.inside && !p.crossingDoorway())
+    .filter((p) => !beyond(town, p) && p.health >= 0.75 && p.woundDays <= 0 && p.food > 0.3 && p.rest > 0.3)
+    // A resting settler with a sound weapon can answer the order and walk out of the house.
+    .filter((p) => !!equippedItem(p, 'weapon'))
     .filter((p) => p.task !== Activity.Praying && p.task !== Activity.Crafting)
-    .sort((a, b) => b.level - a.level || a.id - b.id);
+    .sort((a, b) => b.level - a.level || Number(isFighter(b)) - Number(isFighter(a)) || a.id - b.id);
 }
 export interface PartyChoice {
   members: Person[];
   gate: number;
-  floor: number;
 }
-/** The party and floor the expedition window would call ready, or null. Nearest gate, deepest ready floor. */
-export function readyParty(town: Town, available = mostMembers): PartyChoice | null {
-  const fighters = fitFighters(town),
-    seat = town.camp();
-  if (fighters.length < 3 || !seat || town.raiding()) return null;
-  const gates = town
-    .map()
-    .dungeons()
-    .map((site, index) => ({ site, index }))
-    .filter((g) => g.site.discovered && sealable(g.site))
+/** Send a healthy armed force to the nearest known standing dungeon. */
+export function readyParty(town: Town, available = Infinity): PartyChoice | null {
+  const seat = town.camp();
+  if (!seat || town.raiding()) return null;
+  const gates = town.map().dungeons()
+    .map((site, gate) => ({ site, gate }))
+    .filter(({ site, gate }) => site.discovered && sealable(site) && dungeonStatus(town, gate).phase === 'standing')
     .sort((a, b) => distance(lairOf(a.site), seat.center) - distance(lairOf(b.site), seat.center));
-  for (const { index } of gates) {
-    const deepest = town.deepestOpenFloor(index);
-    for (let floor = deepest; floor >= 0; --floor) {
-      if (town.expeditionProblem(index, floor)) continue;
-      // Fighters near the floor's level; a bard sings for a party but cannot carry one, so one at most.
-      const fit = fighters.filter((p) => p.level >= floorLevel(floor) - 1),
-        bards = fit.filter((p) => p.calling === Calling.Bard).slice(1),
-        pool = fit.filter((p) => !bards.includes(p));
-      for (let count = Math.min(available, mostMembers, pool.length); count >= 3; --count) {
-        const members = pool.slice(0, count);
-        // The first party can scout one den as soon as the window calls it ready.
-        // A party aiming to clear an untried floor takes extra endurance.
-        const firstOuting = floor === 0 && town.chronicle.partiesLed === 0;
-        const margin = !firstOuting && floor >= town.gateFloors(index).cleared ? (floor > 0 ? 2 : 1) : 0;
-        if (partyVerdict(members, floor, margin) === Verdict.Ready) return { members, gate: index, floor };
-      }
-    }
+  const fighters = fitFighters(town);
+  for (const { gate } of gates) {
+    const { partySize, level } = dungeonChallenge(town, gate);
+    const members = fighters.filter(p => p.level >= Math.ceil(level * .65)).slice(0, Math.min(available, partySize));
+    if (members.length === partySize && members.reduce((sum, p) => sum + p.level, 0) >= level * .9 * partySize)
+      return { gate, members };
   }
   return null;
 }
 /** Sends the ready party, by day and with no raid at home. */
 export function sendParty(ctx: TitleContext, state: PartyState): boolean {
   const { town } = ctx;
-  if (town.realmActive() || state.members.some((id) => town.people().some((p) => p.id === id && beyond(town, p)))) return false;
+  if (state.members.length) return false;
   // A party leaves once the day's raid warning would have come: with none, home is safe tonight; with one, only
   // if two residents who can fight stay behind to hold the fire.
   const day = town.dayFraction(),
@@ -195,7 +170,7 @@ export function sendParty(ctx: TitleContext, state: PartyState): boolean {
     state.note = 'a raid too great for a small guard is coming tonight';
     return false;
   }
-  const available = warned ? living(town).filter((p) => !beyond(town, p) && homeDefender(p)).length - 2 : mostMembers,
+  const available = warned ? living(town).filter((p) => !beyond(town, p) && homeDefender(p)).length - 2 : Infinity,
     choice = readyParty(town, available);
   if (!choice) {
     const fit = fitFighters(town);
@@ -205,100 +180,54 @@ export function sendParty(ctx: TitleContext, state: PartyState): boolean {
   }
   state.note = '';
   const ids = choice.members.map((p) => p.id);
-  if (!town.canSendExpedition(ids, choice.gate, choice.floor).ok) return false;
-  if (!order(ctx, `expedition:${choice.gate}:${choice.floor}:${ids.join(',')}`, choice.members, () => town.sendExpedition(ids, choice.gate, choice.floor)))
-    return false;
-  // Someone who could not set out leaves the rest short: they are called back before they step through.
-  const going = choice.members.filter((p) => p.activity === Activity.Expedition);
-  if (going.length < ids.length && partyVerdict(going, choice.floor, 1) !== Verdict.Ready) {
-    const seat = town.camp();
-    if (seat) order(ctx, `call-back:${town.clock() | 0}`, [], () => (town.orderMove(going.map((p) => p.id), seat.door()), true));
-    state.note = 'called back: the party set out short';
-    return false;
-  }
-  Object.assign(state, { members: going.map((p) => p.id), gate: choice.gate, floor: choice.floor, withdrawing: false, orderedAt: -1e9 });
+  if (!order(ctx, `attack-dungeon:${choice.gate}:${ids.join(',')}`, choice.members, () => town.orderAttackDungeon(ids, choice.gate))) return false;
+  for (const id of ids) ctx.party.add(id);
+  Object.assign(state, { members: ids, gate: choice.gate, breached: false, enteredAt: town.clock(), orderedAt: -1e9 });
   ++state.sent;
   return true;
 }
-/** Leads the party beyond the gate; true while there is one. */
-export function commandRealm(ctx: TitleContext, state: PartyState): boolean {
-  const { town } = ctx;
-  for (const id of state.members) ctx.party.add(id);
-  const walking = state.members.map((id) => town.person(id)).filter((p): p is Person => !!p && p.activity === Activity.Expedition);
-  for (const p of walking) take(ctx, p);
-  const plan = town.realmPlan();
-  if (!plan) {
-    if (!walking.length) {
-      // The gate cast the fallen party out: the expedition is over all the same.
-      if (state.members.length && state.sent > state.cleared + state.withdrew + state.castOut) ++state.castOut;
-      state.members = [];
-    }
-    return walking.length > 0;
-  }
-  const party = town.realmParty(),
-    standing = town.realmStanding();
+
+/** Keeps the attackers together through the breach and brings survivors back to the camp. */
+export function commandSiege(ctx: TitleContext, state: PartyState): void {
+  const { town } = ctx, now = town.clock();
+  const party = state.members.map(id => town.person(id)).filter((p): p is Person => !!p);
   for (const p of party) {
     ctx.party.add(p.id);
     take(ctx, p);
   }
-  if (!standing.length) return true;
-  const now = town.clock(),
-    foes = town.realmFoes(),
-    dens = town.realmDens();
-  if (town.realmCleared || state.withdrawing) {
-    const home = town.canLeaveRealm();
-    if (home.ok && !town.realmLeftBehind().length) {
-      if (town.realmCleared) ++state.cleared;
-      else ++state.withdrew;
-      order(ctx, `leave:${now | 0}`, [], () => town.leaveRealm());
-      state.members = [];
-      return false;
-    }
+  const seat = town.camp();
+  const hurt = party.filter(p => p.health > 0 && p.downedAt < 0 && p.health < .45);
+  if (hurt.length && seat) {
+    town.orderMove(hurt.map(p => p.id), seat.door());
+    state.members = state.members.filter(id => !hurt.some(p => p.id === id));
   }
+  const standing = party.filter(p => p.health > 0 && p.downedAt < 0 && !hurt.includes(p));
+  const siege = dungeonStatus(town, state.gate);
+  if (siege.phase === 'summoning' || siege.phase === 'defending') state.breached = true;
+  const withdrawn = state.breached && siege.phase === 'standing';
+  const required = dungeonChallenge(town, state.gate).partySize;
+  const lostGround = standing.length < Math.ceil(required / 2) || (!state.breached && now - state.enteredAt > 240);
+  if (siege.phase === 'sealed' || withdrawn || lostGround) {
+    if (standing.length && seat) town.orderMove(standing.map(p => p.id), seat.door());
+    if (siege.phase === 'sealed') ++state.cleared;
+    else if (standing.length || hurt.length) ++state.withdrew;
+    else ++state.castOut;
+    state.members = [];
+    return;
+  }
+  const guardian = town.sieges[state.gate]?.guardian ?? -1;
+  if (guardian < 0 || siege.phase !== 'defending') return;
+  const foes = town.monsters().filter(m => m.lair === state.gate && m.brood === guardian && m.health > 0);
   dodge(ctx, state, standing);
-  if (now < state.dodgeUntil) return true;
-  const fighting = foes.filter((m) => m.rank !== MonsterRank.Den);
-  tendDowned(ctx, standing, party.filter((p) => p.downedAt >= 0), fighting.map((m) => m.position));
-  handSkills(ctx, standing, fighting);
-  if (now - state.orderedAt < regroupSeconds) return true;
+  if (now < state.dodgeUntil) return;
+  tendDowned(ctx, standing, party.filter(p => p.downedAt >= 0), foes.map(m => m.position));
+  handSkills(ctx, standing, foes);
+  if (now - state.orderedAt < regroupSeconds || !foes.length) return;
+  const middle = centre(standing);
+  const foe = foes.reduce((best, m) => distance(m.position, middle) < distance(best.position, middle) ? m : best);
+  const ready = standing.filter(p => p.task !== Activity.Tending);
+  if (ready.length) order(ctx, `siege-foe:${foe.id}:${now | 0}`, [], () => town.orderAttack(ready.map(p => p.id), foe.id));
   state.orderedAt = now;
-  const rest = standing.filter((p) => p.task !== Activity.Tending),
-    ids = rest.map((p) => p.id);
-  if (!ids.length) return true;
-  const healthy = standing.filter((p) => p.health > 0.4).length,
-    downed = party.filter((p) => p.downedAt >= 0).length;
-  if (state.realm !== town.realmRevision) {
-    state.realm = town.realmRevision;
-    state.enteredAt = now;
-  }
-  // The first moments beyond the gate, while the rest step through, are not yet a fight to judge.
-  if (now - state.enteredAt < 6) {
-    order(ctx, `gather:${now | 0}`, [], () => (town.orderAttackMove(ids, plan.entry), true));
-    return true;
-  }
-  if (town.realmCleared) return true;
-  // Bring the scouts home with the first den's spoils, or earlier if a scout needs help.
-  const scouting = state.sent === 1 && state.floor === 0;
-  if (scouting && (dens.length < town.realmDenTotal() || standing.some((p) => p.health < 0.6) || downed > 0))
-    state.withdrawing = true;
-  if (dens.length && (downed >= 2 || healthy * 2 < standing.length || standing.length < 2))
-    state.withdrawing = true;
-  if (state.withdrawing) {
-    order(ctx, `withdraw:${now | 0}`, [], () => (town.orderMove(ids, plan.entry), true));
-    return true;
-  }
-  const middle = centre(standing),
-    straggler = standing.find((p) => p.activity === Activity.Fighting && distance(p.position, middle) > 4),
-    fallen = party.find((p) => p.downedAt >= 0),
-    den = [...dens].sort((a, b) => distance(a.position, middle) - distance(b.position, middle))[0],
-    heart = plan.chambers.find((c) => c.kind === ChamberKind.Heart)?.center ?? plan.entry;
-  if (den && distance(den.position, middle) < 5 && fighting.filter((m) => distance(m.position, middle) < 3).length < 3) {
-    order(ctx, `den:${den.id}:${now | 0}`, [], () => town.orderAttack(ids, den.id));
-    return true;
-  }
-  const goal = fallen?.position ?? straggler?.position ?? den?.position ?? heart;
-  order(ctx, `push:${now | 0}`, [], () => (town.orderAttackMove(ids, goal), true));
-  return true;
 }
 /** Everyone inside a freshly marked slam steps out of it, away from its centre. */
 function dodge(ctx: TitleContext, state: PartyState, standing: readonly Person[]): void {

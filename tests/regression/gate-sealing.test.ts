@@ -1,30 +1,13 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { Town } from '../../packages/engine/src/town';
 import { Building, Season } from '../../packages/engine/src/town-models';
 import { Structure } from '../../packages/engine/src/building-catalog';
-import { Activity, AnimalKind, Calling, Role } from '../../packages/engine/src/person';
-import { DungeonKind, World } from '../../packages/engine/src/world-types';
-import { WorldMap } from '../../packages/engine/src/world-map';
-import { WalkGrid } from '../../packages/engine/src/walk-paths';
-import { RoadNetwork } from '../../packages/engine/src/road-network';
-import { copyNative } from '../../packages/engine/src/native-copy';
-import { distance, lerp, type Point } from '../../packages/engine/src/geometry';
-import { addInventory, itemSpec } from '../../packages/engine/src/equipment';
-import { deposit } from '../../packages/engine/src/mining';
-import { MonsterRank } from '../../packages/engine/src/combat-events';
-import { monsterEntrance } from '../../packages/engine/src/town-monsters';
-import { decodeTown, encodeTown } from '../../packages/engine/src/save-game';
-import { ChamberKind, findRealmArea, inArea, planRealm, realmSizes, sinkRealm, stampRealm } from '../../packages/engine/src/realm-layout';
-import { Saga, gateSealed, sagaState, sealFloors, sealProgress, sealable } from '../../packages/engine/src/gate-seals';
+import { AnimalKind, Calling, Role } from '../../packages/engine/src/person';
+import { DungeonKind } from '../../packages/engine/src/world-types';
+import { Saga, sagaState, sealFloors, sealProgress } from '../../packages/engine/src/gate-seals';
 import { RaidKind, raidDue, raidShape } from '../../packages/engine/src/raid-progression';
-import {
-  GoalBranch,
-  buildingUnlock,
-  currentGoal,
-  settlementGoals,
-} from '../../packages/engine/src/settlement-progression';
+import { GoalBranch, buildingUnlock, currentGoal, settlementGoals } from '../../packages/engine/src/settlement-progression';
 import { TownState } from '../../packages/engine/src/town-state';
-import { realmRules } from '../../packages/engine/src/town-realm';
 
 function settlement() {
   const town = new Town(5, 32, false),
@@ -37,377 +20,6 @@ function settlement() {
   town.map().dungeons()[gate].discovered = true;
   return { town, camp, gate };
 }
-describe('worlds beyond the gates', () => {
-  let base: WorldMap;
-  beforeAll(() => {
-    base = WorldMap.generate(5);
-  }, 120000);
-  function expedition(size: number, level: number, floor = 0, world?: World, map = base) {
-    const town = new Town(map, 176, false),
-      camp = new Building(0, Structure.Camp, town.map().camp(), 0, 0);
-    camp.village = 0;
-    town.placed.push(camp);
-    town.nextId = 1;
-    town.foundSettlement(0);
-    const gate = town.map().dungeons().findIndex((site) => sealable(site) && (world === undefined || town.map().destination(site) === world));
-    town.map().dungeons()[gate].discovered = true;
-    town.depth = town.map().dungeons().map((_, index) => (index === gate ? floor : 0));
-    const members = Array.from({ length: size }, () => {
-      const p = town.makePerson(Role.Resident, Calling.Warrior, monsterEntrance(town.map().dungeons()[gate]));
-      town.folk.push(p);
-      p.level = level;
-      p.activity = Activity.Expedition;
-      p.inside = true;
-      // Armed, with both skills left on auto: a floor is a swarm now.
-      p.inventory[0] = { item: 'sword', quantity: 1 };
-      p.equipment.weapon = 1;
-      p.abilityAuto = p.abilityAuto2 = 1;
-      return p;
-    });
-    town.parties.push({ dungeon: gate, members: members.map((p) => p.id), floor });
-    return { town, gate, members };
-  }
-  const terrain = (town: Town) => town.map().tiles.map((tile) => tile.terrain).join('');
-  const length = (path: Point[]) => path.reduce((sum, p, i) => i ? sum + distance(path[i - 1], p) : sum, 0);
-  const through = (path: Point[], map: WorldMap, cell: (id: number) => boolean) => path.some((end, i) => {
-    if (!i) return false;
-    const start = path[i - 1], steps = Math.ceil(distance(start, end) * 12);
-    for (let j = 1; j <= steps; ++j) {
-      const p = lerp(start, end, j / steps);
-      if (cell(Math.floor(p.y) * map.width() + Math.floor(p.x))) return true;
-    }
-    return false;
-  });
-
-  it.each([[World.Jotunheim, 5], [World.Niflheim, 5], [World.Jotunheim, 11]])('takes the snowy pass in boots and the ridge without them in world %i, seed %i', (world, seed) => {
-    const { town, members: [walker] } = expedition(1, 6, 0, world, seed === 5 ? base : WorldMap.generate(seed));
-    town.advance(0.1);
-    const path = town.realmPlan()!.passage!, map = town.map();
-    const room = town.realmPlan()!.chambers[path.room];
-    expect(town.realmFoes().some((m) => m.rank === MonsterRank.Spitter && distance(m.home, room.center) <= room.radius + 1)).toBe(true);
-    walker.position = path.from;
-    town.orderMove([walker.id], path.to);
-    const ridge = [path.from, ...walker.path];
-    expect(ridge.at(-1)).toEqual(path.to);
-    expect(through(ridge, map, (id) => map.deepSnow.has(id))).toBe(false);
-    addInventory(walker, 'snow-boots');
-    town.equipItem(walker.id, 2, 'feet');
-    town.orderMove([walker.id], path.to);
-    const shortcut = [path.from, ...walker.path];
-    expect(through(shortcut, map, (id) => map.deepSnow.has(id))).toBe(true);
-    expect(length(shortcut)).toBeLessThan(length(ridge));
-    const loaded = decodeTown(encodeTown(town), (m) => new Town(m, 176, false, true));
-    expect(loaded.map().deepSnow).toEqual(map.deepSnow);
-    expect(loaded.grid.path(path.from, path.to, true, itemSpec('snow-boots'))).toEqual(shortcut);
-  });
-
-  it('mines a volcanic flank from either mouth and restores the open pass from a save', () => {
-    const { town, members: [miner] } = expedition(1, 7, 0, World.Muspelheim);
-    town.advance(0.1);
-    const map = town.map(), cell = map.basaltCell, path = town.realmPlan()!.passage!;
-    expect(town.realmDens().some((den) => distance(den.home, path.to) < 3)).toBe(true);
-    const { middle } = path, x = Math.floor(middle.x), y = Math.floor(middle.y);
-    expect(map.basaltCell).toBe(y * map.width() + x);
-    expect(town.grid.walkable(middle)).toBe(false);
-    expect(deposit(map, x, y)).toBe(true);
-    const detour = town.grid.path(path.from, path.to, true);
-    expect(detour.length).toBeGreaterThan(0);
-    expect(through(detour, map, (id) => id === cell)).toBe(false);
-    // Isolate the mining order from combat and keep the actual floor and its spoils.
-    town.beasts = town.beasts.filter((b) => b.id === town.realmGuardian);
-    town.reveal(middle.x, middle.y, 8);
-    miner.position = path.from;
-    addInventory(miner, 'pickaxe');
-    expect(town.orderMine([miner.id], cell)).toBe(false);
-    addInventory(miner, 'embersteel-pick');
-    expect(town.orderMine([miner.id], cell)).toBe(true);
-    town.orderStop([miner.id]);
-    expect(map.at(x, y).quarried).toBe(false);
-    miner.position = path.to;
-    expect(town.orderMine([miner.id], cell)).toBe(true);
-    const resume = (t: Town) => decodeTown(encodeTown(t), (m) => new Town(m, 176, false, true));
-    const resumed = resume(town);
-    expect(resumed.grid.walkable(middle)).toBe(false);
-    for (let i = 0; i < 500 && !resumed.map().at(x, y).quarried; ++i) resumed.advance(0.1);
-    expect(resumed.map().at(x, y).quarried).toBe(true);
-    resumed.advance(0.1);
-    expect(resumed.realmLoot.cinderOre).toBe(2);
-    expect(resumed.orderMine([miner.id], cell)).toBe(false);
-    for (const t of [resumed, resume(resumed)]) {
-      expect(t.grid.walkable(middle)).toBe(true);
-      const shortcut = t.grid.path(path.from, path.to, true);
-      expect(through(shortcut, t.map(), (id) => id === cell)).toBe(true);
-      expect(length(shortcut)).toBeLessThan(length(detour));
-    }
-  });
-
-  it('plans a connected floor inside one open-sea square', () => {
-    const area = findRealmArea(base)!;
-    expect(area.size).toBeGreaterThanOrEqual(40);
-    for (let floor = 0; floor < sealFloors; ++floor) {
-      const plan = planRealm(5, 2, floor, area),
-        seen = new Set([0]),
-        queue = [0];
-      while (queue.length)
-        for (const next of plan.chambers[queue.shift()!].links) if (!seen.has(next)) queue.push(next), seen.add(next);
-      expect(seen.size).toBe(plan.chambers.length);
-      expect(plan.chambers.filter((chamber) => chamber.kind === ChamberKind.Heart)).toHaveLength(1);
-      expect(plan.chambers[0].kind).toBe(ChamberKind.Entry);
-      for (const chamber of plan.chambers) expect(inArea(area, chamber.center)).toBe(true);
-      expect(planRealm(5, 2, floor, area)).toEqual(plan);
-    }
-  });
-  it('raises real walkable land for every world and reaches every chamber on foot', () => {
-    for (let world = 0; world < World.Count; ++world) {
-      const map = copyNative(base),
-        area = findRealmArea(map)!,
-        plan = planRealm(5, world, 1, area);
-      stampRealm(map, plan, world);
-      const grid = new WalkGrid();
-      grid.rebuild(map, new RoadNetwork(), []);
-      for (const chamber of plan.chambers) {
-        expect(grid.walkable(chamber.center)).toBe(true);
-        expect(grid.path(plan.entry, chamber.center).length).toBeGreaterThan(0);
-      }
-      expect(grid.path(plan.entry, map.camp())).toHaveLength(0);
-      sinkRealm(map, area);
-      expect(map.tiles.map((tile) => tile.terrain)).toEqual(base.tiles.map((tile) => tile.terrain));
-      expect(findRealmArea(map)).toEqual(area);
-    }
-  }, 120000);
-  it('still raises a walkable floor in the smallest sea a map may offer', () => {
-    const wide = findRealmArea(base)!,
-      area = { x: wide.x, y: wide.y, size: realmSizes.least };
-    for (let world = 0; world < World.Count; ++world) {
-      const map = copyNative(base),
-        plan = planRealm(5, world, 2, area);
-      stampRealm(map, plan, world);
-      const grid = new WalkGrid();
-      grid.rebuild(map, new RoadNetwork(), []);
-      for (const chamber of plan.chambers) expect(grid.path(plan.entry, chamber.center).length).toBeGreaterThan(0);
-      expect(grid.path(plan.entry, map.camp())).toHaveLength(0);
-    }
-  }, 120000);
-  it('moves the party into the world, lets it kill the guardian and brings the hoard home', () => {
-    const { town, gate, members } = expedition(6, 30),
-      sea = terrain(town),
-      sites = town.map().dungeons().length;
-    town.advance(0.1);
-    expect(town.realmActive()).toBe(true);
-    const plan = town.realmPlan()!;
-    for (const p of members) expect(town.inRealm(p.position)).toBe(true);
-    expect(town.map().dungeons().at(-1)!.kind).toBe(DungeonKind.Return);
-    expect(town.realmFoes().length).toBeGreaterThan(3);
-    expect(town.canLeaveRealm().ok).toBe(true);
-    expect(town.canPlace(Structure.Tent, plan.entry, 0).ok).toBe(false);
-    const heart = plan.chambers.find((chamber) => chamber.kind === ChamberKind.Heart)!;
-    const ids = members.map((p) => p.id);
-    // Every den must fall as well as the guardian: go for the nearest den left, then the heart.
-    const next = () =>
-      town.realmDens().sort((a, b) => distance(a.position, members[0].position) - distance(b.position, members[0].position))[0]
-        ?.position ?? heart.center;
-    town.orderAttackMove(ids, next());
-    for (let t = 0; t < 900 && !town.realmCleared; t += 0.2) {
-      town.advance(0.2);
-      if (Math.round(t * 5) % 50 === 0) town.orderAttackMove(ids, next());
-    }
-    expect(town.realmCleared).toBe(true);
-    expect(town.depth[gate]).toBe(1);
-    expect(town.realmReward?.title).toBe('Floor 1 cleared');
-    expect(town.realmLoot.empty()).toBe(false);
-    expect(town.stock(0).gold + town.stock(0).stone).toBe(0);
-    for (let t = 0; t < 30 && !town.canLeaveRealm().ok; t += 0.2) town.advance(0.2);
-    expect(town.leaveRealm()).toBe(true);
-    expect(town.realmActive()).toBe(false);
-    expect(town.map().dungeons()).toHaveLength(sites);
-    expect(terrain(town)).toBe(sea);
-    expect(town.stock(0).stone).toBeGreaterThan(0);
-    for (const p of members.filter((p) => p.health > 0)) {
-      expect(town.inRealm(p.position)).toBe(false);
-      expect(distance(p.position, monsterEntrance(town.map().dungeons()[gate]))).toBeLessThan(4);
-    }
-    expect(town.monsters().every((beast) => beast.lair !== gate || beast.raider)).toBe(true);
-    expect(town.floorOpen(gate, 1)).toBe(true);
-    expect(town.floorOpen(gate, 2)).toBe(false);
-    expect(town.floorOpen(gate, 0)).toBe(true);
-  }, 120000);
-  it('seals the gate and pays the great reward on the last floor', () => {
-    const { town, gate, members } = expedition(6, 26, sealFloors - 1);
-    town.advance(0.1);
-    const guardian = town.realmFoes().find((foe) => foe.id === town.realmGuardian)!;
-    expect(guardian.health).toBeCloseTo(town.guardianVigor());
-    expect(town.realmDens().length).toBeGreaterThanOrEqual(2);
-    for (const den of town.realmDens()) den.health = 0;
-    town.stir(0.1);
-    expect(town.realmCleared).toBe(false);
-    guardian.health = 0;
-    town.stir(0.1);
-    expect(gateSealed(town, gate)).toBe(true);
-    expect(town.realmReward?.sealed).toBe(true);
-    expect(members.every((p) => p.level === 28)).toBe(true);
-    expect(town.realmLoot.gold).toBeGreaterThanOrEqual(150);
-    expect(town.canLeaveRealm().ok).toBe(true);
-    expect(town.leaveRealm()).toBe(true);
-    expect(town.floorOpen(gate, sealFloors - 1)).toBe(false);
-    expect(town.expeditionProblem(gate, sealFloors - 1)).toContain('Sealed');
-    town.days = 30;
-    town.summonRaid(RaidKind.Pack);
-    expect(town.monsters().some((beast) => beast.lair === gate)).toBe(false);
-  }, 120000);
-  it('loses the carried spoils when nobody comes back and keeps other gates shut meanwhile', () => {
-    const { town, gate, members } = expedition(2, 1);
-    town.advance(0.1);
-    expect(town.expeditionProblem(gate, 0)).toBe('');
-    const other = town.map().dungeons().findIndex((site, index) => index !== gate && sealable(site));
-    town.map().dungeons()[other].discovered = true;
-    town.open[other] = 1;
-    expect(town.expeditionProblem(other, 0)).toBe('A party is already beyond another gate');
-    town.realmLoot.gold = 50;
-    members[0].position = { ...town.realmPlan()!.chambers.at(-1)!.center };
-    expect(town.canLeaveRealm().ok).toBe(false);
-    for (const p of members) p.health = -1;
-    // The gate closes behind the dead after a beat.
-    town.advance(realmRules.castOutDelay + 0.1);
-    expect(town.realmActive()).toBe(false);
-    expect(town.stock(0).gold).toBe(0);
-    expect(town.depth[gate]).toBe(0);
-  }, 120000);
-  it('lets reinforcements follow a party through the same gate', () => {
-    const { town, gate, members } = expedition(2, 5);
-    town.advance(0.1);
-    const late = town.makePerson(Role.Resident, Calling.Warrior, monsterEntrance(town.map().dungeons()[gate]));
-    town.folk.push(late);
-    late.activity = Activity.Expedition;
-    late.inside = true;
-    town.parties.push({ dungeon: gate, members: [late.id], floor: 2 });
-    town.advance(0.1);
-    expect(town.realmFloor).toBe(0);
-    expect(town.realmParty().map((p) => p.id)).toEqual([...members.map((p) => p.id), late.id]);
-    expect(distance(late.position, town.realmPlan()!.entry)).toBeLessThan(3);
-    town.realmCleared = true;
-    expect(town.expeditionProblem(gate, 0)).toBe('This floor is already cleared');
-  }, 120000);
-  it('lets a settlement portal pull a scattered party home for mana', () => {
-    const { town, members } = expedition(2, 5);
-    town.advance(0.1);
-    town.realmLoot.gold = 9;
-    members[0].position = { ...town.realmPlan()!.chambers[1].center };
-    expect(town.canLeaveRealm().ok).toBe(false);
-    const portal = new Building(town.nextId++, Structure.Portal, { x: town.map().camp().x + 4, y: town.map().camp().y }, 0, 0);
-    portal.village = 0;
-    town.placed.push(portal);
-    expect(town.canLeaveRealm().reason).toContain('8 mana');
-    town.stock(0).mana = 10;
-    expect(town.canLeaveRealm().cost.mana).toBe(8);
-    expect(town.leaveRealm()).toBe(true);
-    expect(town.stock(0).mana).toBe(2);
-    expect(town.stock(0).gold).toBe(9);
-    expect(town.realmActive()).toBe(false);
-  }, 120000);
-  it('saves and restores a party in the middle of another world', () => {
-    const { town, gate, members } = expedition(3, 10);
-    town.advance(0.1);
-    town.realmLoot.gold = 7;
-    const loaded = decodeTown(encodeTown(town), (map) => new Town(map, 176, false, true));
-    expect(loaded.realmGate).toBe(gate);
-    expect(loaded.realmArea).toEqual(town.realmArea);
-    expect(loaded.realmLoot.gold).toBe(7);
-    expect(loaded.realmGuardian).toBe(town.realmGuardian);
-    expect(loaded.realmParty().map((p) => p.id)).toEqual(members.map((p) => p.id));
-    expect(loaded.realmFoes()).toHaveLength(town.realmFoes().length);
-    expect(loaded.realmPlan()).toEqual(town.realmPlan());
-    expect(loaded.grid.path(loaded.realmPlan()!.entry, loaded.realmPlan()!.chambers.at(-1)!.center).length).toBeGreaterThan(0);
-  }, 120000);
-});
-
-describe('the player commands the party', () => {
-  let base: WorldMap;
-  beforeAll(() => {
-    base = WorldMap.generate(5);
-  }, 120000);
-  function delve(size: number, level: number) {
-    const town = new Town(base, 176, false),
-      camp = new Building(0, Structure.Camp, town.map().camp(), 0, 0);
-    camp.village = 0;
-    town.placed.push(camp);
-    town.nextId = 1;
-    town.foundSettlement(0);
-    const gate = town.map().dungeons().findIndex(sealable);
-    town.map().dungeons()[gate].discovered = true;
-    town.open[gate] = 1;
-    const members = Array.from({ length: size }, () => {
-      const p = town.makePerson(Role.Resident, Calling.Warrior, monsterEntrance(town.map().dungeons()[gate]));
-      town.folk.push(p);
-      p.level = level;
-      return p;
-    });
-    return { town, gate, members };
-  }
-  it('obeys Move in the middle of a fight, and fights again once it has arrived', () => {
-    const { town, gate, members } = delve(3, 30);
-    for (const p of members) {
-      p.activity = Activity.Expedition;
-      p.inside = true;
-    }
-    town.parties.push({ dungeon: gate, members: members.map((p) => p.id), floor: 0 });
-    town.advance(0.1);
-    const plan = town.realmPlan()!,
-      ids = members.map((p) => p.id),
-      den = plan.chambers[plan.chambers[0].links[0]];
-    town.orderAttackMove(ids, den.center);
-    for (let t = 0; t < 120 && !members.some((p) => p.activity === Activity.Fighting); t += 0.2) town.advance(0.2);
-    expect(members.some((p) => p.activity === Activity.Fighting)).toBe(true);
-    town.orderMove(ids, plan.entry);
-    town.advance(0.2);
-    for (const p of members) {
-      expect(p.activity).toBe(Activity.Moving);
-      expect(p.foe).toBe(-1);
-    }
-    let fought = false;
-    for (let t = 0; t < 60 && members.some((p) => p.moving()); t += 0.2) {
-      town.advance(0.2);
-      fought ||= members.some((p) => p.ordered && p.activity === Activity.Fighting);
-    }
-    expect(fought).toBe(false);
-    for (const p of members) expect(distance(p.position, plan.entry)).toBeLessThan(3);
-  }, 120000);
-  it('attacks the chosen monster rather than the nearest one', () => {
-    const { town, gate, members } = delve(1, 30),
-      p = members[0];
-    for (const m of members) {
-      m.activity = Activity.Expedition;
-      m.inside = true;
-    }
-    town.parties.push({ dungeon: gate, members: [p.id], floor: 0 });
-    town.advance(0.1);
-    const foes = town.realmFoes(),
-      near = foes[0],
-      far = foes[1];
-    near.position = { x: p.position.x + 0.6, y: p.position.y };
-    far.position = { x: p.position.x + 1.6, y: p.position.y };
-    near.angry = far.angry = true;
-    expect(town.orderAttack([p.id], far.id)).toBe(true);
-    town.advance(0.1);
-    expect(p.foe).toBe(far.id);
-  }, 120000);
-  it('lets a party walking to a gate be called back, but not one that has stepped in', () => {
-    const { town, gate, members } = delve(2, 5),
-      ids = members.map((p) => p.id);
-    for (const p of members) p.position = town.grid.nearestWalkable({ x: p.position.x + 4, y: p.position.y + 4 });
-    expect(town.sendExpedition(ids, gate, 0)).toBe(true);
-    town.advance(0.2);
-    expect(members.every((p) => p.activity === Activity.Expedition && !p.inside)).toBe(true);
-    const back = town.grid.nearestWalkable({ x: members[0].position.x + 3, y: members[0].position.y + 3 });
-    town.orderMove([ids[0]], back);
-    expect(members[0].activity).toBe(Activity.Moving);
-    for (let t = 0; t < 60 && !town.realmActive(); t += 0.2) town.advance(0.2);
-    // The one who was called back stays in Midgard; the other goes through alone.
-    expect(town.realmActive()).toBe(true);
-    expect(town.realmParty().map((p) => p.id)).toEqual([ids[1]]);
-    expect(town.inRealm(members[0].position)).toBe(false);
-  }, 120000);
-});
-
 describe('saga end states', () => {
   it('is lost when no resident is left and won when every gate is sealed', () => {
     const { town } = settlement();
@@ -448,10 +60,11 @@ describe('raid cadence and shapes', () => {
     expect(raidShape(RaidKind.Horde, 24).count).toBeLessThan(strong.count);
     expect(raidShape(RaidKind.Brutes, 24)).toMatchObject({ health: 1.8 });
     expect(raidShape(RaidKind.Brutes, 24).swarm).toBeLessThan(strong.swarm);
-    expect(raidShape(RaidKind.Pack, 3)).toMatchObject({ count: 0, brutes: 0, swarm: 3 });
+    expect(raidShape(RaidKind.Pack, 3)).toMatchObject({ count: 0, brutes: 0, swarm: 10 });
     expect(strong.count).toBeGreaterThan(2);
     const { town } = settlement();
     town.days = 14;
+    town.raidCount = 4;
     town.summonRaid(RaidKind.Pack);
     const pack = town.monsters().length,
       health = town.monsters()[0].health;
@@ -470,9 +83,11 @@ describe('raid cadence and shapes', () => {
     const before = raider.health;
     town.stir(0.1);
     expect(town.monsters()[0].health).toBe(before);
+    const waveHealth = () => town.monsters().reduce((sum, m) => sum + (m.raider ? m.health : 0), 0);
+    const beforeVolley = waveHealth();
     camp.kind = Structure.Palisade;
     town.stir(0.1);
-    expect(town.monsters().some((beast) => beast.health < before)).toBe(true);
+    expect(waveHealth()).toBeLessThan(beforeVolley);
     expect(town.hits().some((hit) => hit.ranged && hit.person === -1)).toBe(true);
   });
 });
@@ -501,7 +116,7 @@ describe('branching progression', () => {
     expect(goals[currentGoal(town, GoalBranch.Arms)].title).toBe('Build a guild');
     expect(goals[currentGoal(town, GoalBranch.Saga)].title).toBe('Lead a party of three');
     town.chronicle.largestParty = 3;
-    expect(goals[currentGoal(town, GoalBranch.Saga)].title).toBe('Slay a floor guardian');
+    expect(goals[currentGoal(town, GoalBranch.Saga)].title).toBe('Slay a dungeon guardian');
     expect(goals.at(-1)!.title).toBe('Seal every gate');
   });
 });

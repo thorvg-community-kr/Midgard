@@ -234,7 +234,7 @@ describe('what each station level makes', () => {
     expect(town.stationNeeds(smith.id).map((r) => r.text)).toEqual([
       'Complete Sawmill',
       'Complete Stoneworks',
-      'Clear a floor beyond a gate',
+      'Seal a dungeon',
       'Needs 8 residents',
     ]);
     // The bench's iron level waits for a smithy that works stone.

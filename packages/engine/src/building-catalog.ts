@@ -42,6 +42,7 @@ export enum Structure {
   Workbench,
   Foundry,
   Ranch,
+  // Older saves used 41 and 42 for drawn walls. Reusing either ID requires a distinct save version.
   Count,
 }
 export const craftMaterialKeys = ['hides', 'ironOre', 'cinderOre', 'frostwood', 'ironIngot', 'boundFrostwood', 'embersteel'] as const;

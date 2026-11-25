@@ -168,29 +168,18 @@ describe('Thor comes to Midgard', () => {
     expect(town.folk.map((p) => p.experience + p.level * 1000)).toEqual(xp);
     expect(town.folk.every((p) => p.kills === 0)).toBe(true);
   });
-  it('hunts one at a time, only round the settlement and never beyond a gate', () => {
+  it('leaves monsters outside the reach of the settlement alone', () => {
     const town = arrived(settlement());
     while (town.climate().night < 0.9) run(town, 5);
     const far = new Monster(town.nextMonster++, 0, point(20 + thorRules.huntReach + 6, 20));
     far.home = { ...far.position };
     far.health = 13;
-    // A raised world beyond a gate, with a monster at its edge right beside the settlement.
-    town.realmGate = 0;
-    town.realmArea = { x: 30, y: 10, size: 20 };
-    const beyond = new Monster(town.nextMonster++, 0, point(31, 21));
-    beyond.home = point(35, 20);
-    beyond.health = 13;
-    town.beasts.push(far, beyond);
-    const targets = new Set<number>();
+    town.beasts.push(far);
     run(town, 40, () => {
-      if (town.thor.target >= 0) targets.add(town.thor.target);
-      expect(inArea(town.realmArea, town.thor.position)).toBe(false);
+      expect(town.thor.target).not.toBe(far.id);
       expect(distance(town.thor.position, point(20, 20))).toBeLessThan(thorRules.huntReach + 3);
     });
-    expect(targets.has(far.id)).toBe(false);
-    expect(targets.has(beyond.id)).toBe(false);
     expect(far.health).toBe(13);
-    expect(beyond.health).toBe(13);
   });
   it('is no resident: he takes no orders, has no health to lose and no monster goes for him', () => {
     const town = arrived(settlement());

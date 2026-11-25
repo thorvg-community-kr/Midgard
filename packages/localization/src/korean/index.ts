@@ -2,6 +2,7 @@ import { PhraseBook } from '../phrase-book';
 import { catalogPhrases } from './catalog';
 import { combatPhrases } from './combat';
 import { editorPhrases } from './editors';
+import { siegeEventPhrases } from './siege-events';
 import { expeditionPhrases } from './expedition';
 import { expeditionResultPhrases } from './expedition-result';
 import { forgePhrases } from './forge';
@@ -25,6 +26,7 @@ export const koreanPhrases = [
   godsPhrases,
   offeringPhrases,
   expeditionPhrases,
+  siegeEventPhrases,
   expeditionResultPhrases,
   hudPhrases,
   settingsPhrases,

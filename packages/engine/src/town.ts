@@ -27,6 +27,7 @@ import * as harvesting from './resource-harvesting';
 import * as people from './town-people';
 import * as ticking from './town-tick';
 import * as combat from './town-monsters';
+import { orderAttackDungeon } from './dungeon-siege';
 import * as encounters from './town-encounters';
 import * as giants from './town-giants';
 import * as wildlife from './town-wildlife';
@@ -50,7 +51,7 @@ const { humanNames: unusedHumanNames, ...residentMethods } = residents;
 const { stressPolicy: unusedStressPolicy, ...stressMethods } = stress;
 const { realmRules: unusedRealmRules, ...realmMethods } = realm;
 const { defectionPolicy: unusedDefectionPolicy, ...neutralMethods } = neutral;
-const methods = { ...supplies, ...construction, ...farms, ...roadConstruction, ...orders, ...scheduler, ...needs, ...housing, ...residentMethods, ...hiring, ...devotionMethods, ...equipment, ...stressMethods, ...neutralMethods, ...harvesting, ...people, ...ticking, ...combat, ...encounters, ...giants, ...wildlife, ...realmMethods, ...defences, ...memorial, ...downed, ...abilities, ...market, ...rituals, ...status, ...economyMethods, ...production, ...settlementMethods, ...title, advanceThor };
+const methods = { ...supplies, ...construction, ...farms, ...roadConstruction, ...orders, ...scheduler, ...needs, ...housing, ...residentMethods, ...hiring, ...devotionMethods, ...equipment, ...stressMethods, ...neutralMethods, ...harvesting, ...people, ...ticking, ...combat, orderAttackDungeon, ...encounters, ...giants, ...wildlife, ...realmMethods, ...defences, ...memorial, ...downed, ...abilities, ...market, ...rituals, ...status, ...economyMethods, ...production, ...settlementMethods, ...title, advanceThor };
 type Bound<T> = { [K in keyof T]: T[K] extends (...args: infer A) => infer R ? (...args: A) => R : never };
 export interface Town extends Bound<typeof methods> {}
 export class Town extends TownState {

@@ -6,7 +6,7 @@ import { WorkEfficiency } from '../../../../packages/engine/src/work-efficiency'
 import { OrderLedger } from './title-orders';
 import { Traffic } from './title-traffic';
 import { available, living, type TitleContext } from './title-roster';
-import { commandRealm, defend, partyState, sally, sendParty } from './title-party';
+import { commandSiege, defend, partyState, sally, sendParty } from './title-party';
 import { equipFree, planSettlement, type Shortfall } from './title-settlement-plan';
 import { callResidents } from './title-altar';
 import { keepWell } from './title-wellbeing';
@@ -41,7 +41,7 @@ export class TitlePlayer {
   update(town: Town): void {
     const now = town.clock();
     if (now < this.nextAt) return;
-    this.nextAt = now + (town.realmActive() ? titlePlayerRules.beyond : titlePlayerRules.home);
+    this.nextAt = now + (this.party.members.length ? titlePlayerRules.beyond : titlePlayerRules.home);
     this.decide(town);
   }
   decide(town: Town): void {
@@ -61,7 +61,7 @@ export class TitlePlayer {
       traffic: this.traffic,
     };
     this.traffic.watch(ctx);
-    if (town.realmActive() || this.party.members.length) commandRealm(ctx, this.party);
+    if (this.party.members.length) commandSiege(ctx, this.party);
     const raided = defend(ctx, this.party) || sally(ctx, this.party);
     const foundingQuest = currentGoal(town, GoalBranch.Core);
     if (!raided && foundingQuest < 0) sendParty(ctx, this.party);

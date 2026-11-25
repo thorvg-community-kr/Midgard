@@ -2,7 +2,7 @@ import type { Town } from './town';
 import { TownState } from './town-state';
 import { WorldMap } from './world-map';
 import { CampEconomy } from './camp-economy';
-import { Building, Check } from './town-models';
+import { Building, Check, walkingObstacles } from './town-models';
 import { Resources, Structure, isSeat, structureSpec } from './building-catalog';
 import { Footprint, distance, overlaps } from './geometry';
 import { constructionProducts, resourceAmount, resourceBundle } from './construction-materials';
@@ -156,7 +156,7 @@ export function refreshNeutralNavigation(root: Town, town: Town): void {
   town.grid.rebuild(
     root.world,
     root.network,
-    root.placed.filter((b) => b.built() && b.kind !== Structure.Torch).map((b) => b.footprint()),
+    walkingObstacles(root.placed),
   );
   town.walkRevision = town.changes;
 }

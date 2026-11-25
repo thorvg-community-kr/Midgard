@@ -34,7 +34,12 @@ const callingStats: Record<keyof typeof Calling, readonly [number, number, numbe
 };
 export function naturalAttributes(p: Person): Attributes {
   const [strength, dexterity, intelligence] = callingStats[Calling[p.calling] as keyof typeof Calling];
-  return { strength: strength + p.birthStrength, dexterity, intelligence };
+  const training = Math.floor(p.level / 10), specialty = Math.max(strength, dexterity, intelligence);
+  return {
+    strength: strength + p.birthStrength + training * (strength === specialty ? 2 : 1),
+    dexterity: dexterity + training * (dexterity === specialty ? 2 : 1),
+    intelligence: intelligence + training * (intelligence === specialty ? 2 : 1),
+  };
 }
 
 export const gradeWeight: Record<Grade, number> = { E: 1, D: 2, C: 3, B: 4, A: 5, S: 6 };

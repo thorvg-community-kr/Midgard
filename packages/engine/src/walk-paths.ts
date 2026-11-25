@@ -52,16 +52,30 @@ export class WalkGrid {
     private accessSegments: RoadSegment[] = [];
     private accessGraph = new RoadGraph();
     obstacles: Footprint[] = [];
+    private cellWalls = new Map<number, Footprint[]>();
     regions = new Int32Array();
     nearObstacle = new Uint8Array();
     blocked = new BigUint64Array();
     labeled = new BigUint64Array();
     cost(x: number, y: number): number { return this.costs[f32(f32(y * this.columns) + x)]; }
     blockedBy(a: Point, b?: Point): boolean {
+        if (!this.obstacles.length) return false;
         if (!b) {
             const x = Math.floor(a.x), y = Math.floor(a.y);
-            if (x >= 0 && y >= 0 && x < this.columns && y < this.rows && !this.nearObstacle[y * this.columns + x]) return false;
+            if (x >= 0 && y >= 0 && x < this.columns && y < this.rows)
+                return this.cellWalls.get(y * this.columns + x)?.some(wall => footBlockedBy(a, wall)) ?? false;
             return this.obstacles.some(wall => footBlockedBy(a, wall));
+        }
+        // A walking step touches at most four adjacent tiles. Only nearby building footprints can intercept it.
+        const ax = Math.floor(a.x), ay = Math.floor(a.y), bx = Math.floor(b.x), by = Math.floor(b.y);
+        if (Math.abs(ax - bx) <= 1 && Math.abs(ay - by) <= 1 &&
+            Math.min(ax, bx) >= 0 && Math.min(ay, by) >= 0 && Math.max(ax, bx) < this.columns && Math.max(ay, by) < this.rows) {
+            for (let y = Math.min(ay, by); y <= Math.max(ay, by); ++y)
+                for (let x = Math.min(ax, bx); x <= Math.max(ax, bx); ++x) {
+                    const walls = this.cellWalls.get(y * this.columns + x);
+                    if (walls) for (const wall of walls) if (footSegmentBlockedBy(a, b, wall)) return true;
+                }
+            return false;
         }
         for (const wall of this.obstacles) {
             const radius = wall.half * Math.SQRT2 + Math.hypot(footBounds.halfX, footBounds.halfY);
@@ -131,7 +145,7 @@ export class WalkGrid {
     }
     rebuild(map: WorldMap, roads: RoadNetwork, buildings: readonly Footprint[] = []): void {
         const sameShape = this.columns === map.width() && this.rows === map.height(), sameWalls = sameShape && this.obstacles.length === buildings.length && this.obstacles.every((f, i) => equal(f.center, buildings[i].center) && f.half === buildings[i].half && f.angle === buildings[i].angle);
-        this.obstacles = buildings.map(b => new Footprint({ ...b.center }, b.half, b.angle));
+        if (!sameWalls) this.obstacles = buildings.map(b => new Footprint({ ...b.center }, b.half, b.angle));
         this.columns = map.width();
         this.rows = map.height();
         this.costs = new Float32Array(f32(this.columns * this.rows)).fill(1);
@@ -192,11 +206,16 @@ export class WalkGrid {
         }
         if (!sameWalls) {
             this.nearObstacle = new Uint8Array(this.costs.length);
+            this.cellWalls.clear();
             for (const f of this.obstacles) {
                 const reach = f32(f32(f.half * f32(1.415)) + 1), x0 = Math.max(0, Math.floor(f32(f.center.x - reach))), x1 = Math.min(f32(this.columns - 1), Math.floor(f32(f.center.x + reach))), y0 = Math.max(0, Math.floor(f32(f.center.y - reach))), y1 = Math.min(f32(this.rows - 1), Math.floor(f32(f.center.y + reach)));
                 for (let y = y0; y <= y1; ++y)
-                    for (let x = x0; x <= x1; ++x)
-                        this.nearObstacle[f32(f32(y * this.columns) + x)] = 1;
+                    for (let x = x0; x <= x1; ++x) {
+                        const cell = y * this.columns + x, walls = this.cellWalls.get(cell);
+                        this.nearObstacle[cell] = 1;
+                        if (walls) walls.push(f);
+                        else this.cellWalls.set(cell, [f]);
+                    }
             }
         }
         // Route only through traversable geometry. Rejecting a shortest route

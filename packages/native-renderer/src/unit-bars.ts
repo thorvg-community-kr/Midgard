@@ -1,4 +1,6 @@
 // Thin flat health bars with a delayed chip, capped for a crowd, and the bleed-out ring over a downed resident.
+import { dungeonStatus } from '../../engine/src/dungeon-siege';
+import { gateCenter } from '../../engine/src/gate-progression';
 import { distance, project, type Point } from '../../engine/src/geometry';
 import { combatRules, MonsterRank } from '../../engine/src/combat-events';
 import { Role, type Hit, type Person } from '../../engine/src/person';
@@ -143,6 +145,16 @@ export function updateUnitBars(s: WorldRendererState, town: Town, selected: read
     return false;
   };
   const wanted: { priority: number; draw: () => void }[] = [];
+  town.sieges?.forEach((siege, gate) => {
+    if (!siege || siege.health <= 0) return;
+    const foot = gateCenter(town.map().dungeons()[gate]);
+    if (s.currentVisibility.sample(foot) < 119) return;
+    const key = `gate${gate}`, at = project(foot.x, foot.y);
+    const { health, maxHealth } = dungeonStatus(town, gate);
+    const meter = track(state, key, health / maxHealth, health, now);
+    seen.add(key);
+    wanted.push({ priority: 110, draw: () => bar(shapes, shapes.foe, at.x, at.y - 65, 54, 4, meter) });
+  });
   for (const m of town.monsters()) {
     if (m.insideLair || s.currentVisibility.sample(m.position) < 119) continue;
     const key = `m${m.id}`,

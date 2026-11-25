@@ -1,3 +1,4 @@
+import type { DungeonSiege } from './dungeon-siege';
 // Native Town storage and non-simulating constructor. Simulation methods are translated in separate modules.
 import { WorldMap } from './world-map';
 import { RoadNetwork } from './road-network';
@@ -47,9 +48,11 @@ export class TownState {
   combatState = new CombatState();
   /** Thor's visits: whether he is here, when he came and when he comes again. */
   thor = new ThorVisit();
-  static readonly secondsPerDay = 300; static readonly daysPerMonth = 5; static readonly maxRoadLength = 24; static readonly maxBridgeSpan = 7; static readonly roadHalfWidth = f32(.3); static readonly maxFieldAcres = 48; static readonly farmReach = 6; static readonly joinReach = f32(.8); static readonly campReach = 12; static readonly paidWorkSeconds = f32(300 * f32(.12)); static readonly maxRaiders = 64;
+  static readonly secondsPerDay = 300; static readonly daysPerMonth = 5; static readonly maxRoadLength = 24; static readonly maxBridgeSpan = 7; static readonly roadHalfWidth = f32(.3); static readonly maxFieldAcres = 48; static readonly farmReach = 6; static readonly joinReach = f32(.8); static readonly campReach = 12; static readonly paidWorkSeconds = f32(300 * f32(.12)); static readonly maxRaiders = 128;
   titleAutoplay = false; /** Shown behind the title and played by the title player under the ordinary rules; the guide and the game's windows stay quiet. Not saved. */ titleShowcase = false; /** Daylight a save's title preview stays at, so Continue reveals the sky already on screen. */ titleSky: { year: number; day: number } | null = null; titleBuilder = -1; titleFoodUntil = -1; titlePlanTimer = 0; titleWeatherTimer = 0; titleAnchors: Point[] = [];
   network = new RoadNetwork(); placed: Building[] = []; farmland: Field[] = []; folk: Person[] = []; grid = new WalkGrid(); sky: Sky;
+  /** Only damaged or breached dungeons need a record. */
+  sieges: (DungeonSiege | null)[] = [];
   open: Uint8Array; depth: number[] = []; beasts: Monster[] = []; animals: Monster[] = []; animalCalls: AnimalCall[] = []; nextAnimalCall = 0n; wildlifeDay = -1;
   parties: Expedition[] = []; nextMonster = 0; giantDay = -1; raidedDay = -1; raidCount = 0; raidKills = 0; raidBounty = 0; blows: Hit[] = []; nextBlow = 0n; timberEvents: TreeWorkEvent[] = []; nextTreeEvent = 0n;
   provisions = new CampEconomy(); villages: CampEconomy[] = []; deliveries: CampReceipt[] = []; nextReceipt = 0n; nextId = 0; nextPerson = 0; time = 0; days = 0; walkRevision = 0n; dice: number; notices: string[] = []; changes = 1n; roadChanges = 1n; roadOnlyChanges = 0n;

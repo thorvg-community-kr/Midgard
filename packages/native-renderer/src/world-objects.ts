@@ -323,7 +323,7 @@ export function buildObjects(s: WorldRendererState, town: Town, climate: Readonl
         world = map.destination(homeward ? map.dungeons()[town.realmGate] : site);
       s.rowBuildings[row].add(here);
       const dormant = !sealed && !homeward && !gateActive(town, index);
-      const pulse = gateSprite(here, s.lights, { site, world, sealed, dormant });
+      const pulse = gateSprite(here, s.lights, { site, world, sealed, dormant, breached: town.sieges[index]?.health === 0 });
       registerDepth(
         here,
         point(site.origin.x + 1, site.origin.y + 1),

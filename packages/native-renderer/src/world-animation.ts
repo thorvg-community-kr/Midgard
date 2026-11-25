@@ -12,17 +12,18 @@ export function animate(s: WorldRendererState, town: Town, seconds: number): voi
   const eyes = lround(f32(255 * clamp(f32(f32(town.climate().night * f32(1.5)) - f32(0.3)), 0, 1)));
   for (const glint of s.ymirGlints) glint?.opacity(eyes);
   const marks = clearMarks(town);
-  for (const [id, item] of s.visuals) {
-    const b = town.building(id),
-      stage = b && !b.built() ? f32(f32(b.progress * item.layout.frames) * f32(0.92)) : item.layout.frames,
+  for (const b of town.buildings()) {
+    const item = s.visuals.get(b.id);
+    if (!item) continue;
+    const stage = !b.built() ? f32(f32(b.progress * item.layout.frames) * f32(0.92)) : item.layout.frames,
       removed = marks.length
-        ? (marks.find((mark) => mark.kind === 'building' && mark.id === id)?.done ?? 0)
+        ? (marks.find((mark) => mark.kind === 'building' && mark.id === b.id)?.done ?? 0)
         : 0,
       // Dismantle only what stands. Keeping even a half-built frame lets it rise smoothly back into place.
       target = f32(stage * (1 - removed)),
       frame = Math.min(target, f32(item.frame + f32(Math.max(0, elapsed) * item.layout.frameRate)));
     if (item.nestEggs) {
-      const eggs = b?.eggs ?? 0;
+      const eggs = b.eggs;
       item.nestEggs.forEach((egg, i) => {
         const alpha = i < eggs ? 255 : 0;
         if (egg.alpha !== alpha) egg.opacity(alpha);

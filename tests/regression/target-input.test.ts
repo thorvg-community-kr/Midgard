@@ -3,6 +3,7 @@ import { pointerUp, wheel } from '../../apps/web/src/native/game-input';
 import { issueOrder, type GameCommandApp } from '../../apps/web/src/native/game-commands';
 import { Order, PointerButton, Tool } from '../../packages/engine/src/game-tools';
 import { point } from '../../packages/engine/src/geometry';
+import { DungeonKind } from '../../packages/engine/src/world-types';
 import { AnimalKind, Calling, Person, Race, Role, Monster } from '../../packages/engine/src/person';
 import { GameApplication } from '../../apps/web/src/native/game-application';
 import { presentedHit } from './fixtures/presented-hit';
@@ -32,7 +33,6 @@ function fixture() {
     pointerMove: vi.fn(),
     issueOrder: vi.fn(),
     cue: vi.fn(),
-    gateFloor: new Map<number, number>(),
     personAt: () => -1,
     animalAtScreen: () => -1,
     treeAtScreen: () => -1,
@@ -43,13 +43,13 @@ function fixture() {
       person: (id: number) => people[id] ?? null,
       downedResidents: () => [],
       buildings: () => [],
+      world: { dungeons: () => [{ name: 'Cave', origin: point(8, 8), kind: DungeonKind.Cave, discovered: true }] },
+      depth: [], sieges: [],
       map: () => ({ cell: () => ({ dungeon: -1 }), dungeons: () => [] }),
-      deepestOpenFloor: () => 1,
-      expeditionProblem: () => 'Another party is on its way to a gate',
       monsterAt: () => -1,
       creature: () => animal,
       orderMove: vi.fn(),
-      sendExpedition: vi.fn(() => true),
+      orderAttackDungeon: vi.fn(() => true),
       orderAttack: vi.fn(),
       orderAttackPerson: vi.fn(),
       orderAttackMove: vi.fn(),
@@ -188,12 +188,19 @@ describe('target input and group commands', () => {
     expect(app.town.orderAttackMove).not.toHaveBeenCalled();
     expect(app.chosen).toEqual([0]);
   });
-  it('right-clicking a gate never sends a party at once, and moves there when no window can open', () => {
+  it.each([Order.Attack, Order.Work])('sends only the selected group to the dungeon with map order %s', order => {
     const { app } = fixture();
-    // No such gate on this map: nothing opens, so the order falls back to a walk. The window itself is covered in expedition-window.test.ts.
+    app.chosen = [1];
+    app.hoveredWorldTarget!.hit = presentedHit('dungeon', 0);
+    issueOrder.call(app, order);
+    expect(app.town.orderAttackDungeon).toHaveBeenCalledWith([1], 0);
+    expect(app.town.orderMove).not.toHaveBeenCalled();
+  });
+  it('walks to the cursor when the picked dungeon no longer exists', () => {
+    const { app } = fixture();
     app.hoveredWorldTarget!.hit = presentedHit('dungeon', 2);
     issueOrder.call(app, Order.Work);
-    expect(app.town.sendExpedition).not.toHaveBeenCalled();
+    expect(app.town.orderAttackDungeon).not.toHaveBeenCalled();
     expect(app.town.orderMove).toHaveBeenCalledWith([0, 1], app.cursor);
   });
   it('right-clicking a companion approaches without friendly fire', () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { dungeonThreat, pressureNotice, raidMight, raidMuster, raidShape, RaidKind, seatVolley, threatWeeks } from '../../packages/engine/src/raid-progression';
+import { dungeonThreat, pressureNotice, raidMight, raidMuster, raidShape, RaidKind, seatVolley, siegeMonsterLevel, threatWeeks } from '../../packages/engine/src/raid-progression';
+import { decodeTown, encodeTown } from '../../packages/engine/src/save-game';
 import { MonsterRank } from '../../packages/engine/src/combat-events';
 import { rankRules } from '../../packages/engine/src/monster-ranks';
 import { Calling, Monster, Role } from '../../packages/engine/src/person';
@@ -17,7 +18,7 @@ describe('weekly dungeon pressure', () => {
       const wave = raidShape(RaidKind.Horde, raidMight(100, week));
       return Math.min(Town.maxRaiders, wave.count + wave.brutes + wave.swarm);
     };
-    expect([0, 1, 2].map(horde)).toEqual([10, 16, 23]);
+    expect([0, 1, 2].map(horde)).toEqual([21, 35, 51]);
     expect(horde(3)).toBeGreaterThan(horde(2));
     expect(horde(threatWeeks)).toBe(Town.maxRaiders);
     expect(raidMight(2, 1)).toBeLessThan(raidMight(100, 1));
@@ -52,7 +53,7 @@ describe('weekly dungeon pressure', () => {
     expect(dungeonThreat(700, point(), [castle])).toEqual({ ...cap, week: 100 });
     expect(cap.health).toBeGreaterThan(dungeonThreat(threatWeeks * 7 - 1, point(), [castle]).health);
     expect(pressureNotice(2)).toBe('Week 2: raiders grow stronger. Seal a gate to end its raids.');
-    expect(pressureNotice(threatWeeks)).toContain('full strength');
+    expect(pressureNotice(threatWeeks)).toContain('largest hordes');
     expect(pressureNotice(threatWeeks + 1)).toBe('');
   });
   it('announces weekly pressure from an active gate even beyond the fog and stops after sealing', () => {
@@ -123,6 +124,26 @@ describe('weekly dungeon pressure', () => {
     fighter.calling = Calling.Bard;
     expect(blow()).toBeCloseTo(plainBlow);
   });
+  it('lets an unarmed founder defeat even the leader of a delayed first raid with one ordinary blow', () => {
+    const town = new Town(5, 32, false), seat = new Building(0, Structure.Camp, town.map().camp(), 0, 0);
+    seat.village = 0;
+    town.placed.push(seat);
+    town.foundSettlement(0);
+    const gate = town.map().dungeons().findIndex(d => d.kind !== DungeonKind.GiantHall);
+    town.map().dungeons()[gate].discovered = true;
+    town.open[gate] = 1;
+    town.days = 45;
+    town.summonRaid(RaidKind.Brutes, [gate]);
+    const founder = town.makePerson(Role.Resident, Calling.Settler, seat.door());
+    const raiders = town.beasts.filter(m => m.raider);
+    expect(raiders.some(m => m.rank === MonsterRank.Brute)).toBe(true);
+    for (const m of raiders) {
+      expect(m.level).toBe(1);
+      expect(m.health).toBeLessThanOrEqual(town.blowStrength(founder));
+      town.strike(founder, m);
+      expect(m.health).toBeLessThanOrEqual(0);
+    }
+  });
   it('applies the weekly increase to actual spawned dungeon raiders', () => {
     const town = new Town(5, 32, false),
       camp = new Building(0, Structure.Camp, town.map().camp(), 0, 0);
@@ -137,16 +158,32 @@ describe('weekly dungeon pressure', () => {
     town.days = 6;
     town.summonRaid(RaidKind.Pack);
     const opening = town.monsters().length,
-      health = town.monsters()[0].health;
+      scout = town.monsters()[0];
+    expect(scout.level).toBe(1);
+    const settler = town.makePerson(Role.Resident, Calling.Settler, scout.position);
+    expect(town.blowStrength(settler)).toBe(1);
+    for (const raider of town.monsters()) {
+      town.strike(settler, raider);
+      expect(raider.health).toBeLessThanOrEqual(0);
+    }
     town.beasts = [];
     town.days = 7;
     town.summonRaid(RaidKind.Pack);
     expect(town.monsters().length).toBeGreaterThanOrEqual(opening);
-    expect(town.monsters()[0].health).toBeGreaterThan(health);
+    expect(town.monsters()[0].health).toBeGreaterThan(scout.vigor);
     // An empty camp only draws a probe of swarmers: they too grow with the week.
     const swarmer = town.monsters()[0];
     expect(swarmer.rank).toBe(MonsterRank.Swarmer);
-    expect(swarmer.strength).toBeCloseTo(1.08 * rankRules.swarmerStrength * raidMuster.swarmBite, 4);
-    expect(swarmer.health).toBeCloseTo(breedOf(lair.kind).health * 1.18 * rankRules.swarmerHealth, 3);
+    expect(swarmer.level).toBe(2);
+    expect(swarmer.strength).toBeCloseTo(0.25 * 1.08 * rankRules.swarmerStrength * raidMuster.swarmBite, 4);
+    expect(swarmer.health).toBeCloseTo(breedOf(lair.kind).health * 0.24 * 1.32 * rankRules.swarmerHealth, 3);
+    town.days = 35;
+    const saved = decodeTown(encodeTown(town), map => new Town(map, 32, false, true));
+    expect(saved.creature(swarmer.id)).toMatchObject({ level: 2, vigor: swarmer.vigor });
+    saved.beasts = [];
+    saved.summonRaid(RaidKind.Horde);
+    expect(saved.monsters()[0].level).toBe(6);
+    expect(siegeMonsterLevel(0, 11)).toBe(1);
+    expect(siegeMonsterLevel(14, 48)).toBe(6);
   });
 });

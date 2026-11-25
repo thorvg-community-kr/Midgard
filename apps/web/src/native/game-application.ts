@@ -309,7 +309,7 @@ export class GameApplication implements Application {
     const showScript =
       activeScript.ready() &&
       (!this.editorAttached || this.playback !== Playback.Stopped) &&
-      !this.game.buildings && !this.game.prayer && !this.game.expedition;
+      !this.game.buildings && !this.game.prayer;
     if (showScript) {
       if (simulate && (!this.editorAttached || dt > 0)) activeScript.update(dt);
       this.scriptContext.begin(this.scriptTheme, new Rect(0, 0, width, height), seconds);
@@ -335,8 +335,6 @@ export class GameApplication implements Application {
     if (e.type === 'PointerDown' || e.type === 'Wheel' || e.type === 'Gesture' || e.type === 'KeyDown')
       releaseArrivalCamera(this.game);
     if (this.game.handlePrayerEvent?.(e)) { this.dirty = true; return; }
-    if (this.game.handleExpeditionEvent?.(e)) { this.dirty = true; return; }
-    if (this.game.handleResultEvent?.(e)) { this.dirty = true; return; }
     if (this.editorAttached && this.playback !== Playback.Playing && !this.authoringTool()) {
       const openTool = e.type === 'KeyDown' && ['f2', 'f3', 'f4'].includes(e.text);
       if (!openTool) {

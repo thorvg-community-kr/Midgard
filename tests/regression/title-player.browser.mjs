@@ -54,7 +54,7 @@ try {
         camera: view ? { x: Math.round(view.x), y: Math.round(view.y), zoom: +view.zoom.toFixed(2) } : null,
         subject: subject ? { id: subject.id, name: subject.name, x: +subject.position.x.toFixed(1), y: +subject.position.y.toFixed(1), inside: subject.inside, health: +subject.health.toFixed(2) } : null,
         focus,
-        realm: town?.realmActive?.() ?? false,
+        siege: !!play?.player?.party?.members.length,
         night: +(town?.climate().night ?? 0).toFixed(2),
         goal: play?.player?.goalTitle?.() ?? '',
         sent: play?.player?.party?.sent ?? 0,
@@ -118,12 +118,12 @@ try {
   const costs = {};
   if (measure) costs.start = await measureCost('at the start');
   let shot = 0,
-    realmShots = 0;
-  // Every `every` seconds, and every 15 s while the party is beyond a gate.
+    siegeShots = 0;
+  // Every `every` seconds, and every 15 s while the party is besieging a dungeon.
   for (let t = 0; t <= total; t += 15) {
     const cost = await page.evaluate((n) => window.titleFrames(n), t === 0 ? 1 : 150),
       peek = await page.evaluate(() => window.titleSample());
-    if (t % every !== 0 && !(peek.realm && realmShots++ < 40)) continue;
+    if (t % every !== 0 && !(peek.siege && siegeShots++ < 40)) continue;
     const luma = await page.evaluate(() => window.titleShot()),
       sample = await page.evaluate(() => window.titleSample()),
       file = `shot-${String(shot++).padStart(3, '0')}.png`;
@@ -137,7 +137,7 @@ try {
   const rows = log
     .map(
       (e) =>
-        `<figure><img src="${e.file}" loading="lazy"><figcaption>t=${e.t}s day ${e.day} pop ${e.population} · ${e.focus || (e.subject ? 'following ' + e.subject.name : 'no subject')}${e.realm ? ' · beyond a gate' : ''} · parties ${e.sent}/${e.cleared} · luma ${e.luma.mean}/${e.luma.spread}${e.goal ? ' · ' + e.goal : ''}</figcaption></figure>`,
+        `<figure><img src="${e.file}" loading="lazy"><figcaption>t=${e.t}s day ${e.day} pop ${e.population} · ${e.focus || (e.subject ? 'following ' + e.subject.name : 'no subject')}${e.siege ? ' · besieging a dungeon' : ''} · parties ${e.sent}/${e.cleared} · luma ${e.luma.mean}/${e.luma.spread}${e.goal ? ' · ' + e.goal : ''}</figcaption></figure>`,
     )
     .join('\n');
   writeFileSync(

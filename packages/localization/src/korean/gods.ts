@@ -18,5 +18,5 @@ export const godsPhrases: Phrases = {
   'The world serpent lies in the sea around Midgard, so long that it holds its own tail in its jaws.':
     '세계의 뱀이 미드가르드를 둘러싼 바다에 누워 있습니다. 너무 길어서 제 꼬리를 입에 물고 있습니다.',
   'It rises only in foul weather and sinks again when the sky clears. It does no harm to the land or its people.':
-    '궂은 날씨에만 떠오르고 하늘이 개면 다시 가라앉습니다. 땅에도 주민에게도 해를 끼치지 않습니다.',
+    '궂은 날씨에만 떠오르고 하늘이 개면 다시 가라앉습니다. 땅에도 정착민에게도 해를 끼치지 않습니다.',
 };

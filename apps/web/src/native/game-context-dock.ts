@@ -114,7 +114,7 @@ export function updateContextDock(this: GameHudApp, width: number, height: numbe
       stores = this.touchMode && building?.built() && isSeat(building.kind),
       crafting = !!building?.built() && isCraftStation(building.kind);
     target.w = Math.min(stores ? 420 : 620, f(width - 24));
-    target.h = Math.min(this.inspector(new Rect(0, 0, target.w, 0), false), inspectorHeightLimit(height, crafting));
+    target.h = Math.min(this.inspector(new Rect(0, 0, target.w, 0), false), inspectorHeightLimit(height, crafting || this.selectedDungeon >= 0));
     key += ':' + this.selected + ':' + this.selectedDungeon + ':' + this.residentPage;
   } else if (next === DockView.Resource) {
     target.w = Math.min(420, f(width - 24));

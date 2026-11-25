@@ -287,7 +287,7 @@ export function stationNeeds(this: Town, stationId: number): UnlockRequirement[]
       text: levelReason(next.station.kind, next.station.level),
       done: this.stationLevelIn(next.station.kind, village) >= next.station.level,
     });
-  if (next.floors) out.push({ text: 'Clear a floor beyond a gate', done: deedCount(this, 'floors') >= next.floors });
+  if (next.floors) out.push({ text: 'Seal a dungeon', done: deedCount(this, 'floors') >= next.floors });
   if (next.residents)
     out.push({ text: 'Needs ' + next.residents + ' residents', done: this.population() >= next.residents });
   return out;

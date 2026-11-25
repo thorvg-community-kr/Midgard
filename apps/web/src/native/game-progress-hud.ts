@@ -1,5 +1,5 @@
 import { Rect, Align, ButtonStyle, button, tag as paperTag, type Context, type Color } from '../../../../packages/native-ui/src';
-import { openExpedition } from './expedition-window';
+import { attackDungeon } from './dungeon-attack';
 import { translate } from '../../../../packages/localization/src/index';
 import { Tool, toolStructure } from '../../../../packages/engine/src/game-tools';
 import {
@@ -31,6 +31,7 @@ import { marketTier } from '../../../../packages/engine/src/economy-rules';
 import { Boon, boon, boonOfWorld, boonName, boonText, boonsHeld } from '../../../../packages/engine/src/gate-boons';
 import { gateSealed, sealable } from '../../../../packages/engine/src/gate-seals';
 import { gateActive } from '../../../../packages/engine/src/gate-progression';
+import { dungeonAttackProblem } from '../../../../packages/engine/src/dungeon-siege';
 import { DungeonKind } from '../../../../packages/engine/src/world-types';
 import { DockView } from './game-app-state';
 import type { GameHudApp } from './game-hud-contract';
@@ -234,21 +235,22 @@ function visitAction(app: GameHudApp, kind: Structure, label: string): QuestActi
   const tool = toolOf(kind);
   return tool === undefined ? null : placeAction(app, tool);
 }
-/** Centres the nearest found, unsealed gate and opens its expedition window with the selection chosen. */
+/** Orders an assault on a discovered dungeon and brings it into view. */
 export function jumpToGate(app: GameHudApp): void {
   const town = app.town,
     from = town.camp()?.center ?? town.map().camp();
   let best = -1,
-    nearest = Infinity, active = false;
+    nearest = Infinity, bestPriority = -1;
   town
     .map()
     .dungeons()
     .forEach((site, index) => {
       const gap = Math.hypot(site.origin.x + 1 - from.x, site.origin.y + 1 - from.y);
       if (!site.discovered || !sealable(site) || gateSealed(town, index)) return;
-      const ready = gateActive(town, index);
-      if ((active && !ready) || (ready === active && gap >= nearest)) return;
-      active = ready;
+      // Prefer a dungeon the party can strike, then one that is sending raiders.
+      const priority = dungeonAttackProblem(town, index) ? 0 : gateActive(town, index) ? 2 : 1;
+      if (priority < bestPriority || (priority === bestPriority && gap >= nearest)) return;
+      bestPriority = priority;
       best = index;
       nearest = gap;
     });
@@ -259,7 +261,7 @@ export function jumpToGate(app: GameHudApp): void {
   const site = town.map().dungeons()[best];
   look(app, f32(site.origin.x + 1), f32(site.origin.y + 1));
   app.selectTool(Tool.Select, true);
-  openExpedition(app, best, app.chosen);
+  attackDungeon(app, best);
 }
 function craftAction(app: GameHudApp, goal: SettlementGoal): QuestAction | null {
   const camp = app.town.camp(),
@@ -339,9 +341,9 @@ export function questAction(app: GameHudApp, goal: SettlementGoal): QuestAction 
       return populationAction(app);
     case GoalKind.Floor:
     case GoalKind.Seal:
-      return { label: 'Plan an expedition', run: () => jumpToGate(app) };
+      return { label: 'Attack dungeon', run: () => jumpToGate(app) };
     case GoalKind.Deed:
-      if (gateDeeds.has(goal.deed)) return { label: 'Plan an expedition', run: () => jumpToGate(app) };
+      if (gateDeeds.has(goal.deed)) return { label: 'Attack dungeon', run: () => jumpToGate(app) };
       if (goal.deed === 'sworn') return visitAction(app, Structure.Guild, 'Open the guild');
       if (goal.deed === 'weaponsForged') return visitAction(app, Structure.Weaponsmith, 'Open the smithy');
       return null;

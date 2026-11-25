@@ -362,8 +362,9 @@ function doorReached(grid: WalkGrid, from: Point, door: Point): boolean {
   return reached;
 }
 export function canPlace(this: ConstructionTown, kind: Structure, center: Point, angle: number): Check {
-  const spec = structureSpec(kind),
-    check = new Check(false, '', spec.cost.clone()),
+  const spec = structureSpec(kind);
+  if (!spec) return new Check(false, 'Choose a building');
+  const check = new Check(false, '', spec.cost.clone()),
     village = this.settlementAt(center);
   if (!spec.buildable) return refuse(check, 'Grows from an earlier stage');
   if (this.population(village) < spec.requiredPopulation)

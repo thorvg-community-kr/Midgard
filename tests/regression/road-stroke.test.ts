@@ -153,7 +153,7 @@ function expectAt(actual: Point, expected: Point, digits = 3): void {
 }
 
 describe('drawing roads on rocky ground', () => {
-  it.each([[5, 56, 40], [11, 59, 43]])('previews, stakes and builds the road to a stone pile on seed %i', (seed, x, y) => {
+  it.each([[5, 56, 40], [11, 55, 48]])('previews, stakes and builds the road to a stone pile on seed %i', (seed, x, y) => {
     const town = new Town(seed, 96), map = town.map(), origin = map.camp(), rock = rockPosition(x, y);
     town.scout(origin.x, origin.y, 22);
     expect(town.place(Structure.Camp, origin, 0)).toBe(true);
@@ -161,7 +161,9 @@ describe('drawing roads on rocky ground', () => {
     town.tick(0);
     expect(map.terrainAt(rock)).toBe(Terrain.Rock);
     expect(deposit(map, x, y)).toBe(true);
-    const app = controls(town), path = draw(app, hand(app, [town.camp()!.door(), rock], 0));
+    const route = town.grid.path(town.camp()!.door(), rock);
+    expect(route.length).toBeGreaterThan(0);
+    const app = controls(town), path = draw(app, hand(app, route, 0));
     expect(town.canBuildRoad(path)).toMatchObject({ ok: true, reason: '' });
     expect(deposit(map, x, y)).toBe(true);
     const stone = town.stock().stone;

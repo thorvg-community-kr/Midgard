@@ -301,6 +301,9 @@ export function combatSounds(app: CombatSoundApp, events: readonly CombatEvent[]
         push(app, s);
         break;
       }
+      case CombatCue.SiegeHorde:
+        if (seen) sound(app, Cue.Howl, e.position, 0.8);
+        break;
       case CombatCue.Wave:
         if (!quiet(state, 'wave', 4, now))
           push(app, new Sound(Cue.WaveHorn, 0.55, app.spatial(Cue.WaveHorn, e.position).pan));

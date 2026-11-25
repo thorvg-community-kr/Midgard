@@ -156,7 +156,7 @@ a { color: var(--bright); }
     <div class="kicker">The game</div>
     <h2>The game loop</h2>
     <div class="split even" data-explorer="loop">
-      <svg class="diagram" viewBox="0 0 600 540" role="group" aria-label="The game loop: gathering, settlement, Odin's altar, crafting, expeditions, and back">
+      <svg class="diagram" viewBox="0 0 600 540" role="group" aria-label="The game loop: gathering, settlement, Odin's altar, crafting, dungeon sieges, and back">
         <defs>
           <marker id="arrow-dim" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="rgb(115,98,65)"/></marker>
           <marker id="arrow-lit" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="rgb(232,190,110)"/></marker>
@@ -166,7 +166,7 @@ a { color: var(--bright); }
           <path class="arrow" data-from="settlement" d="M390 76 Q448 92 484 166" marker-end="url(#arrow-dim)"/>
           <path class="arrow" data-from="altar" d="M520 268 Q520 348 470 410" marker-end="url(#arrow-dim)"/>
           <path class="arrow" data-from="crafting" d="M362 470 Q300 494 240 470" marker-end="url(#arrow-dim)"/>
-          <path class="arrow" data-from="expeditions" d="M110 410 Q76 340 86 268" marker-end="url(#arrow-dim)"/>
+          <path class="arrow" data-from="sieges" d="M110 410 Q76 340 86 268" marker-end="url(#arrow-dim)"/>
         </g>
         <text x="36" y="350" font-size="14" fill="rgb(157,151,128)">spoils</text>
         <g font-size="19" text-anchor="middle">
@@ -174,7 +174,7 @@ a { color: var(--bright); }
           <g class="node" tabindex="0" role="button" data-pick="settlement" aria-label="Settlement"><rect x="215" y="24" width="170" height="92" rx="9" fill="rgb(35,39,32)" stroke="rgb(191,161,99)"/><text x="300" y="64" fill="rgb(225,216,189)">Settlement</text><text x="300" y="90" font-size="13" fill="rgb(157,151,128)">build and connect</text></g>
           <g class="node" tabindex="0" role="button" data-pick="altar" aria-label="Odin's altar"><rect x="420" y="172" width="170" height="92" rx="9" fill="rgb(35,39,32)" stroke="rgb(191,161,99)"/><text x="505" y="212" fill="rgb(225,216,189)">Odin's altar</text><text x="505" y="238" font-size="13" fill="rgb(157,151,128)">new residents</text></g>
           <g class="node" tabindex="0" role="button" data-pick="crafting" aria-label="Crafting"><rect x="365" y="414" width="170" height="92" rx="9" fill="rgb(35,39,32)" stroke="rgb(191,161,99)"/><text x="450" y="454" fill="rgb(225,216,189)">Crafting</text><text x="450" y="480" font-size="13" fill="rgb(157,151,128)">bench and smithy</text></g>
-          <g class="node" tabindex="0" role="button" data-pick="expeditions" aria-label="Expeditions"><rect x="65" y="414" width="170" height="92" rx="9" fill="rgb(35,39,32)" stroke="rgb(191,161,99)"/><text x="150" y="454" fill="rgb(225,216,189)">Expeditions</text><text x="150" y="480" font-size="13" fill="rgb(157,151,128)">beyond the gates</text></g>
+          <g class="node" tabindex="0" role="button" data-pick="sieges" aria-label="Dungeon sieges"><rect x="65" y="414" width="170" height="92" rx="9" fill="rgb(35,39,32)" stroke="rgb(191,161,99)"/><text x="150" y="454" fill="rgb(225,216,189)">Dungeon sieges</text><text x="150" y="480" font-size="13" fill="rgb(157,151,128)">break and seal</text></g>
           <text x="300" y="282" fill="rgb(232,190,110)" font-size="22" font-weight="700">Seal every gate</text>
           <text x="300" y="308" fill="rgb(157,151,128)" font-size="14">hover or tap a step</text>
         </g>
@@ -186,7 +186,7 @@ a { color: var(--bright); }
             <li>Settlement: build homes, workshops and roads; residents work on Auto.</li>
             <li>Odin's altar: new residents come from offerings.</li>
             <li>Crafting: tools and weapons are made at a bench, in the open.</li>
-            <li>Expeditions: a few lead through a gate against many; the spoils come home.</li>
+            <li>Fight the guardian and its horde where their dungeon falls. Sealing the gate ends its raids.</li>
           </ul>
         </div>
         <div class="detail" aria-live="polite">
@@ -200,30 +200,32 @@ a { color: var(--bright); }
       <template data-node="settlement" data-video="docs/town-life.mp4" data-link="#buildings">Homes, workshops, farms, markets and halls, joined by roads; every building is a small 3D model drawn as vector shapes. Residents have homes, work, hunger and rest; on Auto they choose useful work.</template>
       <template data-node="altar" data-video="docs/altar.mp4">Four food and a free bed welcome a settler. Choose their name and appearance. Every four extra goods grant a point in strength or vitality.</template>
       <template data-node="crafting" data-video="docs/workbench.mp4">A resident walks to the workbench, weaponsmith or armorer and makes the item in the open. Nothing is paid until it is done.</template>
-      <template data-node="expeditions" data-video="docs/dungeon-arc.mp4">Choose a party and a floor at a gate, fight the swarm and its dens, fell the guardian, and bring the spoils home.</template>
+      <template data-node="sieges" data-link="#dungeons" data-label="How to seal a dungeon">Lead residents across Midgard to a dungeon. Break it open and defeat the guardian and its horde to end its raids and claim the hoard.</template>
     </div>
   </div>
 </section>
 
 <section id="dungeons" data-title="Dungeons">
   <div class="wrap split">
-    <figure class="sound">
-      <video src="docs/dungeon-arc.mp4" poster="docs/dungeon-arc.jpg" muted autoplay loop playsinline controls preload="metadata"></video>
-      <figcaption>One expedition, start to finish, with the game's sound. The party is staged; the second den is finished by script and the guardian comes to the party half spent, to keep it short.</figcaption>
+    <figure>
+      <img src="docs/dungeon-siege.png" alt="A golden summoning circle surrounds the rubble of the Howling Cleft" loading="lazy">
+      <figcaption>The Howling Cleft collapses beside the peaks that shelter the founding shore. A summoning circle marks where the guardian and its horde will emerge.</figcaption>
     </figure>
     <div>
       <div class="kicker">The game</div>
       <h2>Dungeons</h2>
-      <ul class="points">
-        <li>1 · Gather the party: tick residents in the gate's expedition window, pick a floor.</li>
-        <li>2 · Through the gate: they walk to it and step in.</li>
-        <li>3 · The world beyond: a real island of that world rises from the sea.</li>
-        <li>4 · Fight the swarm: dens breed until destroyed.</li>
-        <li>5 · The guardian: its fall clears the floor; the brood breaks.</li>
-        <li>6 · Home with the spoils: banked only when the party is back; a result screen tells the slain, the dens, each member's state and the rewards.</li>
-      </ul>
-      <span class="src">packages/engine/src/realm-layout.ts · town-realm.ts · gate-seals.ts · apps/web/src/native/expedition-window.ts</span>
-      <a class="devlog-link" href="docs/devlog/expedition.html">See the working gallery: the expedition window and results</a>
+      <p>The starting camp and a single hostile cave sit in a basin. The mountain ridge curves back to the shore on both sides. Two passes lead inland to the other dungeons. The giant halls on the eastern coast are neutral.</p>
+      <p>When a raid begins, monsters pour from the dungeon and march toward the settlement. A watchtower fires on raiders within reach.</p>
+      <p>The first raiders fall to a single bare-handed blow. Later waves bring higher-level enemies. Look at a raider to see its level, and use narrow passes to bunch the wave together.</p>
+      <h3>Sealing a dungeon</h3>
+      <p>The eight dungeons grow harder with distance from the founding shore. Start with ten level-10 fighters and flint weapons. Each tier recommends one more fighter and ten more levels. The eighth calls for seventeen level-80 fighters with late-game gear. The dungeon panel shows the recommendation before you order an attack.</p>
+      <ol class="points">
+        <li>Click the dungeon and press <strong>Attack</strong>. Your selected group sets out immediately. With no group selected, fighters and settlers with an equipped weapon go first. If none can reach it, other available settlers go.</li>
+        <li>Break the structure. Its collapse throws nearby units back and opens a summoning circle.</li>
+        <li>Kill the guardian and every monster it brings before the dungeon rises again.</li>
+        <li>The sealed dungeon pays its hoard and its raids cease. Seal them all to win.</li>
+      </ol>
+      <span class="src">packages/engine/src/dungeon-siege.ts · gate-seals.ts · town-monsters.ts</span>
     </div>
   </div>
 </section>
@@ -231,22 +233,21 @@ a { color: var(--bright); }
 <section id="monsters" data-title="Monsters">
   <div class="wrap split">
     <figure class="sound">
-      <video src="docs/army-fight.mp4" poster="docs/army-fight.jpg" muted autoplay loop playsinline controls preload="metadata"></video>
-      <figcaption>Six residents attack-move on a den; skills fire on auto until it falls. Real time.</figcaption>
+      <video src="docs/forest-outlines.mp4" poster="docs/forest-outlines.jpg" muted autoplay loop playsinline controls preload="metadata"></video>
+      <figcaption>Residents fight a swarm among trees. Outlines keep the fighters visible behind the canopy.</figcaption>
     </figure>
     <div>
       <div class="kicker">The game</div>
       <h2>Monsters</h2>
       <ul class="points">
-        <li>Monsters win by numbers: a floor holds dozens of them.</li>
+        <li>Monsters leave a dungeon together and can surround isolated residents.</li>
         <li>Swarmers are small and quick and die to a blow or two.</li>
-        <li>Dens never move: they breed swarmers until destroyed.</li>
         <li>Spitters shoot from range; grunts lead packs; brutes and stalkers are the tougher ranks.</li>
-        <li>A guardian holds every floor and telegraphs its slams.</li>
+        <li>The guardian attacks after the dungeon falls. Watch for its slam.</li>
         <li>A pack hunts by a <span class="algo">Dijkstra flow field</span> from its prey, shared by every monster and cached for 0.4 s.</li>
         <li>Each kind of gate has its own creature: goblins, draugr, imps, jotnar, wargs.</li>
       </ul>
-      <span class="src">packages/engine/src/combat-events.ts (MonsterRank) · monster-ranks.ts · town-realm.ts · monster-navigation.ts (flowTo) · native-renderer/src/monster-figures.ts</span>
+      <span class="src">packages/engine/src/combat-events.ts (MonsterRank) · monster-ranks.ts · dungeon-siege.ts · monster-navigation.ts (flowTo) · native-renderer/src/monster-figures.ts</span>
     </div>
   </div>
 </section>
@@ -312,7 +313,7 @@ a { color: var(--bright); }
           <li>A resident at the end of their strength falls and bleeds out unless an ally kneels beside them.</li>
           <li>Every new resident starts as a settler at half the residents' average level, rounded down to a minimum of one. The guild can train them for a fighting calling.</li>
           <li>The first four food give one random point in strength or vitality. Up to twelve extra goods can pay for three more points.</li>
-          <li>Clear floors beyond the gates to make room for more residents.</li>
+          <li>Seal dungeons to make room for more residents.</li>
         </ul>
         <span class="src">packages/engine/src/skill-catalog.ts · town-downed.ts · prayer-offering.ts · altar-cap.ts</span>
       <a class="devlog-link" href="docs/devlog/altar.html">See earlier altar designs</a>
@@ -832,8 +833,10 @@ a { color: var(--bright); }
         panel.querySelector('[data-detail-title]').textContent = item.getAttribute('aria-label');
         panel.querySelector('[data-detail-text]').textContent = t.textContent;
         const link = panel.querySelector('[data-detail-link]');
-        link.innerHTML = t.dataset.link ? `<a href="${t.dataset.link}">How the buildings are drawn</a>` : '';
-        load(video, t.dataset.video);
+        link.innerHTML = t.dataset.link ? `<a href="${t.dataset.link}">${t.dataset.label || 'How the buildings are drawn'}</a>` : '';
+        video.parentElement.hidden = !t.dataset.video;
+        if (t.dataset.video) load(video, t.dataset.video);
+        else video.pause();
       } else {
         items.forEach((b) => b.parentElement.classList.toggle('on', b === item));
         if (!item) return;

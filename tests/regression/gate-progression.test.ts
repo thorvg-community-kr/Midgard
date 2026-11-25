@@ -50,13 +50,14 @@ function hour(town: Town, day: number, time: number) {
 const warnings = (town: Town) => town.notices.filter(line => line.endsWith(' tonight'));
 
 describe('dormant gates and raids on settlements', () => {
-  it('keeps scouting, opening and entry distinct, and gives the first two nights to the settlement', () => {
+  it('lets a discovered dungeon be assaulted before it awakens, and gives an unprovoked settlement two quiet nights', () => {
     const { town, camp, gates, addResident } = settlement(), hero = addResident();
     const [first, second] = gates;
     town.map().dungeons()[second].discovered = true;
-    expect(town.canSendExpedition([hero.id], second).reason).toBe('Dormant gate');
+    expect(town.canSendExpedition([hero.id], second).ok).toBe(true);
     expect(gates.every(gate => !gateActive(town, gate) && !town.floorOpen(gate, 0))).toBe(true);
-    expect(town.sendExpedition([hero.id], second)).toBe(false);
+    expect(town.orderAttackDungeon([hero.id], second)).toBe(true);
+    town.orderStop([hero.id]);
     for (const day of [0, 1]) {
       hour(town, day, 12);
       hour(town, day, 23);
@@ -202,7 +203,9 @@ describe('dormant gates and raids on settlements', () => {
       hour(t, 3, 23);
       expect(t.raids()).toBe(1);
       expect(t.open[gates[0]]).toBe(1);
-      expect(t.beasts.filter(m => m.raider).map(m => m.lair)).toEqual([gates[0], gates[0], gates[0]]);
+      const pack = t.beasts.filter(m => m.raider);
+      expect(pack).toHaveLength(10);
+      expect(pack.every(m => m.lair === gates[0])).toBe(true);
     }
     const afterRaid = resume(loaded);
     hour(afterRaid, 3, 23);

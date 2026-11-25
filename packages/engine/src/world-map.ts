@@ -1,4 +1,4 @@
-import { add, sub, scale, point, length, distance, normalized, lerp, segmentDistance, cubic, type Point } from './geometry';
+import { add, sub, scale, point, length, distance, normalized, rotated, lerp, segmentDistance, cubic, type Point } from './geometry';
 import { clamp, f32 as toFloat32, hash01, lround, remainder, u32 } from './numeric';
 import { DungeonKind, Giant, Layer, Region, Terrain, Volcano, World, unsafeGround, isStone, isWater, lavaFloor, lavaLevel, makeTile, volcanicCrest, volcanoFoot, type Dungeon, type River, type Sight, type Tile, type TileCoord } from './world-types';
 import { placeDungeons } from './dungeon-sites';
@@ -539,6 +539,91 @@ export class WorldMap {
                 }
         }
     }
+    /** A horseshoe rises inland of the founding shore. Its arms turn back to the water on either side. */
+    private raiseFoundingRidges(): void {
+        const camp = this.camp(), fromShore = normalized(sub(camp, this.ymir!.center()));
+        // Where the shore bends, aim the rear of the bowl at the mainland so both passes come out on land.
+        let inland = fromShore, leastWater = Infinity;
+        for (const turn of [0, -.18, .18, -.36, .36, -.54, .54, -.72, .72]) {
+            const heading = turn ? rotated(fromShore, turn) : fromShore, lateral = point(-heading.y, heading.x);
+            let water = 0;
+            for (const side of [-6, 0, 6]) for (const forward of [12, 15, 18]) {
+                const at = add(camp, add(scale(heading, forward), scale(lateral, side)));
+                if (this.value(Layer.Land, at) < .04) ++water;
+            }
+            if (water < leastWater) { inland = heading; leastWater = water; }
+            if (!water) break;
+        }
+        const across = point(-inland.y, inland.x), depth = 15, reach = 23;
+        const shoulder = (side: number): number => {
+            // A narrow peninsula gets a closer shoulder so the sea does not cut off that whole arm.
+            for (let width = 9; width < 17; ++width) {
+                const at = add(camp, add(scale(inland, 5), scale(across, side * width)));
+                if (this.value(Layer.Land, at) < .14) return width - 1;
+            }
+            return 17;
+        };
+        const leftWidth = shoulder(-1), rightWidth = shoulder(1);
+        const passAngle = (side: number, width: number): number => {
+            let best = .58, lowest = Infinity;
+            for (let n = 0; n < 11; ++n) {
+                const angle = .28 + n * .06;
+                let score = Math.abs(angle - .58);
+                for (const offset of [-.09, 0, .09]) {
+                    const direction = add(scale(inland, depth * Math.cos(angle + offset)),
+                        scale(across, side * width * Math.sin(angle + offset)));
+                    for (let k = 7; k <= 13; ++k) {
+                        const tile = this.cell(add(camp, scale(direction, k / 10)));
+                        if (!tile || isWater(tile.terrain) || tile.terrain === Terrain.Lava) score += 8;
+                        else if (tile.terrain === Terrain.Mountain) score += 1;
+                    }
+                }
+                if (score < lowest) { best = angle; lowest = score; }
+            }
+            return side * best;
+        };
+        const leftPass = passAngle(-1, leftWidth), rightPass = passAngle(1, rightWidth);
+        const phase = hash01(this.mapSeed, 0, 0, 864) * Math.PI * 2;
+        const ridge = this.layers[Layer.Ridge], stride = this.columns * 2 + 1;
+        const left = Math.max(0, this.origin.x - reach), right = Math.min(this.columns, this.origin.x + reach + 1);
+        const top = Math.max(0, this.origin.y - reach), bottom = Math.min(this.rows, this.origin.y + reach + 1);
+        for (let j = 2 * top; j <= 2 * bottom; ++j) {
+            for (let i = 2 * left; i <= 2 * right; ++i) {
+                const dx = i / 2 - camp.x, dy = j / 2 - camp.y;
+                const forward = dx * inland.x + dy * inland.y;
+                if (forward < -4) continue;
+                const side = dx * across.x + dy * across.y, width = side < 0 ? leftWidth : rightWidth;
+                const angle = Math.atan2(side / width, forward / depth);
+                const relief = .55 * Math.sin(3 * angle + phase) + .35 * Math.sin(5 * angle - phase);
+                const radius = Math.hypot(side / width, forward / depth);
+                const gap = Math.abs((radius - 1) * Math.min(width, depth) - relief);
+                if (radius > 1.35) continue;
+                const index = j * stride + i;
+                if (this.layers[Layer.Land][index] < .1 || this.layers[Layer.Heat][index] >= .62) continue;
+                // Cut the saddles through an existing ridge too, choosing each route on the dry ground.
+                const pass = Math.abs(angle - (side < 0 ? leftPass : rightPass));
+                const saddle = smooth(clamp((pass - .10) / .17, 0, 1));
+                const shore = smooth(clamp((forward + 4) / 6, 0, 1));
+                const crest = Math.max(0, 1 - gap / 2) * saddle * shore;
+                const passEnd = smooth(clamp((radius - 1.20) / .15, 0, 1));
+                const natural = ridge[index], cut = Math.max(saddle, passEnd);
+                let rise = natural > -.06 && cut < 1 ? -.06 + (natural + .06) * cut : natural;
+                if (crest > 0) rise = Math.max(rise, .36 * crest - .1);
+                if (rise === natural) continue;
+                ridge[index] = rise;
+                // Where an inland lake meets the crest, its rocky bank rises above the waterline.
+                if (crest > 0 && rise > 0) {
+                    const heights = this.layers[Layer.Elevation];
+                    heights[index] = Math.max(heights[index], .3 + .15 * rise);
+                }
+                if (i % 2 && j % 2) {
+                    const x = (i - 1) / 2, y = (j - 1) / 2, tile = this.at(x, y);
+                    tile.terrain = this.terrainAt(point(i / 2, j / 2));
+                    tile.wild = tile.trees = wildTrees(this, x, y);
+                }
+            }
+        }
+    }
     private *finishGeneration(): Generator<void> {
         const width = this.columns, height = this.rows, seed = this.mapSeed, heart = this.ymir!.center();
         for (let y = 0; y < height; y++) {
@@ -596,6 +681,7 @@ export class WorldMap {
                 found = nearest < 3.4028234663852886e38;
             }
         this.origin = best;
+        this.raiseFoundingRidges();
         for (let y = f32(best.y - 2); y <= f32(best.y + 2); y++)
             for (let x = f32(best.x - 2); x <= f32(best.x + 2); x++)
                 if (this.inside(x, y))

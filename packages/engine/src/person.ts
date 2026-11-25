@@ -14,6 +14,7 @@ export const callingName = (calling: Calling): string => ['Settler', 'Traveller'
 export const raceName = (race: Race): string => ['Human', 'God', 'Giant'][race] || '';
 export const activityName = (activity: Activity): string => ['Idle', 'Moving on orders', 'Holding position', 'Building', 'Working on a road', 'Working', 'Eating', 'Resting', 'Relaxing at the tavern', 'Delving the dungeon', 'Brooding', 'Arriving', 'Leaving', 'On watch', 'Fighting', 'On an expedition', 'Praying', 'Buying gear', 'Carrying goods', 'Felling a tree', 'Collecting resources', 'Mining stone', 'Receiving treatment', 'Fetching supplies', 'Delivering materials', 'Waiting for materials', 'Drinking water', 'Training at the guild', 'Crafting equipment', 'Downed', 'Tending the fallen', 'Leading livestock', 'Collecting eggs', 'Preparing meat'][activity] || '';
 export class Monster {
+  level = 1;
   health = 3; strength = 1; raider = false; angry = false; ready = 0; home = point(); prey = -1; race: Race | null = null; insideLair = false; provokedBy = -1; animal: AnimalKind | null = null;
   /** What kind of fighter this is; decides its size and manner. */
   rank = MonsterRank.Grunt;
@@ -37,7 +38,7 @@ export class Monster {
 export interface Hit { serial: bigint; from: Point; to: Point; damage: number; onPerson: boolean; ranged: boolean; at: number; person: number; attacker?: number; /** A blow for extra damage. */ crit?: boolean; /** Turned aside by a shield; `damage` is 0. */ blocked?: boolean; /** How the blow landed; absent means `StrikeKind.Single`. */ strike?: StrikeKind; /** False for the enemies a cleave, pierce or splash caught besides its target; absent means true. */ primary?: boolean; }
 export interface Expedition { dungeon: number; members: number[]; /** Floor of the world beyond the gate the party will enter. */ floor: number; }
 export class Person {
-  static readonly maximumLevel = 30;
+  static readonly maximumLevel = 100;
   inventory: (ItemStack | null)[] = Array.from({ length: backpackSize }, () => null);
   equipment = emptyEquipment();
   craftItem: string | null = null;
@@ -109,20 +110,40 @@ export class Person {
   get stress(): number { return 1 - this.rest; }
   set stress(value: number) { this.rest = f32(clamp(1 - value, 0, 1)); }
   constructor(public id: number, public name: string, public role: Role, public calling: Calling, public race: Race, public look: number, public position: Point, public path: Point[] = []) {}
-  /** Each level asks more than the last, and the gap itself widens: a floor's worth of fighting is a level or two, not five. */
-  experienceToNextLevel(): number { const n = this.level - 1; return this.level >= Person.maximumLevel ? 0 : 40 + 30 * n + 3 * n * n; }
+  experienceToNextLevel(): number { return experienceForLevel(this.level); }
   /** Experience improves endurance. Weapons and their attribute scaling determine attack. */
   static vitalityPerLevel = 0.2;
   vitalityMultiplier(): number { return f32(1 + f32(f32(Person.vitalityPerLevel) * (this.level - 1)) + this.birthVitality * 0.08); }
-  gainExperience(points: number): number {
-    if (points <= 0 || this.health <= 0 || this.level >= Person.maximumLevel) return 0;
+  gainExperience(points: number, includeDowned = false): number {
+    const downedSurvivor = includeDowned && this.downedAt >= 0 && this.health > -0.5;
+    if (points <= 0 || (this.health <= 0 && !downedSurvivor) || this.level >= Person.maximumLevel) return 0;
     let gained = 0, remaining = this.experience + points;
-    while (this.level < Person.maximumLevel && remaining >= this.experienceToNextLevel()) { remaining -= this.experienceToNextLevel(); this.level++; gained++; this.health = Math.min(1, f32(this.health + f32(.2))); }
+    while (this.level < Person.maximumLevel && remaining >= this.experienceToNextLevel()) {
+      remaining -= this.experienceToNextLevel();
+      this.level++;
+      gained++;
+      if (this.health > 0) this.health = Math.min(1, f32(this.health + f32(.2)));
+    }
     this.experience = this.level === Person.maximumLevel ? 0 : remaining; return gained;
   }
   moving(): boolean { return this.path.length > 0; }
   crossingDoorway(): boolean { return this.inside ? this.doorway < 1 : this.doorway > 0; }
   visibility(): number { const gap = distance(this.entrance, this.threshold); let visible = clamp(f32(f32(f32(1 - this.doorway) * gap) / Math.max(f32(.001), Math.min(f32(.35), gap))), 0, 1); if (gap < f32(.001)) visible = f32(1 - this.doorway); return f32(f32(visible * visible) * f32(3 - f32(2 * visible))); }
+}
+/** Keep the experience already saved toward each level and extend the same curve through the campaign. */
+export function experienceForLevel(level: number): number {
+  const n = level - 1;
+  return level >= Person.maximumLevel ? 0 : 40 + 30 * n + 3 * n * n;
+}
+/** Experience for three seconds of productive work. Apprentices practice what the settlement has already mastered. */
+export function workPracticeExperience(level: number, provenLevel: number): number {
+  const apprentice = level < provenLevel;
+  return Math.max(1, Math.round(experienceForLevel(apprentice ? provenLevel : level) / (apprentice ? 10 : 80)));
+}
+export function experienceForLevels(start: number, count: number): number {
+  let total = 0;
+  for (let level = start; level < Math.min(start + count, Person.maximumLevel); ++level) total += experienceForLevel(level);
+  return total;
 }
 export const adventurer = (p: Person): boolean => p.calling === Calling.Warrior || p.calling === Calling.Ranger || p.calling === Calling.Mage || p.calling === Calling.Cleric;
 export interface AnimalCall { serial: bigint; kind: AnimalKind; position: Point; at: number; }

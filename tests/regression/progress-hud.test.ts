@@ -1,3 +1,4 @@
+import { dungeonChallenge, targetedDungeon } from '../../packages/engine/src/dungeon-siege';
 import { beforeAll, afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import ThorVG, { type ThorVGNamespace } from '@thorvg/webcanvas';
@@ -10,7 +11,7 @@ import { Town } from '../../packages/engine/src/town';
 import { Calling, Role, type Person } from '../../packages/engine/src/person';
 import { point } from '../../packages/engine/src/geometry';
 import { Tool, toolStructure } from '../../packages/engine/src/game-tools';
-import { selectTool } from '../../apps/web/src/native/game-input';
+import { selectObject, selectTool, type GameInputApp } from '../../apps/web/src/native/game-input';
 import { GoalBranch, settlementGoals, toolAvailable } from '../../packages/engine/src/settlement-progression';
 import { Boon, boonName, boonOfWorld } from '../../packages/engine/src/gate-boons';
 import { sealFloors, sealable } from '../../packages/engine/src/gate-seals';
@@ -130,7 +131,7 @@ function fixture(town: Town, width = 1024, height = 768) {
   );
   const context = new Context(tvg, metrics);
   // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the HUD functions under test use only GameAppState fields and the stubs below.
-  const app = new GameAppState(town, { buildingRoof: () => null } as never, context) as GameHudApp;
+  const app = new GameAppState(town, { buildingRoof: () => null } as never, context) as GameHudApp & GameInputApp;
   app.selectTool = vi.fn();
   app.selectBuilding = vi.fn();
   app.selectPeople = vi.fn();
@@ -405,7 +406,7 @@ describe('quest panel', () => {
       expect(ui.words()).toContain('Open the guild');
       ui.click(`quest-action/${goal}`);
       expect(ui.app.selectBuilding).toHaveBeenCalledWith(guild.id);
-      resident(town, Calling.Warrior);
+      const fighter = resident(town, Calling.Warrior);
       questPanel(ui);
       expect(ui.words()).toContain('1 / 1 residents sworn to a calling');
       // Nothing to click for beating off a raid: no button rather than a wrong one.
@@ -413,16 +414,16 @@ describe('quest panel', () => {
       questPanel(ui);
       expect(ui.words()).toContain('0 / 1 raids beaten off');
       expect(ui.control(`quest-action/${goal}`)).toBeUndefined();
-      // Gate deeds open the expedition window of the nearest found gate.
+      // The quest's attack sends the fighter directly to the nearest found dungeon.
       const index = gate(town);
-      goal = goalIndex('Slay a floor guardian');
+      goal = goalIndex('Slay a dungeon guardian');
       goalPick.branch = (branch) => (branch === GoalBranch.Saga ? goal : -1);
       ui.app.questBranch = GoalBranch.Saga;
       questPanel(ui);
-      expect(ui.words()).toEqual(expect.arrayContaining(['0 / 1 guardians slain', 'Plan an expedition']));
+      expect(ui.words()).toEqual(expect.arrayContaining(['0 / 1 guardians slain', 'Attack dungeon']));
       ui.click(`quest-action/${goal}`);
-      expect(ui.app.expedition?.gate).toBe(index);
-      expect(ui.app.paused).toBe(true);
+      expect(targetedDungeon(fighter)).toBe(index);
+      expect(ui.app.paused).toBe(false);
     } finally {
       ui.dispose();
     }
@@ -435,6 +436,21 @@ describe('build menu unlocks', () => {
     ui.app.dockView = DockView.Build;
     ui.draw(() => commandCard.call(ui.app, buildMenuBounds.call(ui.app, 1024, 768, true), 1, true, true));
   };
+  it.each([false, true])('offers the watchtower as a defence after a raid (touch %s)', (touch) => {
+    const town = settlement();
+    for (const kind of [Structure.Quarry, Structure.Guild, Structure.TrainingYard]) facility(town, kind);
+    for (let i = 0; i < 6; i++) resident(town);
+    town.raidCount = town.chronicle.raidsRepelled = 1;
+    const ui = fixture(town);
+    try {
+      ui.app.touchMode = touch;
+      page(ui, 'Arms & defence');
+      const picks = ui.controls.mock.calls.map(([id]) => id).filter(id => id.startsWith('global/card-pick-'));
+      expect(picks).toEqual(['global/card-pick-Guild', 'global/card-pick-Yard', 'global/card-pick-Tower']);
+    } finally {
+      ui.dispose();
+    }
+  });
   it('lists only what can be built: locked buildings and empty groups stay out of the menu', () => {
     const town = settlement(),
       ui = fixture(town);
@@ -759,6 +775,22 @@ describe('inspectors', () => {
       ui.dispose();
     }
   });
+  it('keeps the rest of the settlement at home if the chosen attacker defects before dungeon inspection', () => {
+    const town = settlement(), ui = fixture(town), index = gate(town);
+    const chosen = resident(town, Calling.Warrior), reserve = resident(town, Calling.Ranger);
+    try {
+      ui.app.chosen = [chosen.id];
+      chosen.faction = 1;
+      selectObject.call(ui.app, { kind: 'dungeon', id: index });
+      ui.draw(() => inspector.call(ui.app, new Rect(100, 100, 620, 560), true));
+      ui.click('gate-attack');
+      expect(ui.app.status).toBe('No settler is available to attack.');
+      expect(targetedDungeon(reserve)).toBe(-1);
+      expect(ui.app.selectPeople).not.toHaveBeenCalled();
+    } finally {
+      ui.dispose();
+    }
+  });
   it('shows the boon a gate grants and whether it is held', () => {
     const town = settlement(),
       ui = fixture(town),
@@ -766,10 +798,22 @@ describe('inspectors', () => {
       gift = boonOfWorld(town.map().destination(town.map().dungeons()[index]));
     try {
       inspect(ui, null, index);
+      const { tier, level, partySize } = dungeonChallenge(town, index);
+      expect(ui.words().join(' ')).toContain(`Dungeon tier ${tier}`);
+      expect(ui.words().join(' ')).toContain(`Recommended: ${partySize} fighters at level ${level}`);
+      expect(ui.words().join(' ')).toContain('Bring flint or stone weapons.');
       expect(ui.words()).toContain(`Sealing grants the boon of ${boonName(gift)}`);
+      expect(ui.words()).toContain('Attack');
+      expect(ui.control('gate-attack')).toBeDefined();
       town.depth = town.map().dungeons().map((_, i) => (i === index ? sealFloors : 0));
       inspect(ui, null, index);
       expect(ui.words()).toContain(`Boon held: ${boonName(gift)}`);
+      expect(ui.control('gate-attack')).toBeUndefined();
+      const sites = town.map().dungeons();
+      const hall = sites.push({ kind: DungeonKind.GiantHall, name: 'Stone hall', origin: point(24, 8), discovered: true }) - 1;
+      inspect(ui, null, hall);
+      expect(ui.words().join(' ')).not.toMatch(/Recommended:|Dungeon tier|weapons\./);
+      expect(ui.control('gate-attack')).toBeUndefined();
       expect(gift).toBeGreaterThanOrEqual(Boon.Valor);
     } finally {
       ui.dispose();

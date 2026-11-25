@@ -12,7 +12,7 @@ export const townPhrases: Phrases = {
   'Rocky ground': '암석 지대',
   'A dungeon entrance': '던전 입구',
   'Grows from an earlier stage': '이전 단계에서 성장합니다',
-  'Needs {0} people in this village': '이 마을에 주민 {0}명이 필요합니다',
+  'Needs {0} people in this village': '이 마을에 정착민 {0}명이 필요합니다',
   'Found the camp first': '먼저 캠프를 세우세요',
   'Camps must stand far apart': '캠프는 서로 멀리 떨어져야 합니다',
   'Torches need a completed road': '횃불은 완성된 길에만 세울 수 있습니다',
@@ -61,11 +61,11 @@ export const townPhrases: Phrases = {
   // clear-order-hud: the Clear button in an inspector
   'Clear it': '철거',
   'Press again to clear': '한 번 더 누르면 철거',
-  'Residents will tear it down.': '주민들이 가서 허뭅니다.',
+  'Residents will tear it down.': '정착민들이 가서 허뭅니다.',
   'Keep it': '그대로 두기',
   'Marked for clearing: {0}% torn down': '철거 표시됨: {0}% 허묾',
   'Tearing it down: {0}': '허무는 중: {0}',
-  'Waiting for free residents': '한가한 주민을 기다리는 중',
+  'Waiting for free residents': '한가한 정착민을 기다리는 중',
 
   // town-construction: notices
   'The chapel now follows the {0}': '예배당이 이제 따르는 신앙: {0}',
@@ -78,18 +78,18 @@ export const townPhrases: Phrases = {
   'Complete an altar first.': '먼저 제단을 완성하세요.',
   'This altar belongs to another settlement.': '다른 정착지의 제단입니다.',
   'Complete a camp for this altar.': '이 제단이 속한 캠프를 완성하세요.',
-  'A resident is waiting for an available home.': '새 주민이 빈 집을 기다리고 있습니다.',
-  'A resident is already preparing this altar.': '다른 주민이 이미 이 제단을 준비하고 있습니다.',
+  'A resident is waiting for an available home.': '새 정착민이 빈 집을 기다리고 있습니다.',
+  'A resident is already preparing this altar.': '다른 정착민이 이미 이 제단을 준비하고 있습니다.',
   'No free resident bed. Complete a home in this settlement.':
-    '남는 주민 침대가 없습니다. 이 정착지에 집을 완성하세요.',
+    '남는 정착민 침대가 없습니다. 이 정착지에 집을 완성하세요.',
   'Need 4 food for the altar offering.': '제단 공물로 식량 4가 필요합니다.',
   'An available resident must be present in this settlement.':
-    '이 정착지에 움직일 수 있는 주민이 있어야 합니다.',
+    '이 정착지에 움직일 수 있는 정착민이 있어야 합니다.',
   'The settlement does not have enough resources for this offering.':
     '정착지에 이 공물을 바칠 자원이 부족합니다.',
-  'Guests cannot pray for a new resident.': '손님은 새 주민을 위해 기도할 수 없습니다.',
-  'Choose an available resident of this settlement.': '이 정착지의 움직일 수 있는 주민을 선택하세요.',
-  "Choose a resident who lives in this altar's settlement.": '이 제단이 있는 정착지의 주민을 선택하세요.',
+  'Guests cannot pray for a new resident.': '손님은 새 정착민을 위해 기도할 수 없습니다.',
+  'Choose an available resident of this settlement.': '이 정착지의 움직일 수 있는 정착민을 선택하세요.',
+  "Choose a resident who lives in this altar's settlement.": '이 제단이 있는 정착지의 정착민을 선택하세요.',
   'Given breath at the altar of Odin.': '오딘의 제단에서 숨을 받았습니다.',
   'Shaped from an offering at the altar of Ymir.': '오딘의 제단에서 숨을 받았습니다.',
   'Called into the world by a prayer at the settlement altar.':
@@ -123,12 +123,12 @@ export const townPhrases: Phrases = {
   'Needs food in store': '비축된 식량이 필요합니다',
   'Needs a market close by': '가까이에 시장이 필요합니다',
   'Needs {0} workers': '일꾼 {0}명이 필요합니다',
-  'Needs {0} people': '주민 {0}명이 필요합니다',
+  'Needs {0} people': '정착민 {0}명이 필요합니다',
   'In a town of {0}, merges with 3 mature townhouses huddled beside it':
-    '주민 {0}명인 마을에서, 곁에 모인 다 자란 연립주택 3채와 합쳐집니다',
-  'Needs a full house ({0}/{1}) in a town of {2}': '주민 {2}명인 마을에서 집이 가득 차야 합니다 ({0}/{1})',
+    '정착민 {0}명인 마을에서, 곁에 모인 다 자란 연립주택 3채와 합쳐집니다',
+  'Needs a full house ({0}/{1}) in a town of {2}': '정착민 {2}명인 마을에서 집이 가득 차야 합니다 ({0}/{1})',
   'Needs {0} gold from guests ({1} so far)': '손님 수입 {0} 골드 필요 (현재 {1})',
-  'Needs {0} residents trained ({1} so far)': '훈련을 마친 주민 {0}명이 필요합니다 (현재 {1}명)',
+  'Needs {0} residents trained ({1} so far)': '훈련을 마친 정착민 {0}명이 필요합니다 (현재 {1}명)',
   'Needs clear ground around it to grow': '성장하려면 주변에 빈 땅이 필요합니다',
   'Waiting for {0}': '{0} 대기 중',
   '{0} grew into a {1}': '{0}: {1} 단계로 성장했습니다',
@@ -140,12 +140,12 @@ export const townPhrases: Phrases = {
   'The raid is beaten off ({0} slain, +{1} gold)': '습격을 물리쳤습니다 ({0}마리 처치, +{1} 골드)',
 
   // town-equipment
-  'Select a controllable resident': '조작할 수 있는 주민을 선택하세요',
+  'Select a controllable resident': '조작할 수 있는 정착민을 선택하세요',
   'A completed home camp is required': '완성된 소속 캠프가 필요합니다',
   'Move closer to your settlement storage': '정착지 저장 시설에 더 가까이 이동하세요',
   'This item cannot be crafted': '제작할 수 없는 아이템입니다',
   'A completed matching workshop is required': '완성된 알맞은 작업장이 필요합니다',
-  'Use a workshop in this resident’s settlement': '이 주민이 속한 정착지의 작업장을 이용하세요',
+  'Use a workshop in this resident’s settlement': '이 정착민이 속한 정착지의 작업장을 이용하세요',
   'Finish or cancel the current crafting order': '진행 중인 제작 명령을 끝내거나 취소하세요',
   'The inventory is full': '소지품이 가득 찼습니다',
   'Not enough settlement materials': '정착지의 재료가 부족합니다',
@@ -156,7 +156,7 @@ export const townPhrases: Phrases = {
 
   // town-hiring
   'Guests visit for a while. Prepare food and a free bed to welcome a resident at the altar.':
-    '손님은 잠시 마을에 머뭅니다. 식량과 빈 침상을 마련하면 제단에서 새 주민을 맞이할 수 있습니다.',
+    '손님은 잠시 마을에 머뭅니다. 식량과 빈 침상을 마련하면 제단에서 새 정착민을 맞이할 수 있습니다.',
   'A close-combat profession that strikes hardest. Equip a crafted weapon for stronger attacks.':
     '가장 강하게 공격하는 근접 전투 직업입니다. 제작한 무기를 장비하면 공격이 더 강해집니다.',
   'A ranged-combat profession that strikes harder. Equip a crafted bow to attack from a distance.':
@@ -169,9 +169,9 @@ export const townPhrases: Phrases = {
     '근거리에서 싸우는 노래의 전승자입니다. 가까운 아군이 더 강하게 공격합니다.',
   'Complete a guild first.': '먼저 길드를 완성하세요.',
   'This guild belongs to another settlement.': '다른 정착지의 길드입니다.',
-  'Guests cannot train or become residents.': '손님은 훈련을 받거나 주민이 될 수 없습니다.',
-  "Choose a resident who lives in this guild's settlement.": '이 길드가 있는 정착지의 주민을 선택하세요.',
-  'This resident has already chosen a profession.': '이 주민은 이미 직업을 골랐습니다.',
+  'Guests cannot train or become residents.': '손님은 훈련을 받거나 정착민이 될 수 없습니다.',
+  "Choose a resident who lives in this guild's settlement.": '이 길드가 있는 정착지의 정착민을 선택하세요.',
+  'This resident has already chosen a profession.': '이 정착민은 이미 직업을 골랐습니다.',
   'Choose a guild profession.': '길드 직업을 선택하세요.',
   'Need 12 gold for the professional oath.': '직업 서약에 12 골드가 필요합니다.',
   'Need 4 food for the training supplies.': '훈련 보급품으로 식량 4가 필요합니다.',
@@ -182,7 +182,7 @@ export const townPhrases: Phrases = {
   'Great brutes from {0} march on the settlement!': '{0}에서 나온 거대한 괴수들이 정착지로 진군합니다!',
   'Raiders close in from {0} and {1}!': '습격대가 두 곳에서 조여 옵니다: {0}, {1}!',
   'Monsters from {0} raid the settlement!': '{0}에서 나온 몬스터들이 정착지를 습격합니다!',
-  'Select residents to send': '보낼 주민을 선택하세요',
+  'Select residents to send': '보낼 정착민을 선택하세요',
   '{0} set out for floor {1} beyond {2}': '{0}명이 {2} 너머 {1}층으로 출발합니다',
   '{0} was killed by a provoked giant': '{0}: 성난 거인에게 죽었습니다',
   '{0} was killed by monsters': '{0}: 몬스터에게 죽었습니다',

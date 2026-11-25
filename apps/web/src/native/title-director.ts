@@ -5,6 +5,7 @@ import type { Town } from '../../../../packages/engine/src/town';
 import { Activity, Role, type Person } from '../../../../packages/engine/src/person';
 import { Camera, distance, point, project, unproject, type Point } from '../../../../packages/engine/src/geometry';
 import { Weather } from '../../../../packages/engine/src/climate';
+import { targetedDungeon } from '../../../../packages/engine/src/dungeon-siege';
 import { MonsterRank } from '../../../../packages/engine/src/combat-events';
 import { TownState } from '../../../../packages/engine/src/town-state';
 import { isPlayerBuilding, isPlayerResident } from '../../../../packages/engine/src/faction';
@@ -36,9 +37,6 @@ export const directorRules = {
 };
 const f = Math.fround;
 const outdoors = (p: Person): boolean => p.health > 0 && !p.inside && !p.crossingDoorway();
-const centroid = (points: readonly Point[]): Point =>
-  points.reduce((c, p) => point(c.x + p.x / points.length, c.y + p.y / points.length), point());
-
 /** True when the camera may look at `at`: on the map and on land the settlement has seen. */
 export function watchable(town: Town, at: Point): boolean {
   const map = town.map();
@@ -54,16 +52,13 @@ export function subjects(town: Town): Subject[] {
   const add = (s: Subject) => {
     if (watchable(town, s.at)) out.push(s);
   };
-  if (town.realmActive()) {
-    const standing = town.realmStanding().filter(outdoors);
-    if (standing.length) {
-      const fighting = standing.find((p) => p.activity === Activity.Fighting) ?? standing[0];
-      add({ key: 'realm', label: 'Beyond the gate', interest: 100, at: centroid(standing.map((p) => p.position)), person: fighting, zoom: f(1.05) });
-    }
+  for (const siege of town.sieges) {
+    if (!siege || siege.guardian < 0) continue;
+    const guardian = town.monsters().find(m => m.id === siege.guardian && m.health > 0);
+    if (guardian) add({ key: 'siege', label: 'The guardian', interest: 100, at: guardian.position, person: null, zoom: f(1.05) });
   }
-  const walking = folk.filter((p) => p.activity === Activity.Expedition);
-  if (walking.length)
-    add({ key: 'march', label: 'Marching to the gate', interest: 80, at: walking[0].position, person: walking[0], zoom });
+  const marching = folk.find(p => targetedDungeon(p) >= 0);
+  if (marching) add({ key: 'march', label: 'Marching to the gate', interest: 80, at: marching.position, person: marching, zoom });
   if (seat) {
     const raiders = town
       .monsters()

@@ -1,7 +1,9 @@
+import { gateSealed, sealFloors } from './gate-seals';
+import { gateOrder } from './gate-progression';
 // Fixed-step activity execution. Resident priorities are selected by unit-scheduler.
 import { PeopleTown } from './town-people';
 import { TownState } from './town-state';
-import { Person, Activity, Role, TreeWorkKind } from './person';
+import { Person, Activity, Role, TreeWorkKind, workPracticeExperience } from './person';
 import {
   Structure,
   Product,
@@ -26,7 +28,7 @@ import { animalSpec } from './wildlife';
 import { prepareFarmWork, fieldEfficiency, tillField } from './farm-work';
 import { separatePeople, roadWorkSpot, buildingWorkSpot, waitsForFront } from './person-navigation';
 import type { Town } from './town';
-import type { Building } from './town-models';
+import { type Building, walkingObstacles } from './town-models';
 import { resourceAmount, resourceBundle } from './construction-materials';
 import { processingRecipe } from './town-production';
 import { equippedItem, workEfficiency } from './equipment';
@@ -38,6 +40,7 @@ import { spotVolcano } from './town-vision';
 import { advanceClearing } from './town-clearing';
 import { advanceBards } from './bard-phrases';
 export interface TickTown extends PeopleTown {
+  rewardExperience(p: Person, points: number): void;
   updateStress(p: Person, dt: number): boolean;
   advanceNeutralSettlements(dt: number): void;
   processDevotion(): void;
@@ -84,8 +87,18 @@ export interface TickTown extends PeopleTown {
   advanceThor(dt: number): void;
   tend(p: Person): void;
 }
+/** Practice is earned at the work itself. After a seal, apprentices learn the lessons the settlement has won. */
+function practice(town: TickTown, p: Person, dt: number): void {
+  if (p.role !== Role.Resident || p.level >= Person.maximumLevel) return;
+  const clock = town.time + p.id, beats = Math.floor(clock / 3) - Math.floor((clock - dt) / 3);
+  if (beats <= 0) return;
+  const provenLevel = town.depth.some(depth => depth >= sealFloors)
+    ? gateOrder(town).reduce((highest, gate, i) => gateSealed(town, gate) ? (i + 1) * 10 : highest, 0) : 0;
+  town.rewardExperience(p, beats * workPracticeExperience(p.level, provenLevel));
+}
 /** Sounds are emitted by productive ticks, never an unrelated ambience timer. */
 function hammerContact(town: TickTown, p: Person, dt: number): void {
+  practice(town, p, dt);
   const contact = workImpactBetween(workElapsed(town.time - dt, p.id), workElapsed(town.time, p.id), hammerTiming);
   if (contact === null) return;
   town.timberEvents.push({
@@ -113,9 +126,7 @@ export function tick(this: TickTown, dt: number): void {
   this.timberEvents = this.timberEvents.filter((event) => this.time - event.at <= 2);
   if (this.walkRevision !== this.changes) {
     this.walkRevision = this.changes;
-    const walls = this.placed
-      .filter((item) => item.built() && item.kind !== Structure.Torch)
-      .map((item) => item.footprint());
+    const walls = walkingObstacles(this.placed);
     this.grid.rebuild(this.world, this.network, walls);
   }
   advanceRanches(this, dt);
@@ -472,6 +483,7 @@ export function tick(this: TickTown, dt: number): void {
           p.until = this.time;
           break;
         }
+        practice(this, p, dt);
         if (place) place.workedSeconds = f(place.workedSeconds + f(dt));
         const duration = harvestDuration(p, stone), started = p.until - duration,
           timing = { period: harvestSwingPeriod(duration), impact: harvestTiming.impact },
@@ -531,6 +543,7 @@ export function tick(this: TickTown, dt: number): void {
       case Activity.Working:
         if (place?.kind === Structure.Farm && prepareFarmWork(this as Town, p, place)) {
           if (!p.moving() && distance(p.position,p.goal) <= .04) {
+            practice(this, p, dt);
             const effort = f(dt * fieldEfficiency(this as Town, p));
             place.workedSeconds = f(place.workedSeconds + effort);
             if (tillField(this as Town, p, effort)) ++this.changes;
@@ -547,6 +560,7 @@ export function tick(this: TickTown, dt: number): void {
         if (place) {
           place.workedSeconds = f(place.workedSeconds + f(dt));
           const recipe = processingRecipe(place.kind);
+          if (!recipe) practice(this, p, dt);
           if (recipe) {
             const village = this.settlementOf(place), stock = this.stock(village);
             const before = resourceAmount(stock, recipe.output);
@@ -556,6 +570,7 @@ export function tick(this: TickTown, dt: number): void {
             }
             if (p.task !== Activity.Crafting && p.rest >= f(.2) && resourceAmount(stock, recipe.input) < 2 &&
                 this.startHarvest(p, place.center, 12, recipe.input)) break;
+            if (resourceAmount(stock, recipe.input) >= 2 && before < resourceAmount(this.capacity(village), recipe.output)) practice(this, p, dt);
             this.processProduction(place, dt * workEfficiency(p, place.kind === Structure.Sawmill ? 'sawing' : 'crafting'));
             if ([Activity.Building, Activity.Roadwork, Activity.Crafting].includes(p.task)) {
               const produced = resourceAmount(stock, recipe.output);
@@ -645,9 +660,12 @@ export function tick(this: TickTown, dt: number): void {
           if (!this.completeGuildTraining(p)) { p.activity = Activity.Idle; p.until = this.time; this.think(p); }
         }
         break;
-      case Activity.Crafting:
+      case Activity.Crafting: {
+        const progress = p.craftProgress;
         this.advanceCrafting(p, dt);
+        if (progress !== p.craftProgress) practice(this, p, dt);
         break;
+      }
       case Activity.Eating:
       case Activity.Relaxing:
       case Activity.Praying:

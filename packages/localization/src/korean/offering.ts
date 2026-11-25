@@ -1,14 +1,14 @@
 import type { Phrases } from '../phrases';
 
 export const offeringPhrases: Phrases = {
-  'One settler needs 4 food and a free bed.': '주민 한 명에게 식량 4와 빈 침대 한 자리가 필요합니다.',
+  'One settler needs 4 food and a free bed.': '정착민 한 명에게 식량 4와 빈 침대 한 자리가 필요합니다.',
   'Extra goods grant random stat points.': '재료를 더 바치면 무작위 능력치가 추가됩니다.',
-  'Give your resident a name.': '주민에게 이름을 지어 주세요.',
-  'Resident created': '새 주민이 합류했습니다',
-  'Customize resident': '주민 꾸미기',
+  'Give your resident a name.': '정착민에게 이름을 지어 주세요.',
+  'Resident created': '새 정착민이 합류했습니다',
+  'Customize resident': '정착민 꾸미기',
   'Back to offering': '제물 준비로',
-  'Create resident': '주민 생성',
-  'Meet resident': '주민 만나기',
+  'Create resident': '정착민 생성',
+  'Meet resident': '정착민 만나기',
   '1 random stat point': '무작위 능력치 1점',
   '1 base point · 1 extra point': '기본 1점 · 추가 1점',
   '1 base point · {0} extra points': '기본 1점 · 추가 {0}점',
@@ -18,9 +18,9 @@ export const offeringPhrases: Phrases = {
   'Food required: {0}': '필요한 식량 {0}',
   'All extra stat points earned': '추가 능력치를 모두 얻습니다',
   'Add {0} goods for the next point.': '재료를 {0}개 더 바치면 능력치가 1점 늘어납니다.',
-  'Residents: {0} / {1}': '주민 {0} / {1}',
+  'Residents: {0} / {1}': '정착민 {0} / {1}',
   '4 food for a settler. Each stat point adds Strength or Vitality.':
-    '식량 4로 주민을 맞이합니다. 각 점수는 힘이나 활력에 더해집니다.',
+    '식량 4로 정착민을 맞이합니다. 각 점수는 힘이나 활력에 더해집니다.',
   'Strength +{0} · Vitality +{1}': '힘 +{0} · 활력 +{1}',
   'Strength +{0}': '힘 +{0}',
   'Random name': '무작위 이름',
@@ -48,10 +48,10 @@ export const offeringPhrases: Phrases = {
   'Preset deleted.': '프리셋을 삭제했습니다.',
   'Delete this saved look?': '이 외형을 보관함에서 삭제할까요?',
   'No saved looks yet.': '아직 저장한 외형이 없습니다.',
-  'No customized residents in this settlement.': '이 마을에는 직접 꾸민 주민이 없습니다.',
+  'No customized residents in this settlement.': '이 마을에는 직접 꾸민 정착민이 없습니다.',
   'In use': '적용 중',
   Use: '적용',
-  'Back to customization': '주민 꾸미기로',
+  'Back to customization': '정착민 꾸미기로',
   'Saved looks stay in this browser.': '저장한 외형은 이 브라우저의 다른 마을에서도 쓸 수 있습니다.',
   'Could not open saved looks in this browser.': '이 브라우저에서 저장한 외형을 열 수 없습니다.',
   'Could not save this preset. You can still copy its code.': '저장하지 못했습니다. 외형 코드를 복사해 보관하세요.',
@@ -117,10 +117,10 @@ export const offeringPhrases: Phrases = {
   'The altar holds up to 16 goods.': '제단에는 재료를 최대 16개까지 올릴 수 있습니다.',
   '{0} joins the settlement.': '{0} 정착지에 합류했습니다.',
   "Set aside 4 food and a free bed, then create a resident at Odin's altar.":
-    '식량 4와 빈 침대 한 자리를 마련한 뒤 오딘의 제단에서 주민을 생성하세요.',
+    '식량 4와 빈 침대 한 자리를 마련한 뒤 오딘의 제단에서 정착민을 생성하세요.',
   'Create a resident with 4 food and a free bed. Extra offerings can add Strength or Vitality.':
-    '식량 4와 빈 침대 한 자리로 주민을 생성합니다. 제물을 더 바치면 힘이나 활력이 늘어납니다.',
+    '식량 4와 빈 침대 한 자리로 정착민을 생성합니다. 제물을 더 바치면 힘이나 활력이 늘어납니다.',
   'Clear another floor beyond a gate to make room for more residents.':
-    '관문 너머의 층을 하나 더 정복하면 주민을 더 맞이할 수 있습니다.',
-  'Your settlement can now grow to {0} residents.': '이제 정착지 주민이 {0}명까지 늘어날 수 있습니다.',
+    '관문 너머의 층을 하나 더 정복하면 정착민을 더 맞이할 수 있습니다.',
+  'Your settlement can now grow to {0} residents.': '이제 정착지 정착민이 {0}명까지 늘어날 수 있습니다.',
 };

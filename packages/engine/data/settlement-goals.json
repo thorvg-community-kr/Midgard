@@ -242,7 +242,7 @@
   },
   {
     "title": "Build a foundry",
-    "description": "Smelt iron ore for the smithy. Take a stone pick into the snowy hills or bring ore home from a cleared floor.",
+    "description": "Smelt iron ore for the smithy. Mine it in the snowy hills or win it by sealing a dungeon.",
     "kind": "Building",
     "building": "Foundry",
     "residents": 0,
@@ -250,7 +250,7 @@
   },
   {
     "title": "Raise the smithy to iron",
-    "description": "Needs a floor cleared beyond a gate and 8 residents. Pay 20 gold, 8 planks and 8 cut stone at the smithy: then it forges iron.",
+    "description": "Seal a dungeon and gather 8 residents. Upgrade the smithy with 20 gold, 8 planks and 8 cut stone to forge iron gear.",
     "kind": "Station",
     "building": "Weaponsmith",
     "residents": 3,
@@ -320,7 +320,7 @@
   },
   {
     "title": "Lead a party of three",
-    "description": "Find an open gate, choose three residents in the expedition window and set out.",
+    "description": "Order three residents to attack the same dungeon and bring it down together.",
     "kind": "Deed",
     "building": "Count",
     "residents": 3,
@@ -328,8 +328,8 @@
     "deed": "largestParty"
   },
   {
-    "title": "Slay a floor guardian",
-    "description": "Fight through to the heart of a floor and kill its guardian. When it winds up a slam, move your party off the marked ground.",
+    "title": "Slay a dungeon guardian",
+    "description": "Break the dungeon to summon its guardian. When it prepares a slam, move your residents off the marked ground.",
     "kind": "Deed",
     "building": "Count",
     "residents": 1,
@@ -355,7 +355,7 @@
   },
   {
     "title": "Seal a gate",
-    "description": "Kill the guardian of the third floor beyond one gate. A sealed gate never raids again and pays a great hoard.",
+    "description": "Defeat the guardian and its entire brood before the dungeon rises again. Sealing it ends its raids and wins its hoard.",
     "kind": "Seal",
     "building": "Count",
     "residents": 1,
@@ -371,7 +371,7 @@
   },
   {
     "title": "Build a portal",
-    "description": "Needs a mage tower, a guild and a sealed gate. Draws more visitors, and for 8 mana pulls a party home from beyond a gate, even mid-fight.",
+    "description": "Needs a mage tower, a guild and a sealed gate. Its standing stones draw more visitors to the settlement.",
     "kind": "Building",
     "building": "Portal",
     "residents": 0,

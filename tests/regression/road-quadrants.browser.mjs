@@ -94,7 +94,10 @@ try {
   await server.listen();
   const address = server.httpServer.address();
   assert(address && typeof address !== 'string');
-  browser = await chromium.launch({ headless: true, args: ['--mute-audio'] });
+  browser = await chromium.launch({
+    headless: true,
+    args: ['--mute-audio', '--use-angle=gl', '--enable-gpu', '--ignore-gpu-blocklist'],
+  });
   context = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
   page = await context.newPage();
   page.on('pageerror', (error) => report.errors.push(error.stack ?? error.message));
@@ -135,6 +138,15 @@ try {
       { n: count, dt },
     );
   const control = async (id, title = false) => {
+    if (id === 'build-handle' || id.startsWith('global/card-')) {
+      // The dock animates in wall time even while construction is paused.
+      await page.waitForFunction((id) => {
+        const { app, host } = window.goldfantasy;
+        host.render(host.renderedAt);
+        const game = app.gameSession.game;
+        return game.dockProgress === 1 && game.context.controls.some(c => c.id === id && c.enabled);
+      }, id, { timeout: 5000 });
+    }
     const at = await page.evaluate(
       ({ id, title }) => {
         const app = window.goldfantasy.app,

@@ -25,6 +25,9 @@ export class Building {
   door(): Point { const local = this.entrance(); local.y = f(Math.max(local.y, f(structureSpec(this.kind).size / 2)) + f(.25)); const walls = this.footprint(); let p = add(this.center, rotated(local, this.angle)); for (let step = 0; step < 20; ++step) { const cell = point(f(Math.floor(p.x) + f(.5)), f(Math.floor(p.y) + f(.5))); if (!walls.contains(cell, f(.05))) break; local.y = f(local.y + f(.05)); p = add(this.center, rotated(local, this.angle)); } return p; }
   threshold(): Point { return add(this.center, rotated(this.entrance(), this.angle)); }
 }
+export function walkingObstacles(buildings: readonly Building[]): Footprint[] {
+  return buildings.filter(b => b.built() && b.kind !== Structure.Torch).map(b => b.footprint());
+}
 export class Field {
   faction = 0;
   /** Share of the plot turned by hand; a staked plot yields nothing until it is tilled. */

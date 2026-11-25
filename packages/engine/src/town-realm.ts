@@ -1,7 +1,7 @@
 import { TownState } from './town-state';
-import { Activity, Monster, Person, type Expedition } from './person';
+import { Activity, Monster, Person, Role, type Expedition } from './person';
 import { Resources, Structure, describe } from './building-catalog';
-import { Check, type Building } from './town-models';
+import { Check, type Building, walkingObstacles } from './town-models';
 import { add, distance, point, rotated, scale, sub, type Point } from './geometry';
 import { f32 as f, hash01, lround } from './numeric';
 import { DungeonKind, World, type Dungeon } from './world-types';
@@ -359,7 +359,7 @@ function enterRealm(town: RealmTown, party: Expedition, members: Person[]): void
   town.grid.rebuild(
     town.world,
     town.network,
-    town.placed.filter((item) => item.built()).map((item) => item.footprint()),
+    walkingObstacles(town.placed),
   );
   forgetFloor(town);
   populate(town, plan);
@@ -390,6 +390,7 @@ function closeRealm(town: RealmTown): void {
   if (sites.at(-1)?.kind === DungeonKind.Return) {
     sites.pop();
     town.open = town.open.slice(0, sites.length);
+    if (town.depth.length > sites.length) town.depth.length = sites.length;
   }
   if (town.realmArea) sinkRealm(town.world, town.realmArea);
   town.realmGate = town.realmGuardian = -1;
@@ -436,7 +437,7 @@ function bringHome(town: RealmTown, party: Person[], site: Dungeon): void {
   town.grid.rebuild(
     town.world,
     town.network,
-    town.placed.filter((item) => item.built()).map((item) => item.footprint()),
+    walkingObstacles(town.placed),
   );
   party.forEach((p, i) => {
     p.position = town.grid.nearestWalkable(
@@ -445,6 +446,7 @@ function bringHome(town: RealmTown, party: Person[], site: Dungeon): void {
     p.entrance = { ...p.position };
     p.threshold = { ...p.position };
     p.doorway = 0;
+    p.inside = false;
     p.path = [];
     p.activity = p.downedAt >= 0 ? Activity.Downed : Activity.Idle;
     p.task = Activity.Idle;
@@ -453,6 +455,37 @@ function bringHome(town: RealmTown, party: Person[], site: Dungeon): void {
     p.until = town.time;
     p.stress = Math.min(1, f(p.stress + f(0.05)));
   });
+}
+/** Migrate a saved expedition to the surface, including the fallen and the spoils already earned. */
+export function retireExpeditions(this: RealmTown): void {
+  if (this.realmGate >= 0) {
+    const site = this.world.dungeons()[this.realmGate], loot = this.realmLoot;
+    const occupants = this.folk.filter(p => inRealm.call(this, p.position));
+    const party = occupants.filter(p => p.role === Role.Resident && p.faction === this.controlFaction);
+    const village = party.length ? this.settlementOf(party[0]) : this.camp()?.id ?? -1;
+    closeRealm(this);
+    bringHome(this, occupants, site);
+    this.credit(loot, village);
+    this.realmPatrol = [];
+    this.realmBroodCalled = false;
+    this.realmPatrolAt = 0;
+  }
+  for (const p of this.folk) {
+    if (p.activity !== Activity.Expedition && p.activity !== Activity.Exploring) continue;
+    if (p.inside || p.crossingDoorway()) {
+      const site = this.world.dungeons()[p.target];
+      p.position = this.grid.nearestWalkable(site ? monsterEntrance(site) : this.world.camp());
+    }
+    p.inside = false;
+    p.doorway = 0;
+    p.entrance = p.threshold = { ...p.position };
+    p.activity = p.task = Activity.Idle;
+    p.ordered = p.approachingOrder = p.holding = false;
+    p.taskSite = p.target = p.foe = -1;
+    p.path = [];
+    p.until = this.time;
+  }
+  this.parties = [];
 }
 /** Walking back out is the only way the carried spoils reach the settlement. */
 export function leaveRealm(this: RealmTown): boolean {
