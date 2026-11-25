@@ -1,7 +1,7 @@
 [
   {
     "title": "Found a camp",
-    "description": "Mark a camp near a discovered dungeon. Settlers gather and deliver its 12 wood.",
+    "description": "Mark a camp on explored ground. Settlers gather and deliver 12 wood to build it.",
     "kind": "Building",
     "building": "Camp",
     "residents": 0,

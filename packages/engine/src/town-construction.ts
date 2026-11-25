@@ -374,17 +374,6 @@ export function canPlace(this: ConstructionTown, kind: Structure, center: Point,
     for (const other of this.placed)
       if (isSeat(other.kind) && distance(center, other.center) < 50)
         return refuse(check, 'Camps must stand far apart');
-  const nearDungeon = (reach: number): boolean =>
-    this.world
-      .dungeons()
-      .some(
-        (site) =>
-          site.discovered &&
-          (kind !== Structure.Guild || site.kind !== DungeonKind.GiantHall) &&
-          distance(center, point(f32(site.origin.x + 1), f32(site.origin.y + 1))) <= reach,
-      );
-  if (founding && !nearDungeon(TownState.campReach))
-    return refuse(check, 'Must be closer to a dungeon');
   if (kind === Structure.Torch) {
     let onRoad = false;
     for (const segment of this.network.builtSegments())

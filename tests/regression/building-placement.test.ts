@@ -8,7 +8,7 @@ import { sharpAnchor } from '../../packages/engine/src/road-network';
 import { deposit, position as rockPosition } from '../../packages/engine/src/mining';
 import { decodeTown, encodeTown } from '../../packages/engine/src/save-game';
 
-function settlement(): Town {
+function unsettledTown(): Town {
   const map = new WorldMap();
   map.columns = map.rows = 40;
   map.mapSeed = 5;
@@ -19,7 +19,10 @@ function settlement(): Town {
   map.layer(Layer.Ridge).fill(-1);
   map.sites = [{ name: 'Test cave', kind: DungeonKind.Cave, origin: point(16, 16), discovered: true }];
   map.reveal(20, 20, 100);
-  const town = new Town(map, 40, false);
+  return new Town(map, 40, false);
+}
+function settlement(): Town {
+  const town = unsettledTown();
   expect(town.place(Structure.Camp, point(20, 20), 0), town.canPlace(Structure.Camp, point(20, 20), 0).reason).toBe(true);
   town.completeConstruction();
   town.stock().add(new Resources(100, 100, 100, 100, 100, 100));
@@ -39,6 +42,23 @@ function moat(town: Town, x: number, y: number): void {
 }
 
 describe('placing a building', () => {
+  it.each([true, false])('founds distant camps regardless of dungeon discovery (discovered = %s)', (discovered) => {
+    const town = unsettledTown();
+    town.map().sites[0].discovered = discovered;
+    for (const center of [point(2, 2), point(38, 38)]) {
+      const { spot, check } = town.buildingSite(Structure.Camp, center, 0);
+      expect(check.ok, check.reason).toBe(true);
+      expect(town.place(Structure.Camp, spot.center, spot.angle)).toBe(true);
+    }
+    expect(town.canPlace(Structure.Camp, point(4, 4), 0).reason).toBe('Camps must stand far apart');
+  });
+  it('founds a camp next to a dungeon while keeping the entrance clear', () => {
+    const town = unsettledTown();
+    town.map().at(16, 16).dungeon = 0;
+    expect(town.buildingSite(Structure.Camp, point(16.5, 16.5), 0).check.reason).toBe('A dungeon entrance');
+    expect(town.place(Structure.Camp, point(16.5, 16.5), 0)).toBe(false);
+    expect(town.place(Structure.Camp, point(18.5, 16.5), 0)).toBe(true);
+  });
   it('stakes a rotated foundation on rock, covers only the piles under it and keeps them covered after loading', () => {
     const town = settlement(), map = town.map(), piles = [];
     map.layer(Layer.Elevation).fill(0.8);

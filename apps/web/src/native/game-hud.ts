@@ -34,8 +34,8 @@ import {
 import { DungeonKind } from '../../../../packages/engine/src/world-types';
 import { isCraftStation } from '../../../../packages/engine/src/equipment';
 import { worldName } from '../../../../packages/engine/src/world-map';
-import { point, project, sub, distance } from '../../../../packages/engine/src/geometry';
-import { f32, clamp, lround } from '../../../../packages/engine/src/numeric';
+import { point, project, distance } from '../../../../packages/engine/src/geometry';
+import { f32, clamp } from '../../../../packages/engine/src/numeric';
 import type { Town } from '../../../../packages/engine/src/town';
 import { structureIcon } from '../../../../packages/native-renderer/src/building-icon';
 import { constructionIcon } from '../../../../packages/native-renderer/src/construction-icon';
@@ -151,16 +151,10 @@ export function hud(this: GameHudApp, width: number, height: number): void {
       13,
     );
   else if (currentAim(this)) strip(c, aimPrompt(this), line, t.ink, 13);
-  if (!this.touchMode && width > 640 && !this.town.camp() && this.town.map().dungeons().length) {
-    const lair = this.town.map().dungeons()[0].origin,
-      start = this.town.map().camp(),
-      toward = sub(project(f32(lair.x + 1), f32(lair.y + 1)), project(start.x, start.y)),
-      angle = f32(f32(Math.atan2(toward.y, toward.x)) * f32(57.3)),
-      ways = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'],
-      way = ways[lround(f32((angle < 0 ? f32(angle + 360) : angle) / 45)) % 8],
-      hintX = 16,
+  if (!this.touchMode && width > 640 && !this.town.camp()) {
+    const hintX = 16,
       hintWidth = Math.max(1, f32(f32(width - hintX) - 316)),
-      hint = `Found a camp (C) near ${this.town.map().dungeons()[0].name} (${way}).`;
+      hint = 'Found a camp (C) on explored ground.';
     let y = f32(f32(this.skyBounds.y + this.skyBounds.h) + 10);
     for (const row of wrap(c, hint, f32(hintWidth - 28), 11, 2)) {
       strip(c, row, new Rect(hintX, y, hintWidth, 20), t.ink, 11, false);

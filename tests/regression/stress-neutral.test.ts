@@ -12,7 +12,7 @@ import { canControl } from '../../packages/engine/src/faction';
 import { encodeTown, decodeTown } from '../../packages/engine/src/save-game';
 import { sharpAnchor } from '../../packages/engine/src/road-network';
 
-function fixture() {
+function fixture(withDungeons = true) {
   const world = new WorldMap();
   world.columns = world.rows = 96;
   world.mapSeed = 5;
@@ -22,10 +22,10 @@ function fixture() {
   world.layers = Array.from({ length: Layer.Count }, () => new Float32Array(193 * 193).fill(0.4));
   world.layer(Layer.Land).fill(1);
   world.layer(Layer.Ridge).fill(-1);
-  world.sites = [
+  world.sites = withDungeons ? [
     { name: 'Old cavern', kind: DungeonKind.Cave, origin: { x: 13, y: 13 }, discovered: false },
     { name: 'Distant cavern', kind: DungeonKind.Cave, origin: { x: 75, y: 70 }, discovered: false },
-  ];
+  ] : [];
   for (let y = 60; y < 84; ++y) for (let x = 65; x < 90; ++x) if ((x + y) % 5 === 0) world.at(x, y).trees = 3;
   world.reveal(10, 10, 8);
   const town = new Town(world, 96, false),
@@ -74,6 +74,18 @@ function abandonedSettlement() {
 }
 
 describe('stress recovery and independent settlements', () => {
+  it('founds an independent camp on a map without dungeons', () => {
+    const { town, p, camp } = fixture(false);
+    defect.call(town, p);
+    const state = town.neutralSettlements[0];
+    for (let i = 0; i < 3000 && !town.building(state.camp)?.built(); ++i) {
+      town.time += 0.1;
+      town.advanceNeutralSettlements(0.1);
+    }
+    const independent = town.building(state.camp);
+    expect(independent?.built()).toBe(true);
+    expect(distance(independent!.center, camp.center)).toBeGreaterThanOrEqual(50);
+  });
   it('can immediately save an abandoned neutral village after its Camp is destroyed', () => {
     const { town, state } = abandonedSettlement();
     expect(() => decodeTown(encodeTown(town), (map) => new Town(map, 96, false, true))).not.toThrow();

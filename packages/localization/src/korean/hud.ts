@@ -198,7 +198,7 @@ export const hudPhrases: Phrases = {
   'Move: choose a destination': '이동: 목적지를 선택하세요',
   'Work: choose a resource, building or road': '작업: 자원, 건물 또는 길을 선택하세요',
   'Attack: choose an enemy, resource or destination': '공격: 적, 자원 또는 목적지를 선택하세요',
-  'Found a camp (C) near {0} ({1}).': '{0}({1}) 가까이에 캠프(C)를 세우세요.',
+  'Found a camp (C) on explored ground.': '탐험한 땅에 캠프(C)를 세우세요.',
   east: '동쪽',
   'south-east': '남동쪽',
   south: '남쪽',

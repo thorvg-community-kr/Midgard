@@ -19,6 +19,7 @@ function fixture() {
   map.layer(Layer.Land).fill(1);
   map.layer(Layer.Ridge).fill(-1);
   map.sites = [{ name: 'Cave', kind: DungeonKind.Cave, origin: point(18, 18), discovered: true }];
+  map.at(18, 18).dungeon = 0;
   map.reveal(16, 16, 100);
   const town = new Town(map, 32, false),
     context = { controlAt: (x: number) => x < 150, pointerMove: vi.fn(), pointerDown: vi.fn() },
@@ -46,17 +47,19 @@ describe('building placement input', () => {
     expect(hovered.preview.kind).toBe(PreviewKind.None);
   });
 
-  it('shows the current plot reason after a refused click', () => {
+  it('shows the blocked entrance and accepts a distant camp on the next click', () => {
     const { app, town } = fixture(),
-      blocked = point(9.5, 9.5),
-      screen = app.toScreen(blocked);
-    pointerDown.call(app, screen.x, screen.y, PointerButton.Primary);
+      blocked = app.toScreen(point(18.5, 18.5)),
+      distant = app.toScreen(point(9.5, 9.5));
+    pointerDown.call(app, blocked.x, blocked.y, PointerButton.Primary);
     expect(town.buildings()).toHaveLength(0);
-    expect(plan.call(app).problem).not.toBe('');
-    app.pointerMove(320, 240);
+    expect(plan.call(app).problem).toBe('A dungeon entrance');
+    app.pointerMove(distant.x, distant.y);
     const next = plan.call(app);
     expect(next.preview.valid, next.problem).toBe(true);
     expect(app.status || next.problem).toBe('');
+    pointerDown.call(app, distant.x, distant.y, PointerButton.Primary);
+    expect(town.camp()?.center).toEqual(point(9.5, 9.5));
   });
 
   it.each([false, true])('commits the displayed corners after rotation and road alignment (touch: %s)', (touch) => {

@@ -71,11 +71,12 @@ try {
       await page.evaluate(async (renderer) => {
         // Guide cards are covered by guide.browser.mjs; here they would sit under the gestures.
         (await import('/apps/web/src/native/guide-preferences.ts')).setGuidePreference('cards', false);
-        const [{ startNativeGame }, { Tool }, { Terrain, Layer }, { Town }, { project, Camera }] =
+        const [{ startNativeGame }, { Tool }, { Terrain, Layer }, { WorldMap }, { Town }, { project, Camera }] =
           await Promise.all([
             import('/apps/web/src/native/bootstrap.ts'),
             import('/packages/engine/src/game-tools.ts'),
             import('/packages/engine/src/world-types.ts'),
+            import('/packages/engine/src/world-map.ts'),
             import('/packages/engine/src/town.ts'),
             import('/packages/engine/src/geometry.ts'),
           ]);
@@ -87,9 +88,8 @@ try {
           false,
         );
         const game = runtime.app.game;
-        game.town = new Town(5, 32);
         game.paused = true;
-        const map = game.town.map(),
+        const map = WorldMap.generate(5, 32, 32),
           start = map.camp();
         for (const layer of map.layers) layer.fill(0.4);
         map.layer(Layer.Land).fill(1);
@@ -97,11 +97,11 @@ try {
         map.stream = { path: [], width: [] };
         for (const tile of map.tiles)
           Object.assign(tile, { terrain: Terrain.Grass, trees: 0, wild: 0, quarried: true, dungeon: -1 });
-        game.town.animals = [];
-        game.town.beasts = [];
+        map.sites = [];
         map.ymir = null;
         map.fire = null;
         map.reveal(start, 100);
+        game.town = new Town(map);
         game.town.scout(start.x, start.y, 100);
         game.town.editHour(12);
         game.chosen = game.town.people().map((p) => p.id);
@@ -334,10 +334,10 @@ try {
         };
       });
       check(
-        'Place builds at the preview location, never at the button',
+        'Place builds the camp at the preview location on a map without dungeons',
         await page.evaluate((at) => {
-          const camp = window.mobile.game.town.camp();
-          return !!camp && Math.hypot(camp.center.x - at.x, camp.center.y - at.y) < 1;
+          const town = window.mobile.game.town, camp = town.camp();
+          return town.map().dungeons().length === 0 && !!camp && Math.hypot(camp.center.x - at.x, camp.center.y - at.y) < 1;
         }, chosen),
       );
       await page.evaluate(() => {

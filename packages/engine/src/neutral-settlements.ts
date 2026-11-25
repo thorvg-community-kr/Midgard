@@ -57,6 +57,10 @@ function foundingSite(root: Town, town: Town, founder: Person): Point | null {
   const sites = [...root.world.dungeons()].sort(
     (a, b) => distance(a.origin, founder.position) - distance(b.origin, founder.position),
   );
+  const from = founder.inside || founder.crossingDoorway() ? founder.entrance : founder.position;
+  const canSettle = (at: Point): boolean =>
+    !root.placed.some((b) => isSeat(b.kind) && distance(at, b.center) < 50) &&
+    town.canPlace(Structure.Camp, at, 0).ok && town.grid.path(from, at).length > 0;
   const known = town.world.revealed;
   // The neutral planner may seek its own distant village without exposing that
   // route or its destination to the player's exploration map.
@@ -67,17 +71,17 @@ function foundingSite(root: Town, town: Town, founder: Person): Point | null {
       for (let radius = 4; radius <= 10; radius += 2)
         for (let direction = 0; direction < 24; ++direction) {
           const at = add(center, rotated(point(radius, 0), (direction * Math.PI) / 12));
-          if (root.placed.some((b) => isSeat(b.kind) && distance(at, b.center) < 50)) continue;
-          if (!town.canPlace(Structure.Camp, at, 0).ok) continue;
-          if (
-            !town.grid.path(
-              founder.inside || founder.crossingDoorway() ? founder.entrance : founder.position,
-              at,
-            ).length
-          )
-            continue;
-          return at;
+          if (canSettle(at)) return at;
         }
+    }
+    if (canSettle(from)) return from;
+    // Try a bounded set of other plots each planning turn when the usual sites are unsuitable.
+    for (let i = 0; i < 24; ++i) {
+      const at = point(
+        Math.floor(town.roll() * root.world.width()) + 0.5,
+        Math.floor(town.roll() * root.world.height()) + 0.5,
+      );
+      if (canSettle(at)) return at;
     }
   } finally {
     town.world.revealed = known;

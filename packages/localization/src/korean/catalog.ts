@@ -429,8 +429,8 @@ export const catalogPhrases: Phrases = {
   'A ring of standing stones humming with mana. Guests of every people step through it, far more often and with fuller purses.':
     '마나가 울리는 선돌의 고리입니다. 온갖 종족의 손님이 훨씬 자주, 더 두둑한 지갑을 들고 찾아옵니다.',
   'A small road torch that lights the way.': '길을 밝히는 작은 횃불입니다.',
-  'A timber camp near a dungeon, well away from any other camp. Shelters five; with twelve residents it becomes a palisade fort.':
-    '던전 근처에 세우는 통나무 캠프로, 다른 캠프와 멀리 떨어져야 합니다. 다섯 명이 머물며, 주민이 12명이 되면 목책 요새가 됩니다.',
+  'A timber camp shelters five. Build it well away from other camps. With twelve residents it becomes a palisade fort.':
+    '통나무 캠프에는 다섯 명이 머물 수 있습니다. 다른 캠프와 멀리 떨어진 곳에 세우세요. 정착민이 12명이 되면 목책 요새가 됩니다.',
   'A timber-framed home for four. Once full, in a town of fourteen, it becomes a townhouse.':
     '네 명이 사는 목조 주택입니다. 가득 차고 마을 주민이 14명이 되면 연립 주택이 됩니다.',
   'Caravans from distant lands trade here.': '먼 땅에서 온 대상들이 이곳에서 거래합니다.',
@@ -518,8 +518,8 @@ export const catalogPhrases: Phrases = {
 
   // Settlement goals
   'Found a camp': '캠프 세우기',
-  'Mark a camp near a discovered dungeon. Settlers gather and deliver its 12 wood.':
-    '발견한 던전 근처에 캠프 자리를 정하세요. 정착민이 목재 12를 모아 나릅니다.',
+  'Mark a camp on explored ground. Settlers gather and deliver 12 wood to build it.':
+    '탐험한 땅에 캠프 자리를 정하세요. 정착민이 목재 12개를 모아 캠프를 짓습니다.',
   'Craft a wooden tool': '나무 도구 만들기',
   'A tool in the pack makes its work faster: an axe fells, a pick mines, a mallet builds, a hoe farms and a shovel tills and lays roads. Craft any one at the workbench.':
     '짐에 든 도구는 그 일을 빠르게 합니다. 도끼는 벌목, 곡괭이는 채굴, 망치는 건설, 괭이는 농사, 삽은 밭 일구기와 길 닦기를 돕습니다. 작업대에서 아무거나 하나 만드세요.',

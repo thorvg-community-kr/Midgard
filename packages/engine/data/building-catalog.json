@@ -1,7 +1,7 @@
 [
   {
     "name": "Camp",
-    "description": "A timber camp near a dungeon, well away from any other camp. Shelters five; with twelve residents it becomes a palisade fort.",
+    "description": "A timber camp shelters five. Build it well away from other camps. With twelve residents it becomes a palisade fort.",
     "size": 1,
     "cost": {
       "gold": 0,

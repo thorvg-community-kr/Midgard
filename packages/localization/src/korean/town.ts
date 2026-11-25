@@ -15,7 +15,6 @@ export const townPhrases: Phrases = {
   'Needs {0} people in this village': '이 마을에 주민 {0}명이 필요합니다',
   'Found the camp first': '먼저 캠프를 세우세요',
   'Camps must stand far apart': '캠프는 서로 멀리 떨어져야 합니다',
-  'Must be closer to a dungeon': '던전에 더 가까워야 합니다',
   'Torches need a completed road': '횃불은 완성된 길에만 세울 수 있습니다',
   Occupied: '이미 사용 중',
   'On the road': '길 위',
