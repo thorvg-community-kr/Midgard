@@ -6,7 +6,7 @@ import { isPlayerBuilding } from '../../../../packages/engine/src/faction';
 import { altarCap } from '../../../../packages/engine/src/altar-cap';
 import { stationLevel, stationStep } from '../../../../packages/engine/src/craft-stations';
 import { heldAmount } from '../../../../packages/engine/src/carried-resources';
-import { equippedItem, stationKinds } from '../../../../packages/engine/src/equipment';
+import { equippedItem } from '../../../../packages/engine/src/equipment';
 import {
   GoalBranch,
   GoalKind,
@@ -16,13 +16,13 @@ import {
   settlementGoals,
   type SettlementGoal,
 } from '../../../../packages/engine/src/settlement-progression';
-import { bestGear, isFighter, makeable, stationBusy } from './title-gear';
+import { bestGear, firstWeapon, firstWeapons, isFighter, makeable, stationBusy } from './title-gear';
 import { besideRoad, branchRoad, roadToPlot, farmArea, fieldBeside, firstRoad, plotFor, roadBesideCamp, roadToDoor, routedRoad } from './title-placement';
 import { living, order, putOff, waiting, type TitleContext } from './title-roster';
 import type { Town } from '../../../../packages/engine/src/town';
 import type { Placement } from '../../../../packages/engine/src/town-models';
 
-const firstWeapons = stationKinds(Structure.Weaponsmith).filter((item) => item.category === 'weapon').map((item) => item.id);
+const firstWeaponIds = firstWeapons.map(item => item.id);
 
 /** Branches after the founding chain, in the order the title player follows them. */
 const branchOrder = [GoalBranch.Core, GoalBranch.Arms, GoalBranch.Trade, GoalBranch.Faith, GoalBranch.Saga];
@@ -300,10 +300,12 @@ export function equipFree(ctx: TitleContext, last: Shortfall): Shortfall {
       (!founding || (isFighter(p) && !equippedItem(p, 'weapon'))));
   // Until the workshops stand, reserve their materials after making a first weapon for the guards.
   // The first weapons go to free fighters without one; nobody is called off a site or a road for a second weapon.
-  const choice = bestGear(town, folk, founding ? firstWeapons : undefined, false, true);
+  const personal = founding ? null : firstWeapon(town, ctx.free);
+  const choice = personal ?? bestGear(town, folk, founding ? firstWeaponIds : undefined, false, true);
   if (choice)
     order(ctx, `craft:${choice.person.id}:${choice.station.id}:${choice.item.id}`, [choice.person], () =>
-      town.orderSettlementCraft(choice.station.id, choice.item.id),
+      personal ? town.orderCraft(personal.person.id, personal.station.id, personal.item.id)
+        : town.orderSettlementCraft(choice.station.id, choice.item.id),
     );
   if (ctx.step % 8) return last;
   const wish = bestGear(town, living(town).filter(isFighter), undefined, true);

@@ -4,12 +4,14 @@
 import type { Town } from '../../../../packages/engine/src/town';
 import { Activity, Calling, type Person } from '../../../../packages/engine/src/person';
 import type { Building } from '../../../../packages/engine/src/town-models';
+import { distance } from '../../../../packages/engine/src/geometry';
 import { Structure } from '../../../../packages/engine/src/building-catalog';
 import {
   carriedTools,
   attackDamage,
   equippedItem,
   isCraftStation,
+  stationKinds,
   type ItemSpec,
   type WorkKind,
 } from '../../../../packages/engine/src/equipment';
@@ -93,6 +95,27 @@ export interface GearChoice {
  * ordered for them now, as the walk to the station would take them off it. */
 const midJob = (p: Person): boolean =>
   p.task === Activity.Building || p.task === Activity.Roadwork || (p.task === Activity.Moving && p.ordered);
+export const firstWeapons = stationKinds(Structure.Weaponsmith).filter(item => item.category === 'weapon');
+/** Use the personal workbench order to arm the company and then the settlers who will guard the camp.
+ * A settlement recipe can name a closer resident who already has another weapon. */
+export function firstWeapon(town: Town, free: readonly Person[]): Omit<GearChoice, 'worth'> | null {
+  const unarmed = free.filter(p => !equippedItem(p, 'weapon') && !midJob(p));
+  if (!unarmed.length) return null;
+  for (const station of ownStations(town)) {
+    if (station.kind !== Structure.Weaponsmith || stationBusy(town, station)) continue;
+    const door = station.door();
+    unarmed.sort((a, b) => Number(isFighter(b)) - Number(isFighter(a)) ||
+      distance(a.position, door) - distance(b.position, door) || a.id - b.id);
+    for (const person of unarmed) {
+      const shapes = weaponShapes[person.calling] ?? plainShapes;
+      for (const shape of shapes) {
+        const item = firstWeapons.find(i => i.visual === shape);
+        if (item && !town.craftReason(person.id, station.id, item.id)) return { person, item, station };
+      }
+    }
+  }
+  return null;
+}
 /** The most useful item a free station would now give one of `free`, or null. With `wish`, the most useful one
  * that only lacks materials, so the gatherers know what to fetch. With `onlyFree`, an item of `wanted` too goes
  * only to one of `free`. */

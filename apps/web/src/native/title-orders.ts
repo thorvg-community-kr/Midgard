@@ -14,6 +14,7 @@ export const titleOrders = [
   'assignJob',
   'setWorkers',
   'orderSettlementCraft',
+  'orderCraft',
   'orderStationUpgrade',
   'orderPrayAtAltar',
   'offerAtAltar',

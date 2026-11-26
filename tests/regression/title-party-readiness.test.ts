@@ -4,6 +4,7 @@ import { addInventory } from '../../packages/engine/src/equipment';
 import { point } from '../../packages/engine/src/geometry';
 import { partyLevel, partyVerdict, Verdict } from '../../apps/web/src/native/swarm-hud';
 import { commandSiege, defend, readyParty, sendParty, partyState } from '../../apps/web/src/native/title-party';
+import { firstWeapon } from '../../apps/web/src/native/title-gear';
 import { available } from '../../apps/web/src/native/title-roster';
 import { staffJobs } from '../../apps/web/src/native/title-workforce';
 import { OrderLedger } from '../../apps/web/src/native/title-orders';
@@ -67,6 +68,27 @@ it('supplies the first field with water and shares both jobs after a loss', () =
   expect([farm.wanted, well.wanted]).toEqual([0, 0]);
 });
 describe('the title party', () => {
+  it('arms the unarmed guard even when the settlement recipe names a closer archer', () => {
+    const { town, camp } = expeditionTown();
+    const smith = new Building(1, Structure.Weaponsmith, camp.center, 0, 0);
+    smith.village = 0;
+    town.placed.push(smith);
+    town.stock().wood = 30;
+    const archer = fighter(50, 10, 'short-bow');
+    archer.position = smith.door();
+    archer.calling = Calling.Ranger;
+    const guard = new Person(51, 'Guard', Role.Resident, Calling.Settler, Race.Human, 0,
+      point(archer.position.x + 0.25, archer.position.y));
+    guard.village = archer.village = 0;
+    town.folk = [archer, guard];
+    expect(town.craftOffers(smith.id).find(o => o.item.id === 'wooden-sword')?.who?.id).toBe(archer.id);
+    const choice = firstWeapon(town, [archer, guard]);
+    expect(choice?.person.id).toBe(guard.id);
+    expect(choice?.item.id).toBe('wooden-sword');
+    expect(town.orderCraft(guard.id, smith.id, choice!.item.id)).toBe(true);
+    expect(guard.craftItem).toBe('wooden-sword');
+    expect(firstWeapon(town, [archer, guard])).toBeNull();
+  });
   it('weighs endurance and actual weapon damage independently before sending a party', () => {
     const wooden = [9, 9, 8, 8].map((level, id) => fighter(id, level, 'wooden-sword'));
     const forged = [9, 9, 8, 8].map((level, id) => fighter(id, level, 'flint-sword'));
