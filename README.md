@@ -303,7 +303,6 @@ This rebuilds every image and GIF in `.github/media/` from the running game in a
 | Vite + npm workspaces                                    | Development, production builds and the TypeScript monorepo                |
 | Web Audio + AudioWorklet                                 | Ambient sound, music, effects and voices                                  |
 | IndexedDB                                                | Browser-local saves and creative documents                                |
-| Lua 5.4.8 in WebAssembly                                 | Optional scripted HUD extensions                                          |
 | Alegreya Sans                                            | In-game text                                                              |
 | Cinzel (figures from Alegreya)                           | Titles, title lettering and combat numbers                                |
 | Noto Sans KR / Noto Serif KR                             | Korean in-game text and titles                                            |
@@ -319,7 +318,6 @@ The project is distributed under **GNU GPL version 3**. See [LICENSE](LICENSE).
 Third-party components keep their own licenses:
 
 - **ThorVG WebCanvas:** [MIT license](public/licenses/ThorVG-WebCanvas-1.1.3.txt).
-- **Lua 5.4.8:** [MIT license](public/licenses/Lua-5.4.8.txt).
 - **DejaVu fonts:** [Bitstream Vera license and DejaVu public-domain changes](public/assets/native-fonts/DejaVuSans.LICENSE).
 - **Noto Sans KR:** [SIL Open Font License 1.1](public/assets/native-fonts/NotoSansKR.LICENSE).
 - **Noto Serif KR:** [SIL Open Font License 1.1](public/licenses/NotoSerifKR-OFL.txt).

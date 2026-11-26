@@ -6,6 +6,7 @@ import type { Traffic } from '../../../../packages/engine/src/traffic';
 import type { Town } from '../../../../packages/engine/src/town';
 import { Tool, Preview } from '../../../../packages/engine/src/game-tools';
 import { Camera, distance, project, unproject, type Point } from '../../../../packages/engine/src/geometry';
+import { Activity } from '../../../../packages/engine/src/person';
 import { clamp, f32 as f } from '../../../../packages/engine/src/numeric';
 import { Cue, Sound, SpeechChannel, VoiceLine, noticeCue } from '../../../../packages/native-audio/src/sound-types';
 import { combatFrame } from './game-combat-hud';
@@ -81,6 +82,18 @@ function backdrop(town: Town, position: Point): PortraitBackdrop {
   const b = portraitBackdrop(town.map(), position, town.climate()),
     rgb = (c: readonly number[]) => ({ r: c[0], g: c[1], b: c[2] });
   return { ground: rgb(b.ground), left: rgb(b.left), right: rgb(b.right), distant: rgb(b.distant) };
+}
+function advanceSettlement(app: GameRenderApp, elapsed: number): void {
+  // A 30 Hz presentation takes two ordinary 60 Hz steps. AI and work orders keep the same cadence.
+  const frequency = 60;
+  const ticks = app.pendingSimulationTicks + (app.gameSpeed() > 0 ? elapsed * frequency : 0);
+  const steps = Math.floor(ticks + 1e-8);
+  app.pendingSimulationTicks = Math.max(0, ticks - steps);
+  if (!steps) app.dispatchWork();
+  for (let i = 0; i < steps; i++) {
+    app.town.advance(app.gameSpeed() / frequency);
+    app.dispatchWork();
+  }
 }
 export function renderScene(this: GameRenderApp, width: number, height: number): void {
   this.campResources.reset();
@@ -189,10 +202,7 @@ export function render(
       this.sampleRoad();
     }
   }
-  if (simulate) {
-    this.town.advance(editing || this.prayer ? 0 : elapsed * this.gameSpeed());
-    if (!editing && !this.prayer) this.dispatchWork();
-  }
+  if (simulate && !editing && !this.prayer) advanceSettlement(this, elapsed);
   if (this.residentArrival && !editing)
     stepResidentArrival(this, presentationTime, this.personPanelBounds(width, height, true).y, this.theme.reducedMotion);
   this.chosen = this.chosen.filter((id) => !!this.town.person(id));
@@ -330,8 +340,10 @@ export function nextFrameDelay(this: GameRenderApp): number {
   if (this.buildings) return this.buildings.animating() ? 1 / 60 : 0.1;
   if (this.atlas) return this.atlas.dragging() ? 1 / 60 : 0.1;
   if (this.editor) return 0.1;
-  if (this.chosen.length) return 1 / 60;
-  if (this.renderer.animating() || this.pan.x !== 0 || this.pan.y !== 0 || this.panFrom) return 1 / 60;
+  if (this.pan.x !== 0 || this.pan.y !== 0 || this.panFrom || this.touchGesture) return 1 / 60;
+  if (this.renderer.animating() || this.town.people().some(
+    p => p.activity === Activity.Fighting || (p.moving() && this.chosen.includes(p.id)),
+  )) return 1 / 60;
   return 1 / 30;
 }
 export function animatingUi(this: GameRenderApp): boolean {

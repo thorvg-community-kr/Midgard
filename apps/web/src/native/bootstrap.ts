@@ -2,9 +2,6 @@ import { type ThorVGNamespace } from '@thorvg/webcanvas';
 import { initializeWebCanvas } from './startup-canvas';
 import { Context, loadKoreanFont, loadNativeFonts, type NativeFontMetrics } from '../../../../packages/native-ui/src';
 import { setLocale, storedLocale } from '../../../../packages/localization/src/index';
-import { prepareScriptRuntime } from '../../../../packages/native-ui/src/script';
-import hudScript from '../../../../packages/native-ui/assets/hud.lua?raw';
-import demoScript from '../../../../packages/native-ui/assets/demo.lua?raw';
 import { WorldRenderer } from '../../../../packages/native-renderer/src/world-renderer';
 import { createCharacterPreview } from '../../../../packages/native-renderer/src/character-preview';
 import { sounds } from '../../../../packages/native-audio/src/sound-library';
@@ -31,12 +28,6 @@ export function createNativeServices(
   files: BrowserFiles,
   frame?: () => Pick<BrowserHost, 'capture' | 'present'> | undefined,
 ): SceneServices {
-  for (const [path, source] of [
-    ['/scripts/hud.lua', hudScript],
-    ['/scripts/demo.lua', demoScript],
-  ]) {
-    if (!files.exists(path)) files.stage(path, source);
-  }
   const buildings = new BuildingFiles(files);
   const gameServices = {
     buildings,
@@ -53,7 +44,6 @@ export function createNativeServices(
     files,
     loadBuildingAssets: (directory: string) => buildings.loadDirectory(directory || undefined),
     createGame: (seed: number) => new GameApp(seed, gameServices),
-    createContext: gameServices.createContext,
     createSound: () => new BrowserSoundDevice(),
     designedWorldSeed,
     randomDevice,
@@ -152,9 +142,6 @@ export async function startNativeGame(
         (error) => console.error(error),
       );
     files = await BrowserFiles.open();
-    // Sound devices prepare asynchronously when the scene creates them. The
-    // first frame must not wait for the complete effects sample download.
-    await prepareScriptRuntime();
     const services = createNativeServices(tvg, fonts, files, () => host),
       launch = { ...defaultLaunchOptions(), titleScreen: true, ...options };
     if (launch.world === 'Random' && launch.seed === undefined) launch.seed = services.randomDevice();

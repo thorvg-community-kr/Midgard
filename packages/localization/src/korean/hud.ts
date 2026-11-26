@@ -120,7 +120,6 @@ export const hudPhrases: Phrases = {
   World: '세계',
   Unit: '유닛',
   Building: '건물',
-  'Lua Script': 'Lua 스크립트',
 
   // Tools and build menu
   Select: '선택',

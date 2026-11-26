@@ -159,8 +159,6 @@ function fixture(width = 1024, height = 768) {
 function press(game: object, text: string, shift = false, control = false, type: 'KeyDown' | 'KeyUp' = 'KeyDown') {
   const application = {
     game,
-    script: { ready: () => false },
-    scriptContext: { focused: () => false, textFocused: () => false },
     editorAttached: false,
     keys: new Set<string>(),
     dirty: false,

@@ -1,8 +1,9 @@
-import type { Canvas, ThorVGNamespace } from '@thorvg/webcanvas';
+import type { Canvas, Scene, ThorVGNamespace } from '@thorvg/webcanvas';
 import { Key } from '../../../../packages/native-ui/src';
 import { emptyEvent, type Application, type AppEvent } from './application-contracts';
 import { applicationCursor } from './browser-cursor';
 import { BrowserTouch } from './browser-touch';
+import { BrowserFrameLoop, renderPixelRatio } from './browser-presentation';
 import { isLetterCode, keyText } from './key-text';
 import { invalidateWebCanvasRasterResources } from '../../../../packages/native-renderer/src/webcanvas-adapter';
 
@@ -26,26 +27,26 @@ export interface BrowserHostOptions {
 }
 /** Browser event/device boundary. Every visible control is painted by the original ThorVG UI. */
 export class BrowserHost {
-  private canvas: Canvas;
+  private canvas!: Canvas;
+  private readonly viewport: Scene;
+  private readonly loop: BrowserFrameLoop;
+  private readonly touchDisplay: boolean;
   private readonly devicePixelRatio: boolean;
   private readonly events = new AbortController();
   private readonly resizeObserver: ResizeObserver;
   private readonly textInput: HTMLTextAreaElement;
   private composing = false;
-  private frame = 0;
-  private running = false;
   private closed = false;
   private surfaceLost = false;
   private resumeAfterRestore = false;
   private renderedAt = 0;
   private width = 0;
   private height = 0;
-  private displayDensity = 0;
+  private scale = 1;
   private readonly pressed = new Set<string>();
   /** What each held physical key was called when it went down, so its release carries the same name. */
   private readonly heldText = new Map<string, string>();
   private touch: BrowserTouch;
-  private readonly started = performance.now();
   constructor(
     private readonly element: HTMLCanvasElement,
     private readonly tvg: ThorVGNamespace,
@@ -53,8 +54,15 @@ export class BrowserHost {
     options: BrowserHostOptions = {},
   ) {
     this.devicePixelRatio = options.devicePixelRatio ?? true;
-    this.canvas = this.createCanvas();
-    this.canvas.add(app.scene());
+    this.touchDisplay = matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
+    this.loop = new BrowserFrameLoop(
+      seconds => this.render(seconds),
+      () => app.nextFrameDelay?.() ?? 0,
+      this.touchDisplay ? 1000 / 60 : 0,
+    );
+    this.viewport = new tvg.Scene();
+    this.viewport.add(app.scene());
+    this.resize(true);
     element.tabIndex = 0;
     this.textInput = document.createElement('textarea');
     this.textInput.dataset.goldfantasyTextInput = '';
@@ -66,13 +74,15 @@ export class BrowserHost {
     this.textInput.style.cssText =
       'position:fixed;left:0;top:0;width:1px;height:1px;padding:0;border:0;opacity:0;pointer-events:none;resize:none;';
     document.body.append(this.textInput);
-    this.resizeObserver = new ResizeObserver(() => this.resize());
+    this.resizeObserver = new ResizeObserver(() => {
+      if (this.resize()) this.loop.wake();
+    });
     this.resizeObserver.observe(element);
-    this.resize();
     const signal = this.events.signal,
       dispatch = (event: AppEvent) => {
         if (!this.closed) {
           this.app.event(event);
+          this.loop.wake();
           this.syncTextInput();
         }
       };
@@ -81,7 +91,7 @@ export class BrowserHost {
       (event) => {
         if (this.closed || this.surfaceLost || this.canvas.renderer !== 'gl') return;
         event.preventDefault();
-        const running = this.running;
+        const running = this.loop.running;
         this.stop();
         this.resumeAfterRestore = running;
         this.surfaceLost = true;
@@ -96,10 +106,9 @@ export class BrowserHost {
       'webglcontextrestored',
       () => {
         if (this.closed || !this.surfaceLost) return;
-        this.canvas = this.createCanvas();
         invalidateWebCanvasRasterResources();
-        this.canvas.add(this.app.scene());
         this.surfaceLost = false;
+        this.resize(true);
         const resume = this.resumeAfterRestore;
         this.resumeAfterRestore = false;
         // Repaint the same simulation instant before resuming any animation loop.
@@ -109,7 +118,7 @@ export class BrowserHost {
       { signal },
     );
     this.touch = new BrowserTouch(dispatch);
-    this.app.setTouchInput?.(matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0);
+    this.app.setTouchInput?.(this.touchDisplay);
     const pointer = (
       type: 'PointerDown' | 'PointerMove' | 'PointerUp' | 'PointerCancel',
       e: PointerEvent,
@@ -275,6 +284,10 @@ export class BrowserHost {
       { signal },
     );
     window.addEventListener('blur', () => this.releaseInput(), { signal });
+    document.addEventListener('visibilitychange', () => {
+      this.loop.visibilityChanged();
+      if (document.hidden) this.releaseInput();
+    }, { signal });
     window.addEventListener('pagehide', () => this.dispose(), { signal });
     if (options.autoStart !== false) this.start();
   }
@@ -308,28 +321,37 @@ export class BrowserHost {
     this.heldText.clear();
     this.app.event(emptyEvent('PointerCancel'));
   }
-  private createCanvas(): Canvas {
-    return new this.tvg.Canvas(this.element, {
-      width: Math.max(1, this.element.clientWidth),
-      height: Math.max(1, this.element.clientHeight),
-      enableDevicePixelRatio: this.devicePixelRatio,
-    });
+  /** Physical WebGL pixels per logical HUD or picking coordinate. */
+  get pixelRatio(): number {
+    return this.scale;
   }
-  private resize(): void {
-    if (this.closed || this.surfaceLost) return;
+  private resize(recreate = false): boolean {
+    if (this.closed || this.surfaceLost) return false;
     const width = Math.max(1, this.element.clientWidth),
       height = Math.max(1, this.element.clientHeight),
-      density = this.devicePixelRatio ? window.devicePixelRatio || 1 : 1,
-      resized = width !== this.width || height !== this.height;
-    if (!resized && density === this.displayDensity) return;
+      scale = this.devicePixelRatio ? renderPixelRatio(width, height, window.devicePixelRatio, this.touchDisplay) : 1;
+    if (!recreate && width === this.width && height === this.height && scale === this.scale) return false;
+    const pixelsWide = Math.max(1, Math.round(width * scale));
+    const pixelsHigh = Math.max(1, Math.round(height * scale));
+    // WebCanvas writes inline dimensions. Keep the layout and input surface in CSS pixels.
+    const style = this.element.style;
+    const cssWidth = style.width || width + 'px', cssHeight = style.height || height + 'px';
+    if (recreate) {
+      this.canvas = new this.tvg.Canvas(this.element, {
+        width: pixelsWide, height: pixelsHigh, enableDevicePixelRatio: false,
+      });
+      this.canvas.add(this.viewport);
+    } else this.canvas.resize(pixelsWide, pixelsHigh);
+    style.width = cssWidth;
+    style.height = cssHeight;
+    this.viewport.transform({ e11: scale, e12: 0, e13: 0, e21: 0, e22: scale, e23: 0, e31: 0, e32: 0, e33: 1 });
     this.width = width;
     this.height = height;
-    this.displayDensity = density;
+    this.scale = scale;
     this.app.invalidatePresentation?.();
-    // WebCanvas updates its own backing scale on render, even at an unchanged CSS size.
-    if (resized) this.canvas.resize(width, height);
+    return true;
   }
-  render(seconds = (performance.now() - this.started) / 1000): void {
+  render(seconds = this.loop.seconds()): void {
     if (this.closed || this.surfaceLost) return;
     this.resize();
     this.renderedAt = seconds;
@@ -337,7 +359,7 @@ export class BrowserHost {
     if (this.closed || this.surfaceLost) return;
     this.syncTextInput();
     this.canvas.update().render();
-    this.app.presented?.(this.canvas.dpr);
+    this.app.presented?.(this.scale);
     this.element.style.cursor = applicationCursor(this.app);
   }
   /** Renders the scene as it stands and returns it cropped to a small 16:9 JPEG data URL. */
@@ -361,25 +383,15 @@ export class BrowserHost {
   }
   start(): void {
     if (this.closed) return;
-    this.running = true;
-    if (this.frame) return;
     if (this.surfaceLost) {
       this.resumeAfterRestore = true;
       return;
     }
-    const draw = () => {
-      this.frame = 0;
-      if (this.closed) return;
-      this.render();
-      if (this.running && !this.closed && !this.surfaceLost) this.frame = requestAnimationFrame(draw);
-    };
-    this.frame = requestAnimationFrame(draw);
+    this.loop.start();
   }
   stop(): void {
-    this.running = false;
     this.resumeAfterRestore = false;
-    if (this.frame) cancelAnimationFrame(this.frame);
-    this.frame = 0;
+    this.loop.stop();
   }
   dispose(): void {
     if (this.closed) return;
@@ -389,7 +401,9 @@ export class BrowserHost {
     this.resizeObserver.disconnect();
     this.textInput.remove();
     if (!this.surfaceLost) this.canvas.remove();
+    this.viewport.remove();
     this.app.dispose();
+    this.viewport.dispose();
     if (!this.surfaceLost) this.canvas.destroy();
   }
 }

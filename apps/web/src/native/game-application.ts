@@ -14,8 +14,6 @@ import { decodeCharacter } from '../../../../packages/engine/src/character-prese
 import { structureSpec } from '../../../../packages/engine/src/building-catalog';
 import { clamp, f32 as f } from '../../../../packages/engine/src/numeric';
 import { applyBuildingAsset } from '../../../../packages/native-renderer/src/building-assets';
-import { Context, Key, Rect, Theme } from '../../../../packages/native-ui/src';
-import { Script } from '../../../../packages/native-ui/src/script';
 import { combatHotkey } from './game-combat-hud';
 import { armyKeyDown, armyKeyUp } from './army-keys';
 import { guideHotkey } from './game-guide';
@@ -30,7 +28,6 @@ export interface GameApplicationServices {
   files: ApplicationFiles;
   loadBuildingAssets(directory: string): void;
   createGame(seed: number): GameRuntime;
-  createContext(): Context;
   createSound(): NativeSound;
   designedWorldSeed: number;
   randomDevice(): number;
@@ -107,11 +104,6 @@ export class GameApplication implements Application {
   private authoredGame: GameRuntime | null = null;
   private retiredGames: GameRuntime[] = [];
   private readonly sound: NativeSound;
-  private readonly script = new Script();
-  private runtimeScript: Script | null = null;
-  private readonly scriptContext: Context;
-  private readonly scriptTheme = Theme.dark();
-  private scriptPointer = false;
   private keys = new Set<string>();
   private lastTime = -1;
   private pendingReset = false;
@@ -120,6 +112,8 @@ export class GameApplication implements Application {
   private playback = Playback.Playing;
   private editorAttached = false;
   private dirty = true;
+  // A menu can present the same world again with all its hit geometry still valid.
+  private needsHitGeometry = false;
   private milestones = '';
   private remount = false;
   private singleStep = false;
@@ -128,10 +122,16 @@ export class GameApplication implements Application {
   private inspected = 'world';
   private authoredSelection = 'world';
   presented(pixelRatio: number): void {
+    if (!this.needsHitGeometry) return;
+    this.needsHitGeometry = false;
     if (this.game.worldPresented(pixelRatio)) this.dirty = true;
   }
   invalidatePresentation(): void {
+    this.dirty = true;
     this.game.invalidatePresentation();
+  }
+  nextFrameDelay(): number {
+    return this.game.touchMode ? this.game.nextFrameDelay() : 0;
   }
   constructor(
     private readonly options: LaunchOptions,
@@ -139,29 +139,13 @@ export class GameApplication implements Application {
   ) {
     services.loadBuildingAssets(options.buildingAssets);
     this.root = new services.tvg.Scene();
-    this.scriptContext = services.createContext();
     this.sound = services.createSound();
     this.game = services.createGame(worldSeed(options, services));
     try {
       this.configure();
       this.mount();
-      if (options.uiScript) {
-        let source: string;
-        try {
-          source = services.files.readSync(options.uiScript);
-        } catch {
-          throw new Error('Cannot load UI script: ' + this.script.error());
-        }
-        if (!this.script.load(source, options.uiScript))
-          throw new Error('Cannot load UI script: ' + this.script.error());
-        this.script.onCommand = (name) => {
-          this.command(name);
-        };
-      }
     } catch (error) {
       this.root.remove();
-      this.script.dispose();
-      this.scriptContext.destroy();
       this.game.dispose();
       this.sound.dispose();
       this.root.dispose();
@@ -187,7 +171,6 @@ export class GameApplication implements Application {
   private mount(): void {
     this.root.add(this.game.worldScene());
     this.root.add(this.game.hudScene());
-    this.root.add(this.scriptContext.scene());
   }
   private configure(): void {
     const error = { value: '' };
@@ -250,12 +233,15 @@ export class GameApplication implements Application {
       for (const item of authored) this.property(item.id, item.value);
       this.pendingReset = false;
     }
+    if (this.presentationFrozen && !this.dirty && width === this.lastWidth && height === this.lastHeight) {
+      this.lastTime = seconds;
+      return;
+    }
     const authoring = this.authoringTool();
     if (this.editorAttached && this.playback === Playback.Stopped && !authoring) {
       if (this.dirty || width !== this.lastWidth || height !== this.lastHeight) {
         this.game.renderScene(width, height);
-        this.scriptContext.begin(this.scriptTheme, new Rect(0, 0, width, height), 0);
-        this.scriptContext.end();
+        this.needsHitGeometry = true;
       }
       this.dirty = false;
       this.lastWidth = width;
@@ -304,31 +290,11 @@ export class GameApplication implements Application {
         this.editorAttached ? 2 : 0.25,
         this.services.frameTime(),
       );
+    this.needsHitGeometry = true;
     this.sound.setAmbience(this.game.ambience());
     for (const cue of this.game.takeCues()) this.sound.play(cue);
-    const activeScript = this.runtimeScript ?? this.script;
-    const showScript =
-      activeScript.ready() &&
-      (!this.editorAttached || this.playback !== Playback.Stopped) &&
-      !this.game.buildings && !hasHudWindow(this.game);
-    if (showScript) {
-      if (simulate && (!this.editorAttached || dt > 0)) activeScript.update(dt);
-      this.scriptContext.begin(this.scriptTheme, new Rect(0, 0, width, height), seconds);
-      if (this.editorAttached && !simulate) {
-        const preview = activeScript.fork();
-        try {
-          preview?.render(this.scriptContext, new Rect(0, 0, width, height));
-        } finally {
-          preview?.dispose();
-        }
-      } else activeScript.render(this.scriptContext, new Rect(0, 0, width, height));
-      this.scriptContext.end();
-    } else if (this.script.ready()) {
-      this.scriptContext.begin(this.scriptTheme, new Rect(0, 0, width, height), seconds);
-      this.scriptContext.end();
-    }
     this.lastTime = seconds;
-    this.dirty = authoring;
+    this.dirty = authoring && !this.presentationFrozen;
     this.lastWidth = width;
     this.lastHeight = height;
   }
@@ -362,8 +328,6 @@ export class GameApplication implements Application {
     this.dirty = true;
     const button = e.button === 1 ? PointerButton.Primary : PointerButton.Secondary;
     if (e.type === 'PointerCancel') {
-      this.scriptContext.cancelPointer();
-      this.scriptPointer = false;
       this.game.cancelPointer();
       return;
     }
@@ -374,39 +338,18 @@ export class GameApplication implements Application {
     // F1 opens the guide log; Escape closes it before it reaches any other meaning.
     if (e.type === 'KeyDown' && !this.authoringTool() && guideHotkey(this.game, e.text)) return;
     // Army keys come before a focused HUD button can take them; a focused text field keeps its typing.
-    if (e.type === 'KeyDown' && !this.scriptContext.textFocused() && !this.authoringTool() && armyKeyDown(this.game, e)) {
+    if ((e.type === 'KeyDown' || e.type === 'Text') && !this.authoringTool() && this.game.context.textFocused()) {
+      if (e.type === 'Text') this.game.context.textInput(e.text);
+      else this.game.context.key(e.key, e.shift);
+      return;
+    }
+    if (e.type === 'KeyDown' && !this.authoringTool() && armyKeyDown(this.game, e)) {
       this.keys.add(e.text);
       return;
     }
     if (e.type === 'KeyUp' && !this.authoringTool() && armyKeyUp(this.game, e)) {
       this.keys.delete(e.text);
       return;
-    }
-    if (this.script.ready() && !this.game.buildings) {
-      if (e.type === 'PointerMove') {
-        this.scriptContext.pointerMove(e.x, e.y);
-        if (this.scriptPointer) return;
-      }
-      if (e.type === 'KeyDown' && (e.key === Key.Tab || this.scriptContext.focused())) {
-        this.scriptContext.key(e.key, e.shift);
-        return;
-      }
-      if (e.type === 'Text' && this.scriptContext.focused()) {
-        this.scriptContext.textInput(e.text);
-        return;
-      }
-      if (e.type === 'PointerDown' && e.button === 1) {
-        this.scriptPointer = this.scriptContext.controlAt(e.x, e.y);
-        this.scriptContext.pointerDown(e.x, e.y);
-        if (this.scriptPointer) return;
-      }
-      if (e.type === 'PointerUp' && e.button === 1) {
-        this.scriptContext.pointerUp(e.x, e.y);
-        if (this.scriptPointer) {
-          this.scriptPointer = false;
-          return;
-        }
-      }
     }
     if (!this.authoringTool() && this.game.handleTouchEvent?.(e)) return;
     if (e.type === 'PointerDown') this.game.pointerDown(e.x, e.y, button);
@@ -480,7 +423,7 @@ export class GameApplication implements Application {
   }
   takesTyping(): boolean {
     if (this.game.prayer) return this.game.context.textFocused();
-    return this.authoringTool() || this.editorAttached || !!this.scriptContext.focused();
+    return this.authoringTool() || this.editorAttached || this.game.context.textFocused();
   }
   /** Changes whenever the settlement passes a point worth an autosave. */
   private milestoneMark(): string {
@@ -540,6 +483,7 @@ export class GameApplication implements Application {
         p = party?.position ?? this.game.state().camp()?.center ?? this.game.state().map().camp(),
         at = project(p.x, p.y);
       this.game.setView(new Camera(at.x, f(at.y - (party ? 0 : 32)), f(1.4)));
+      this.dirty = true;
       return true;
     }
     if (id === 'session.suspend') {
@@ -558,7 +502,6 @@ export class GameApplication implements Application {
     if (id === 'session.world-only') {
       const shown = argument === 'off';
       this.game.hudScene().visible(shown);
-      this.scriptContext.scene().visible(shown);
       return true;
     }
     if (id === 'session.save-later') {
@@ -595,6 +538,8 @@ export class GameApplication implements Application {
       try {
         const loaded = loadSavedTown(this.services.files.readSync(argument));
         this.game.town = loaded;
+        this.game.pendingSimulationTicks = 0;
+        this.resumeFrame = true;
         const p = loaded.realmParty()[0]?.position ?? loaded.map().camp(),
           at = project(p.x, p.y);
         this.game.setView(new Camera(at.x, at.y, 1));
@@ -628,16 +573,6 @@ export class GameApplication implements Application {
       }
       if (argument !== 'stopped' && !this.authoredGame) {
         const next = this.game.fork();
-        if (this.script.ready()) {
-          this.runtimeScript = this.script.fork();
-          if (!this.runtimeScript) {
-            next.dispose();
-            return false;
-          }
-          this.runtimeScript.onCommand = (name) => {
-            this.command(name);
-          };
-        }
         this.authoredSelection = this.inspected;
         this.authoredGame = this.game;
         this.game = next;
@@ -649,8 +584,6 @@ export class GameApplication implements Application {
         this.game = this.authoredGame;
         this.authoredGame = null;
         this.inspected = this.authoredSelection;
-        this.runtimeScript?.dispose();
-        this.runtimeScript = null;
         this.remount = true;
         this.lastTime = 0;
       }
@@ -663,8 +596,6 @@ export class GameApplication implements Application {
       this.keys.clear();
       this.game.setPan(0, 0);
       this.game.cancelPointer();
-      this.scriptContext.cancelPointer();
-      this.scriptPointer = false;
       this.dirty = true;
       if (argument === 'playing') this.sound.fadeIn();
       else this.sound.playback?.(argument === 'paused' ? 'Paused' : 'Stopped');
@@ -696,8 +627,6 @@ export class GameApplication implements Application {
     if (['edit.building', 'asset.editor', 'asset.open', 'asset.save', 'asset.export'].includes(id)) {
       this.keys.clear();
       this.game.setPan(0, 0);
-      this.scriptContext.cancelPointer();
-      this.scriptPointer = false;
       return this.game.buildingCommand(id === 'edit.building' ? 'asset.editor' : id, argument);
     }
     if (id === 'edit.map') {
@@ -729,7 +658,6 @@ export class GameApplication implements Application {
         .state()
         .buildings()
         .map((b) => ({ id: 'building:' + b.id, name: structureSpec(b.kind).name, type: 'Building' })),
-      ...(this.script.ready() ? [{ id: 'script:hud', name: this.script.title(), type: 'Lua Script' }] : []),
     ];
   }
   sceneSelection(): string {
@@ -739,7 +667,7 @@ export class GameApplication implements Application {
     const editing = !this.editorAttached || this.playback === Playback.Stopped,
       unit = objectId(id, 'unit:'),
       building = objectId(id, 'building:');
-    if (id === 'world' || (id === 'script:hud' && this.script.ready())) {
+    if (id === 'world') {
       if (editing) this.game.selectPeople([]);
     } else if (unit !== undefined && this.game.state().person(unit)) {
       if (editing) this.game.selectPeople([unit]);
@@ -772,8 +700,7 @@ export class GameApplication implements Application {
           property('progress', 'Construction', b.progress, 0, 1, 0.05),
           property('health', 'Health', b.health, 0, 1, 0.05),
         ];
-    } else if (this.inspected === 'script:hud') return (this.runtimeScript ?? this.script).properties();
-    else
+    } else
       result = [
         property(
           'world.hour',
@@ -825,17 +752,12 @@ export class GameApplication implements Application {
         else return false;
         accepted = this.game.state().editBuilding(building, center, angle, progress, health);
       }
-    } else if (this.inspected === 'script:hud')
-      accepted = (this.runtimeScript ?? this.script).property(id, value);
-    else if (id === 'world.hour') accepted = this.property(id, value);
+    } else if (id === 'world.hour') accepted = this.property(id, value);
     this.dirty ||= accepted;
     return accepted;
   }
   dispose(): void {
     this.root.remove();
-    this.runtimeScript?.dispose();
-    this.script.dispose();
-    this.scriptContext.destroy();
     this.game.dispose();
     this.authoredGame?.dispose();
     for (const game of this.retiredGames) game.dispose();

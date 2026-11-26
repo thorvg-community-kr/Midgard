@@ -84,6 +84,7 @@ export function startMap(this: GameEditorsApp, map: WorldMap): void {
   this.questDone = '';
   const seed = map.seed();
   this.town = new Town(map);
+  this.pendingSimulationTicks = 0;
   this.traffic = new Traffic(seed);
   this.renderer.invalidateMap();
   this.speakers.clear();

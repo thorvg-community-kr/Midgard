@@ -166,6 +166,8 @@ export class GameAppState {
   viewWidth = 1;
   viewHeight = 1;
   last = -1;
+  /** Fraction of the next live simulation tick accumulated between presentations. */
+  pendingSimulationTicks = 0;
   current = new Plan();
   status = '';
   /** Notices on screen, oldest first. */

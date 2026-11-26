@@ -98,12 +98,9 @@ export class WorldRenderer extends WorldRendererState {
   }
 
   animating(): boolean {
-    return (
-      this.fallingTrees.length !== 0 ||
-      this.growingTrees.length !== 0 ||
-      hasResourceHits(this) ||
-      [...this.visuals.values()].some((v) => v.frame < v.layout.frames)
-    );
+    if (this.fallingTrees.length || this.growingTrees.length || hasResourceHits(this)) return true;
+    for (const visual of this.visuals.values()) if (visual.frame < visual.layout.frames) return true;
+    return false;
   }
   visible(at: Point): boolean {
     return this.currentVisibility.sample(at) >= 119;

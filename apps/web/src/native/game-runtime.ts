@@ -19,6 +19,7 @@ export interface GameRuntime extends GameEditorsApp {
   invalidatePresentation(): void;
   hudScene(): Scene;
   renderScene(width: number, height: number): void;
+  nextFrameDelay(): number;
   render(
     width: number,
     height: number,

@@ -18,10 +18,6 @@ Korean text uses **Noto Sans KR** and **Noto Sans KR Bold**, and Korean titles *
 
 **DejaVu Sans** and **DejaVu Sans Bold** remain in `assets/native-fonts/` for the creative tools' labels and for any character the faces above cannot write. The fonts retain the Bitstream Vera font license; DejaVu changes are in the public domain. See the [complete font notice](assets/native-fonts/DejaVuSans.LICENSE) and the [DejaVu project](https://dejavu-fonts.github.io/).
 
-## Lua extension interpreter
-
-The optional original HUD scripting extension uses **Lua 5.4.8**, compiled to WebAssembly. The game logic and interpreter bridge are TypeScript. Copyright © 1994–2025 Lua.org, PUC-Rio. Lua is distributed under its [MIT license](licenses/Lua-5.4.8.txt). See [Lua's license and copyright](https://www.lua.org/license.html).
-
 ## Original sound and artwork
 
 Music, environmental sounds, effects and generated voice banks retain the [original audio provenance and licensing notice](assets/audio/NOTICE.md). That notice identifies the Loach procedural packs, the CC0 dedication for the Nature of Greoni pack and generated cat call, and the Qwen3-TTS voice-generation provenance. These sounds are shipped as original Ogg assets and/or PCM decoded from those assets; no speech model runs in the game.

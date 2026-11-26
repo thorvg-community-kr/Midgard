@@ -104,9 +104,6 @@ export function parseLaunchQuery(query: URLSearchParams): Partial<LaunchOptions>
       case 'map-file':
         options.mapFile = value;
         break;
-      case 'ui-script':
-        options.uiScript = value;
-        break;
       case 'building-assets':
         options.buildingAssets = value;
         break;

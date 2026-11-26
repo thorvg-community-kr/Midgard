@@ -45,6 +45,8 @@ export interface Application {
   title(): string;
   scene(): Scene;
   render(width: number, height: number, seconds: number): void;
+  /** Desired seconds until another presentation; user input can wake it earlier. */
+  nextFrameDelay?(): number;
   /** Native hit geometry is valid only after the host has presented the Canvas. */
   presented?(pixelRatio: number): void;
   invalidatePresentation?(): void;
@@ -60,7 +62,6 @@ export interface LaunchOptions {
   seed?: number;
   mapFile: string;
   characterFile: string;
-  uiScript: string;
   buildingAssets: string;
   buildingFile: string;
   titleScreen: boolean;
@@ -77,7 +78,6 @@ export const defaultLaunchOptions = (): LaunchOptions => ({
   world: 'Designed',
   mapFile: '',
   characterFile: '',
-  uiScript: '',
   buildingAssets: '',
   buildingFile: '',
   titleScreen: false,

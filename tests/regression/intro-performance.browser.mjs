@@ -29,7 +29,8 @@ try {
     server: { host: '127.0.0.1', port: 0, hmr: false, watch: null },
   });
   await server.listen();
-  browser = await chromium.launch({ channel: process.env.MIDGARD_TEST_BROWSER || undefined, headless: true, args: ['--mute-audio'] });
+  browser = await chromium.launch({ channel: process.env.MIDGARD_TEST_BROWSER || undefined, headless: true,
+    args: ['--mute-audio', '--use-angle=gl', '--enable-gpu', '--ignore-gpu-blocklist'] });
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, reducedMotion: 'no-preference' });
   page.setDefaultTimeout(120000);
   page.on('pageerror', (error) => report.errors.push(error.message));
@@ -83,7 +84,7 @@ try {
         return { ...result, sections: Object.fromEntries(Object.entries(sections).map(([key, value]) => [key, value / 90])) };
       } finally { undo.forEach((restore) => restore()); }
     };
-    return { renderer: goldfantasy.host.canvas.renderer, dpr: goldfantasy.host.canvas.dpr, longTasks: startupLongTasks, readyAt: performance.now() };
+    return { renderer: goldfantasy.host.canvas.renderer, dpr: goldfantasy.host.pixelRatio, longTasks: startupLongTasks, readyAt: performance.now() };
   });
   report.title = await page.evaluate(() => {
     const game = goldfantasy.app.preview, original = game.hud;

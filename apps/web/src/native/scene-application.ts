@@ -97,7 +97,11 @@ export class SceneApplication implements Application {
   private readonly fonts: NativeFontMetrics;
   private chooseLanguage(next: Locale): void {
     storeLocale(next);
-    if (next !== 'KR') return setLocale(next);
+    if (next !== 'KR') {
+      setLocale(next);
+      this.invalidatePresentation();
+      return;
+    }
     void loadKoreanFont(this.tvg, this.fonts).then(
       () => {
         setLocale(next);
@@ -143,6 +147,16 @@ export class SceneApplication implements Application {
     this.previewDirty = true;
     this.gameSession?.invalidatePresentation?.();
     this.editorSession?.invalidatePresentation?.();
+  }
+  nextFrameDelay(): number {
+    if (this.requested || this.intro !== 'None') return 0;
+    if (this.settingsOpen) {
+      // Controls request their animation frames. A quiet menu only checks for asynchronous changes.
+      const delay = this.overlay.frameRequest().delay(this.overlay.time());
+      return delay < 0 ? 0.5 : Math.min(0.5, delay / 1000);
+    }
+    if (this.current === 'Title') return this.touchInput ? 1 / 30 : 0;
+    return this.active()?.nextFrameDelay?.() ?? 0;
   }
 
   render(width: number, height: number, seconds: number): void {

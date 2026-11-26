@@ -79,9 +79,7 @@ describe('target input and group commands', () => {
   it.each(['a', 'A'])('group hotkey %s works even after a HUD button has focus', (text) => {
     const prepare = vi.fn(),
       app = {
-        game: commanding(prepare),
-        script: { ready: () => true },
-        scriptContext: { focused: () => true, textFocused: () => false },
+        game: { ...commanding(prepare), context: { focused: () => true, textFocused: () => false } },
         editorAttached: false,
         authoringTool: () => false,
         keys: new Set<string>(),
@@ -96,9 +94,7 @@ describe('target input and group commands', () => {
     const prepare = vi.fn(),
       key = vi.fn(),
       app = {
-        game: commanding(prepare),
-        script: { ready: () => true },
-        scriptContext: { focused: () => true, textFocused: () => true, key },
+        game: { ...commanding(prepare), context: { focused: () => true, textFocused: () => true, key } },
         editorAttached: false,
         authoringTool: () => false,
         keys: new Set<string>(),

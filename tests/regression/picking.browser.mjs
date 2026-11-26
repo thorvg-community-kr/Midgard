@@ -298,7 +298,7 @@ try {
         probe.ringPixels = () => {
           const renderer = game.renderer,
             element = document.querySelector('#world'),
-            ratio = runtime.host.canvas.dpr,
+            ratio = runtime.host.pixelRatio,
             state = probe.ringState(),
             ellipse = state.ellipses[0];
           if (!ellipse) throw Error('Selected resident has no native ground ellipse');
@@ -480,8 +480,8 @@ try {
                   .querySelection({
                     x: x + dx,
                     y: y + dy,
-                    w: 1 / runtime.host.canvas.dpr,
-                    h: 1 / runtime.host.canvas.dpr,
+                    w: 1 / runtime.host.pixelRatio,
+                    h: 1 / runtime.host.pixelRatio,
                   })
                   .some((h) => h.kind === behind.kind && h.id === behind.id),
               )
@@ -559,7 +559,7 @@ try {
       const persons = await reset('people');
       row.surface = await page.evaluate(() => ({
         renderer: picking.runtime.host.canvas.renderer,
-        dpr: picking.runtime.host.canvas.dpr,
+        dpr: picking.runtime.host.pixelRatio,
         width: document.querySelector('#world').width,
         logicalWidth: document.querySelector('#world').clientWidth,
       }));
@@ -767,7 +767,8 @@ try {
         open: picking.game.rosterOpen,
         reducedMotion: picking.game.reducedMotion(),
         dockStarted: picking.game.dockStarted,
-        bounds: picking.game.dockBounds,
+        dock: picking.game.dockBounds,
+        bounds: picking.game.context.controls.find(c => c.id === 'roster-panel')?.bounds,
         inventory: picking.game.context.controls.filter((c) => c.id.startsWith('inventory-slot-')).length,
         chosen: picking.game.chosen,
       }));
@@ -778,6 +779,9 @@ try {
       assert.equal(center.dockStarted, -1);
       assert.equal(center.inventory, 16);
       assert.deepEqual(center.chosen, [10]);
+      assert.deepEqual(center.dock, bottom.bounds);
+      assert(center.bounds);
+      assert(Math.abs(center.bounds.x + center.bounds.w / 2 - 390 / 2) < 2);
       assert(Math.abs(center.bounds.y + center.bounds.h / 2 - 844 / 2) < 2);
       await page.screenshot({ path: `${output}/${name}-unit-center.png` });
       row.checks.push(

@@ -193,10 +193,12 @@ try {
           labels.some(l => /^\d\d:\d\d$/.test(l.text) && l.size >= 16) &&
           labels.some(l => /^Sun(set|rise) in /.test(l.text) && l.size >= 13 && game.context.textWidth(l.text, l.size) <= l.bounds.w);
       }));
-      check('The backing store uses the display density and inputs stay in CSS pixels', await page.evaluate(() => {
+      check('The phone bounds backing pixels while HUD and touch coordinates stay in CSS pixels', await page.evaluate(() => {
         const { runtime, game } = window.mobile, canvas = document.querySelector('#world');
-        return game.viewWidth === canvas.clientWidth && Math.abs(canvas.width - game.viewWidth * runtime.host.canvas.dpr) < 1 &&
-          (devicePixelRatio === 1 ? runtime.host.canvas.dpr === 1 : runtime.host.canvas.dpr > 1);
+        const ratio = runtime.host.pixelRatio;
+        return game.viewWidth === canvas.clientWidth && Math.abs(canvas.width - game.viewWidth * ratio) < 1 &&
+          Math.abs(canvas.height - game.viewHeight * ratio) < 1 && ratio <= 1.75 &&
+          (devicePixelRatio === 1 ? ratio === 1 : ratio > 1);
       }));
       await tapControl('objectives-toggle');
       check('An expanded quest offers its full-size action even on short screens', await page.evaluate(() => {
@@ -601,6 +603,10 @@ try {
   const shellContext = await browser.newContext({ viewport: { width: 568, height: 320 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
   try {
     const page = await shellContext.newPage();
+    const scriptRuntimeRequests = [];
+    page.on('request', request => {
+      if (/\/lua[^/]*\.(wasm|mjs)(?:\?|$)/i.test(request.url())) scriptRuntimeRequests.push(request.url());
+    });
     page.on('pageerror', e => report.errors.push(e.stack ?? String(e)));
     await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/mobile-probe`);
     await page.evaluate(async () => {
@@ -631,7 +637,42 @@ try {
     await page.evaluate(() => shell.app.command('scene.skip-saga'));
     await paint(30);
     await page.evaluate(() => { shell.app.gameSession.services.frameTime = () => window.stamp; });
+    assert.ok(await page.evaluate(() => {
+      const game = shell.app.gameSession.game, town = game.town, advance = town.advance;
+      const step = game.gameSpeed() / 60, ticks = [];
+      town.advance = function (dt) { ticks.push(dt); return advance.call(this, dt); };
+      try {
+        return [30, 60, 120].every(rate => {
+          ticks.length = 0;
+          const start = town.clock();
+          for (let i = 0; i < rate / 2; i++) shell.host.render(window.stamp += 1 / rate);
+          return ticks.length === 30 && ticks.every(dt => dt === step) &&
+            Math.abs(town.clock() - start - 30 * step) < 1e-6;
+        });
+      } finally { town.advance = advance; }
+    }), 'Half a second of live play takes the same simulation steps at 30, 60 and 120 Hz');
     await tap('settings');
+    const frozen = await page.evaluate(() => {
+      const game = shell.app.gameSession.game, clock = game.town.clock();
+      const { update, presented } = game.renderer;
+      let updates = 0, pickFrames = 0;
+      game.renderer.update = function (...args) { updates++; return update.apply(this, args); };
+      game.renderer.presented = function (...args) { pickFrames++; return presented.apply(this, args); };
+      try {
+        for (let i = 0; i < 30; i++) shell.host.render(window.stamp += 1 / 60);
+        const idle = updates, idlePicks = pickFrames, delay = shell.app.nextFrameDelay();
+        shell.app.invalidatePresentation();
+        shell.host.render(window.stamp += 1 / 60);
+        shell.host.render(window.stamp += 1 / 60);
+        return { idle, idlePicks, redraw: updates - idle, newPicks: pickFrames - idlePicks,
+          unchanged: clock === game.town.clock(), delay };
+      } finally {
+        game.renderer.update = update;
+        game.renderer.presented = presented;
+      }
+    });
+    assert.deepEqual(frozen, { idle: 0, idlePicks: 0, redraw: 1, newPicks: 1, unchanged: true, delay: 0.5 });
+    assert.deepEqual(scriptRuntimeRequests, [], 'Starting the title and playing requires only the rendering runtime');
     await page.screenshot({ path: output + '/settings-landscape-ko.png', scale: 'css' });
     await tap('settings/save');
     assert.ok(await page.evaluate(() => {

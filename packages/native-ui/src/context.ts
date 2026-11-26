@@ -55,7 +55,7 @@ class Layer {
     this.scene = new tvg.Scene();
   }
   begin(): void {
-    this.pending = [];
+    this.pending.length = 0;
     this.queued.clear();
     this.usedClips = this.usedDrawn = 0;
   }
@@ -181,8 +181,10 @@ export class Context {
     this.target = this.rootLayer;
     this.clipBounds = this.viewportBounds;
     try {
-      const controls = this.controls.map(({ id, bounds, focusable }) => ({ id, bounds, focusable }));
-      for (const overlay of this.overlayDraws.splice(0)) overlay.draw(this.viewportBounds, controls);
+      if (this.overlayDraws.length) {
+        const controls = this.controls.map(({ id, bounds, focusable }) => ({ id, bounds, focusable }));
+        for (const overlay of this.overlayDraws.splice(0)) overlay.draw(this.viewportBounds, controls);
+      }
     } finally {
       this.target = previousTarget;
       this.clipBounds = previousClip;
@@ -199,7 +201,7 @@ export class Context {
     const pressed = this.find(this.pressedId);
     if (!pressed?.enabled) this.pressedId = '';
   }
-  private syncLayer(layer: Layer): void {
+  private syncLayer(layer: Layer, complete: boolean): void {
     // WebCanvas has no insert-before overload. Preserve the common prefix and
     // reattach only the changed suffix, keeping each wrapper reference alive.
     let common = 0;
@@ -209,11 +211,16 @@ export class Context {
       layer.attached[common] === layer.pending[common]
     )
       common++;
-    for (const paint of layer.attached.slice(common)) {
+    // Entering a clip has only described the prefix. Its later siblings may still be in place.
+    if (common === layer.pending.length && (!complete || common === layer.attached.length)) return;
+    for (let i = common; i < layer.attached.length; i++) {
+      const paint = layer.attached[i];
       layer.scene.remove(paint);
       this.paintLayers.delete(paint);
     }
-    for (const paint of layer.pending.slice(common)) {
+    layer.attached.length = common;
+    for (let i = common; i < layer.pending.length; i++) {
+      const paint = layer.pending[i];
       const previous = this.paintLayers.get(paint);
       if (previous && previous !== layer) {
         previous.scene.remove(paint);
@@ -221,12 +228,12 @@ export class Context {
       }
       layer.scene.add(paint);
       this.paintLayers.set(paint, layer);
+      layer.attached.push(paint);
     }
-    layer.attached = [...layer.pending];
   }
   private finishLayer(layer: Layer): void {
-    this.syncLayer(layer);
-    layer.pending = [];
+    this.syncLayer(layer, true);
+    layer.pending.length = 0;
     for (const entry of layer.drawn.splice(layer.usedDrawn)) entry.paint.dispose();
     for (const paint of layer.retired) paint.dispose();
     layer.retired = [];
@@ -439,8 +446,9 @@ export class Context {
     // Append-only WebCanvas may need to move this retained scene. Do that while
     // its old descendants still have renderer data: removing it after adding
     // fresh descendants asks ThorVG for their not-yet-initialized render bounds.
-    this.syncLayer(previousTarget);
-    if (JSON.stringify(layer.bounds) !== JSON.stringify(bounds)) {
+    this.syncLayer(previousTarget, false);
+    const old = layer.bounds;
+    if (old.x !== bounds.x || old.y !== bounds.y || old.w !== bounds.w || old.h !== bounds.h) {
       const shape = new this.tvg.Shape()
         .appendRect(bounds.x, bounds.y, bounds.w, bounds.h)
         .fill(255, 255, 255);

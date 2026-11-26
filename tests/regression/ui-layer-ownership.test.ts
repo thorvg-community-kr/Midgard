@@ -40,6 +40,26 @@ afterAll(() => {
   tvg?.term();
   vi.unstubAllGlobals();
 });
+it('keeps unchanged siblings attached while drawing a clipped panel', () => {
+  const c = new Context(tvg, {}), view = new Rect(0, 0, 80, 60), theme = Theme.dark();
+  const paint = (footer: boolean) => {
+    c.begin(theme, view, 1);
+    c.clip(new Rect(0, 0, 40, 40), () => c.rect(view, theme.surface));
+    if (footer) c.rect(new Rect(0, 45, 80, 15), theme.raised);
+    c.end();
+  };
+  try {
+    paint(true);
+    const remove = vi.spyOn(c.scene(), 'remove'), add = vi.spyOn(c.scene(), 'add');
+    paint(true);
+    expect(remove).not.toHaveBeenCalled();
+    expect(add).not.toHaveBeenCalled();
+    paint(false);
+    expect(remove).toHaveBeenCalledTimes(1);
+  } finally {
+    c.destroy();
+  }
+});
 it('keeps unique Paint ownership when retained icons move between dynamic nested clips', () => {
   const canvas = new tvg.Canvas(new OffscreenCanvas(160, 120), {
       width: 160,
