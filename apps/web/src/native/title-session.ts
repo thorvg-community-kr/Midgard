@@ -23,7 +23,7 @@ export const titleSessionRules = {
 };
 /** Game seconds per title second right now. */
 export function titlePace(town: Town): number {
-  if (town.realmActive() || town.raiding()) return titleSessionRules.fightPace;
+  if (town.inCombat() || town.realmActive() || town.raiding()) return titleSessionRules.fightPace;
   const outside = living(town).some((p) => !p.inside);
   return town.climate().night > 0.6 && !outside ? titleSessionRules.nightPace : titleSessionRules.pace;
 }

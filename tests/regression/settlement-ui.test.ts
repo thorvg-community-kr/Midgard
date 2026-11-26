@@ -545,7 +545,7 @@ it.each([
       }
     };
     for (const [station, id, stats] of [
-      [smith, 'wooden-spear', ['Melee attack +1', 'STR scaling +2', 'DEX scaling +3', 'Reach +0.5', 'Pierces · Two-handed']],
+      [smith, 'wooden-spear', ['Melee attack +1', 'STR scaling +2', 'DEX scaling +3', 'Reach +0.5', 'Two-handed']],
       [bench, 'wooden-mallet', ['Building efficiency +1', 'Crafting efficiency +1', 'Attack as a weapon +1']],
     ] as const) {
       const item = itemSpec(id)!;

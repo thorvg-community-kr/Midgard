@@ -65,10 +65,10 @@ export const guidePhrases: Phrases = {
   "A resident's window shows what they carry and lets you change it.":
     '정착민 창에서 지닌 장비를 보고 바꿀 수 있습니다.',
   'The first field': '첫 밭',
-  'Farmhands of a farmhouse tend the fields close to it; more farmhands can tend more fields.':
-    '농가의 일꾼들은 농가 가까이의 밭을 돌봅니다. 일꾼이 많을수록 더 많은 밭을 돌볼 수 있습니다.',
-  'Fields grow while they are tended through summer and autumn, and the harvest comes in when autumn ends.':
-    '밭은 여름과 가을 내내 돌보는 동안 자라며, 가을이 끝날 때 수확합니다.',
+  'Farmhands till the soil, sow seeds, water the rows, tend the crop and harvest the grain.':
+    '농부는 밭을 갈고 씨를 뿌린 뒤, 물을 주고 작물을 돌봐 곡식을 수확합니다.',
+  'Keep water in the camp stores. One farmer takes about a week to bring in a crop. Fields rest in winter.':
+    '캠프에 물을 비축하세요. 농부 한 명이 수확하기까지 약 일주일이 걸립니다. 겨울에는 밭이 쉽니다.',
   'The first road': '첫 길',
   'Residents walk faster on a road, and faster still once it is paved.':
     '정착민들은 길 위에서 더 빨리 걷고, 포장하면 더욱 빨라집니다.',
@@ -87,8 +87,8 @@ export const guidePhrases: Phrases = {
   'A volcano smokes in the south of Midgard. Its slopes are bare mountain rock that no one can cross or build on.':
     '미드가르드 남쪽에서 화산이 연기를 뿜습니다. 그 비탈은 아무도 건너거나 지을 수 없는 산의 바위입니다.',
   'The deep spring in the north from which the rivers flow.': '강물이 흘러나오는 북쪽의 깊은 샘입니다.',
-  'Everyone drinks water every day. A well draws it, and more beside a lake or river.':
-    '모두가 날마다 물을 마십니다. 우물로 물을 긷고, 호수나 강 옆이면 더 많이 긷습니다.',
+  'A staffed well supplies drinking water and water for crops and livestock. It draws more near a lake or river.':
+    '우물에 일꾼을 배치하면 식수와 밭, 가축에 쓸 물을 긷습니다. 호수나 강 옆이면 더 많이 긷습니다.',
   'Night falls': '밤이 옵니다',
   'Residents on Auto stop work and go to sleep; one you send to a workplace keeps at it through the dark.':
     '자동으로 움직이는 정착민은 일을 멈추고 잠들지만, 일터로 직접 보낸 정착민은 어둠 속에서도 일을 계속합니다.',
@@ -100,11 +100,11 @@ export const guidePhrases: Phrases = {
     '눈이 깊이 쌓이면 걸음이 느려지고, 추위는 지붕 없는 이들을 지치게 합니다.',
   'Fields lie fallow and game is scarce, so the settlement lives on what it stored.':
     '밭은 쉬고 사냥감은 드물어, 정착지는 모아 둔 식량으로 버텨야 합니다.',
-  'Raids come more often in winter. Keep everyone housed: the cold wears on anyone sleeping out.':
-    '겨울에는 습격이 더 잦습니다. 모두에게 집을 마련해 주세요. 밖에서 자면 추위에 지칩니다.',
+  'Keep everyone housed. The cold wears on anyone sleeping out.':
+    '모두에게 집을 마련해 주세요. 밖에서 자면 추위에 지칩니다.',
   'A newcomer from the altar': '제단에서 온 새 정착민',
-  'Each newcomer starts as a settler. Give them a tool and a job to gain experience.':
-    '새로 합류한 사람은 모두 일반 정착민으로 시작합니다. 도구를 쥐여 주고 일을 맡기면 경험을 쌓습니다.',
+  'Each newcomer starts as a settler. Give them a tool for their first job.':
+    '새로 온 사람은 정착민으로 시작합니다. 맡길 일에 맞는 도구를 주세요.',
   'When the guild is ready, you can send a settler there to learn a fighting calling.':
     '길드가 세워지면 정착민을 보내 전투 직업을 익히게 할 수 있습니다.',
   // Danger
@@ -114,8 +114,8 @@ export const guidePhrases: Phrases = {
   'Fight them together, not one by one: select residents, press A and click to attack-move.':
     '하나씩 따로가 아니라 함께 싸우세요. 정착민들을 선택하고 A를 누른 뒤 클릭하면 공격하며 이동합니다.',
   'The first kill': '첫 처치',
-  'A kill gives experience to the killer and to every ally fighting nearby, and many leave bones.':
-    '처치하면 쓰러뜨린 정착민과 가까이에서 함께 싸운 동료 모두가 경험치를 얻고, 대부분 뼈를 남깁니다.',
+  'Defeating a monster gives experience to the killer and to allies fighting nearby. Many monsters leave bones.':
+    '몬스터를 쓰러뜨리면 처치한 정착민과 근처에서 함께 싸운 동료들이 경험치를 얻습니다. 많은 몬스터가 뼈를 남깁니다.',
   'Compare attack before and after equipping a weapon. A higher scaling bonus means more of that attribute counts toward the attack.':
     '장비 창에서 무기 장착 전후의 공격력을 비교하세요. 보정 수치가 클수록 해당 능력치가 공격력에 더 많이 반영됩니다.',
   'Levels improve endurance and unlock gear. Match a weapon to the resident’s strongest attribute for harder hits.':

@@ -509,6 +509,10 @@ function onSwing(s: WorldRendererState, state: EffectState, swing: Hit[], monste
   }
   const by = first.attacker ?? first.person,
     cast = skillCastOf(town, swing);
+  if (cast?.skill === 'volley') {
+    add(s, state, EffectKind.Volley, first.at, first.to, 0, volleyRain(seed));
+    return;
+  }
   // A landing skill is drawn by its own effect; only the Aimed Shot keeps its streak.
   if (cast && cast.skill !== 'aimed') return;
   const aimed = cast?.skill === 'aimed' || (state.aiming.get(by) ?? -1) >= first.at;
@@ -594,12 +598,12 @@ function onSkill(s: WorldRendererState, state: EffectState, event: CombatEvent, 
     case 'rally':
       add(s, state, EffectKind.Verse, event.at, event.position, 6, verse(seed), event.person);
       break;
-    case 'whirl':
-      add(s, state, EffectKind.Whirl, event.at, event.position, 0, whirl(seed, rx, ry, delay), event.person);
+    case 'whirl': {
+      const warrior = state.town.person(event.person),
+        blade = groundRadii(0.55);
+      add(s, state, EffectKind.Whirl, event.at, warrior?.position ?? event.position, 0, whirl(seed, blade.rx, blade.ry, delay), event.person);
       break;
-    case 'volley':
-      add(s, state, EffectKind.Volley, lands, event.position, 0, volleyRain(seed, rx, ry));
-      break;
+    }
     case 'frost':
       add(s, state, EffectKind.Frost, lands, event.position, 0, frostBite(seed, rx, ry));
       break;

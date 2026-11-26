@@ -251,12 +251,14 @@ export class WorldPicker {
         (town && !this.eligible(town, source, paint.alpha))
       )
         return;
+      const pasture = ref.kind === 'building' ? town?.building(ref.id)?.pasture : undefined;
       current.set(marker.key, {
         ...marker,
         geometry: {
           foot: screen(source.foot),
           opacity: paint.alpha,
           groundOutline: source.groundOutline?.map(screen),
+          path: pasture?.length ? [...pasture, pasture[0]].map(screen) : undefined,
           ellipse: source.ellipse
             ? { rx: source.ellipse.rx * s.view.zoom, ry: source.ellipse.ry * s.view.zoom }
             : undefined,

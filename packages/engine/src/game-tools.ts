@@ -38,7 +38,8 @@ export enum Tool {
   Runestone,
   Workbench,
   Foundry,
-  Ranch,
+  ChickenCoop,
+  Cowshed,
   Count,
 }
 export enum PointerButton {
@@ -61,7 +62,7 @@ export enum PreviewKind {
 export class Preview {
   kind = PreviewKind.None;
   outline: Outline = [];
-  /** The farmhouse a drawn farm would raise, beside the field in `outline`. */
+  /** The farmhouse or livestock shelter beside the drawn field or pasture. */
   house: Outline = [];
   closed = true;
   road: RoadPath = [];
@@ -72,7 +73,8 @@ export class Preview {
   zoom = 1;
 }
 /** Tools that take a drawn area instead of a footprint under the cursor. `Field` is no longer offered: a farm lays its own. */
-export const drawsArea = (tool: Tool): boolean => tool === Tool.Farm || tool === Tool.Field;
+export const drawsArea = (tool: Tool): boolean =>
+  tool === Tool.Farm || tool === Tool.Field || tool === Tool.ChickenCoop || tool === Tool.Cowshed;
 export function toolStructure(tool: Tool): Structure | undefined {
   switch (tool) {
     case Tool.Sawmill: return Structure.Sawmill;
@@ -84,7 +86,8 @@ export function toolStructure(tool: Tool): Structure | undefined {
     case Tool.TrainingYard: return Structure.TrainingYard;
     case Tool.Runestone: return Structure.Runestone;
     case Tool.Workbench: return Structure.Workbench;
-    case Tool.Ranch: return Structure.Ranch;
+    case Tool.ChickenCoop: return Structure.ChickenCoop;
+    case Tool.Cowshed: return Structure.Cowshed;
     case Tool.Foundry: return Structure.Foundry;
     case Tool.Torch:
       return Structure.Torch;

@@ -326,7 +326,6 @@ export function calendarDetails(this: GameHudApp, width: number): void {
     );
   }
 }
-const heldReason = 'Normal speed beyond a gate';
 /** One tappable clock in the middle of the top row. Its lettering stays in logical pixels. */
 function touchClock(app: GameHudApp): void {
   const c = app.context, t = app.theme, r = app.skyBounds;
@@ -367,25 +366,29 @@ export function timeControls(this: GameHudApp, width: number): void {
       c.control('time-controls-panel', this.timePanelBounds, undefined, true, false);
       board(c, full);
       const labels = ['||', '1x', '2x', '3x', '4x', '5x'],
-        held = this.speedHeld();
+        limit = this.speedLimit(), speed = this.gameSpeed();
       for (let i = 0; i <= 5; i++) {
-        const state = button(
+        const bounds = new Rect(full.x + 4 + i % columns * step, full.y + 4 + Math.floor(i / columns) * step,
+          this.touchMode ? 44 : controlStep - 4, this.touchMode ? 44 : 28);
+        button(
           c,
           'speed-' + labels[i],
-          new Rect(full.x + 4 + i % columns * step, full.y + 4 + Math.floor(i / columns) * step,
-            this.touchMode ? 44 : controlStep - 4, this.touchMode ? 44 : 28),
+          bounds,
           labels[i],
           () => {
             if (i) this.setSpeed(i);
             else this.togglePause();
           },
-          this.gameSpeed() === i ? ButtonStyle.Primary : held && i > 1 ? ButtonStyle.Quiet : ButtonStyle.Default,
-          this.timeExpanded,
+          speed === i ? ButtonStyle.Primary : ButtonStyle.Default,
+          this.timeExpanded && i <= limit,
           Icon.None,
           false,
           { fontSize: this.touchMode ? 14 : 11 },
         );
-        if (held && i > 1) tooltip(c, 'speed-' + labels[i], state.hovered, [heldReason]);
+        if (this.timeExpanded && i > limit) {
+          const reason = limit === 1 ? 'Normal speed beyond a gate' : 'Maximum speed in battle is 2x';
+          tooltip(c, 'speed-' + labels[i], bounds.intersect(reveal).contains(this.mouse.x, this.mouse.y), [reason]);
+        }
       }
     });
   }

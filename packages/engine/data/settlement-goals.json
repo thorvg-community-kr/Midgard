@@ -112,7 +112,7 @@
   },
   {
     "title": "Build a well",
-    "description": "Give your residents drinking water.",
+    "description": "Supply drinking water, water for the fields and water for livestock.",
     "kind": "Building",
     "building": "Well",
     "residents": 0,

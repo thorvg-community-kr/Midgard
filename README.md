@@ -24,7 +24,9 @@ Two founders wake on the shore and wait for your word. Found a camp, put up a wo
 
 _A grown settlement, prepared for photography: the buildings are placed by the game's own placement rules and finished at once; the residents live their own day._
 
-A completed camp opens the ranch. Residents collect eggs from chickens. Two pigs or two cows in the same pen raise young. Once a piglet or calf is fully grown, a resident can take it for meat while its parents raise the next one. Residents rest when tired and resume their work when they recover.
+A completed camp opens the chicken coop and the cowshed. Draw a pasture the way you draw a field. The preview shows how many hens or cows it can hold. When the shelter is built, use its worker **+** button or select a settler and right-click the pasture. The keeper leads wild animals into the enclosure, where they can walk and graze. Hens need feed and water to lay eggs each day. Cows need more of both and give a larger return in milk. A settler collects the eggs or milk for the camp. Wild pigs provide meat through hunting.
+
+At the farmhouse, settlers till, sow, water, tend and harvest each plot in order. Water comes from the local stores and grain enters those stores when the harvest finishes. One farmer working a field takes about a game week for a crop. Winter pauses field work.
 
 Construction happens in the world. Builders gather what a site lacks and carry it there in their packs, hand it to each other, or take it from storage. A blueprint becomes a worksite, then a place your people can use.
 
@@ -63,7 +65,7 @@ _A day in the prepared town, at about three and a half times the pace of play._
 
 ## Odin's altar
 
-Four food and a free bed welcome a settler at Odin's altar. Lay out the supplies, keep the suggested name and appearance or make your own, then confirm. Each newcomer starts at half the living residents' average level, rounded down, with a minimum of level one. Settlers earn experience through work and fights, up to level 100. Weapon training strengthens their calling’s attributes every ten levels. Apprentices learn faster at work until they reach the recommended level of the strongest dungeon the settlement has sealed. A guild can train them for a fighting calling.
+Four food and a free bed welcome a settler at Odin's altar. Lay out the supplies, keep the suggested name and appearance or make your own, then confirm. Each newcomer starts at half the living residents' average level, rounded down, with a minimum of level one. Settlers earn experience by defeating monsters together and sealing dungeons, up to level 100. Weapon training strengthens their calling’s attributes every ten levels. A guild can train them for a fighting calling.
 
 A settler starts with one point randomly assigned to strength or vitality. Every four extra goods on the altar add another point, up to three extra. Food, water, bones, gold and stone all count equally. You can also keep the surplus to welcome more people. Sealing a dungeon makes room for more residents.
 
@@ -73,9 +75,11 @@ A settler starts with one point randomly assigned to strength or vitality. Every
 
 A horseshoe of mountains shelters the founding shore. Its arms turn back toward the sea around the camp and a single hostile cave. Two passes lead inland toward the other dungeons. A giant's coastal dwelling is neutral.
 
-When a dungeon sends out a raid, the monsters pour from its entrance and march overland. A watchtower fires on raiders within reach.
+Once the first camp stands, an open dungeon sends raiders from its entrance every night. The daytime warning names the camp they will march toward. A watchtower fires on raiders within reach.
 
 An unarmed settler can fell any member of the first raid with one blow. Later waves grow in number and level. In open country they spread abreast, then bunch together to pass a gap. Point at a raider to see its level.
+
+When your settlement enters combat, game speeds above 2× drop to 2×. You can still pause or fight at normal speed. Once combat ends, you can turn the speed back up.
 
 A settler in the open can be attacked from five sides. A rock face or a building cuts off the sides it covers. Once a monster reaches its place, it stays facing that settler to strike. An enemy that finds the front full looks for another settler it can reach. A raider that gets past the whole line continues toward the settlement, while a dungeon defender waits for an opening. A warrior’s Challenge can hold the rear ranks back from the camp.
 
@@ -87,7 +91,9 @@ The standard map has eight hostile dungeons. The first is tuned for ten level-10
 
 ![A summoning circle appears around the collapsed Howling Cleft](public/docs/dungeon-siege.png)
 
-Move ignores the enemy, attack-move fights on the way, and a chosen target comes first. A group move arrives in formation, with blades in front and bows and staves behind; Hold stands its ground and never chases. Put residents in control groups and fire each calling's two skills by hand or leave them on auto: a warrior's challenge and whirl, a ranger's aimed shot and volley, a mage's rune burst and frost ring, a cleric's mending and sanctuary, a bard's verse and dirge.
+Move ignores the enemy, attack-move fights on the way, and a chosen target comes first. A group move arrives in formation, with blades in front and bows and staves behind. Hold stands its ground and never chases. Put settlers in control groups and fire each calling's two skills by hand or leave them on auto.
+
+Physical attacks damage one enemy at a time, including a warrior's Whirl and a ranger's Volley. A mace can stagger its target. A mage's staff and Rune Burst can damage a cluster of enemies. Challenge, Frost Ring and the cleric's and bard's support skills can still affect a group.
 
 ![A party is ordered to move, marks show where each will stand, and the party holds](.github/media/midgard-formation.gif)
 
@@ -116,7 +122,7 @@ Wildlife roams the land and can be hunted for food. Forests and mountains are ta
 
 ## A living world
 
-Morning becomes evening, torches and windows glow after sunset, rain splashes on the ground, and the calendar brings seasons, harvests and snow. Bards play their lyres for the settlement. Winter thins the wildlife and brings more raids, which are warned on the day.
+Morning becomes evening, torches and windows glow after sunset, rain splashes on the ground, and the calendar brings seasons, harvests and snow. Bards play their lyres for the settlement. Winter thins the wildlife and leaves fields fallow.
 
 ![A day turning to night and back over the settlement](.github/media/midgard-day-night.gif)
 

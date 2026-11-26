@@ -1,4 +1,4 @@
-import { herdLeader, leadLivestock, localRanches, orderRanchHarvest } from './livestock';
+import { herdLeader, orderRanchHarvest } from './livestock';
 import { drawFromPack } from './carried-resources';
 import { beginMeal } from './resident-meals';
 import { TownState } from './town-state';
@@ -126,10 +126,9 @@ export function huntFood(this: import('./town').Town, p: Person): boolean {
     // A single cargo slot must never silently turn existing wood/stone into meat.
     return this.keepCargo(p) || this.haulCargo(p);
   }
-  if (localRanches(this, p).length) {
-    // A delivery of food can feed a busy resident without cancelling their unfinished order.
-    return !p.ordered && ![Activity.Building, Activity.Roadwork, Activity.Crafting].includes(p.task) && (orderRanchHarvest(this, p) || leadLivestock(this, p));
-  }
+  // Collect a ready batch first. Hungry settlers can still hunt wild prey when a pen has no food.
+  if (!p.ordered && ![Activity.Building, Activity.Roadwork, Activity.Crafting].includes(p.task) &&
+      orderRanchHarvest(this, p)) return true;
   const prey = this.animals.filter(
     (a) =>
       a.health > 0 && a.pen < 0 && !herdLeader(this, a) &&

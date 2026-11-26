@@ -1,4 +1,3 @@
-import { ranchGrowth } from '../../engine/src/ranch-cycle';
 import { isRanchHarvest, ranchWorkSeconds } from '../../engine/src/livestock';
 // World agents, articulated action poses, combat feedback and footprints.
 import { Town } from '../../engine/src/town';
@@ -690,7 +689,7 @@ export function moveAgents(
         if (rig) rig.last = { ...beast.position };
         continue;
       }
-      let facing = rig?.facing ?? 1;
+      let facing = rig?.facing ?? (sprite.paint.matrix[0] < 0 ? -1 : 1);
       const moved = rig && rig.last.x >= 0 ? sub(beast.position, rig.last) : point(),
         walking = beast.path.length > 0 || Math.hypot(moved.x, moved.y) > 0.0001;
       let ahead = beast.path.length ? sub(beast.path[0], beast.position) : moved;
@@ -741,13 +740,12 @@ export function moveAgents(
       const rank = s.sceneView
         ? { sx: 1, sy: 1, dx: 0, dy: 0 }
         : poseRank(town, beast, sprite.paint, rig?.body);
-      const size = beast.ranchBornAt >= 0 ? .56 + .44 * ranchGrowth(beast, town.clock()) : 1;
       sprite.paint.transform([
-        facing * rank.sx * size,
+        facing * rank.sx,
         0,
         screen.x + rank.dx,
         0,
-        lying * rank.sy * size,
+        lying * rank.sy,
         screen.y + rank.dy,
         0,
         0,
@@ -758,11 +756,11 @@ export function moveAgents(
         ref: { kind: beast.animal == null ? 'monster' : 'animal', id: beast.id },
         body: rig ? [rig.body] : animalBody(sprite.paint),
         foot: { ...beast.position },
-        ellipse: { rx: (beast.giant() ? 14 : 9) * rank.sx * size, ry: (beast.giant() ? 6 : 3.5) * rank.sy * size },
+        ellipse: { rx: (beast.giant() ? 14 : 9) * rank.sx, ry: (beast.giant() ? 6 : 3.5) * rank.sy },
         stand: {
-          above: beast.animal == null ? monsterHeight(town, beast, s) + 8 : animalSpec(beast.animal).height * size,
-          below: (beast.giant() ? 6 : 3.5) * size,
-          half: (beast.giant() ? 14 : 9) * size,
+          above: beast.animal == null ? monsterHeight(town, beast, s) + 8 : animalSpec(beast.animal).height,
+          below: beast.giant() ? 6 : 3.5,
+          half: beast.giant() ? 14 : 9,
         },
       });
     }

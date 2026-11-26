@@ -161,7 +161,7 @@ function blowSounds(app: CombatSoundApp): void {
   for (const hit of app.town.hits()) {
     if (hit.serial < state.heardBlow) continue;
     state.heardBlow = hit.serial + 1n;
-    // A cleave or volley's other targets are heard in its first.
+    // A splashing staff bolt is heard once at its primary impact.
     if (hit.primary !== false && app.renderer.visible(hit.to)) fresh.push(hit);
   }
   fresh.sort((a, b) => blowWeight(app, b) - blowWeight(app, a));

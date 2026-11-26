@@ -315,14 +315,13 @@ describe('the founding chain in a real new game', () => {
     console.log(`First newcomer from the altar: day ${run.firstNewcomer.toFixed(2)}; scouting trips for materials: ${run.scouted}`);
     console.log(`Raids beaten off: ${run.town.chronicle.raidsRepelled}; residents lost: ${run.town.fallen.length}; monsters slain: ${run.town.chronicle.monstersSlain}`);
   });
-  it('makes and uses items before the altar, and grows the party before the first raid night', () => {
+  it('makes and uses items before the altar and grows the party in the founding days', () => {
     const at = (title: string) => run.done.get(goals.findIndex((g) => g.title === title))!;
     expect(at('Craft a wooden tool')).toBeLessThan(at('Build a smithy'));
     expect(at('Build a smithy')).toBeLessThan(at('Make a weapon or a shield'));
     expect(at('Make a weapon or a shield')).toBeLessThan(at('Build a tent'));
     expect(at('Upgrade the workbench')).toBeLessThan(at('Upgrade the smithy'));
     expect(at('Lay out a farm')).toBeLessThan(at('Build an altar'));
-    // Raids start on the night of day 2; the smithy and the first arms come before it.
     expect(at('Make a weapon or a shield')).toBeLessThan(2);
     expect(run.firstNewcomer).toBeGreaterThan(0);
     expect(run.firstNewcomer).toBeLessThan(3.5);

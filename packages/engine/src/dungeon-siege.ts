@@ -1,9 +1,11 @@
 import type { TownState } from './town-state';
-import { Activity, experienceForLevels, Monster, Person } from './person';
+import { Activity, Calling, experienceForLevels, Monster, Person } from './person';
+import { huntsWildlife } from './wildlife';
 import { canControl, isPlayerResident } from './faction';
 import { gateCenter, gateOrder, raidSeat } from './gate-progression';
 import { gateSealed, sealable, sealFloors, sealProgress } from './gate-seals';
-import { add, distance, normalized, point, rotated, scale, sub, type Point } from './geometry';
+import { add, contains, distance, normalized, point, rotated, scale, sub, type Point } from './geometry';
+import { pastureOutline } from './pasture-geometry';
 import { f32 } from './numeric';
 import { CombatCue, MonsterRank } from './combat-events';
 import { rankMonster, rankRules } from './monster-ranks';
@@ -22,10 +24,11 @@ export interface DungeonSiege {
   village: number;
 }
 export const siegeRules = {
-  summonSeconds: 3, reviveSeconds: 120, blastRadius: 4, knockback: 2.4,
+  summonSeconds: 3, reviveSeconds: 75, blastRadius: 4, knockback: 2.4,
   firstSlam: 3, slamRecovery: 1, slamPower: 0.9,
 };
 const finalWave = 4;
+export const dungeonLevelsPerTier = 10;
 interface AttackTown extends TownState {
   setOrder(p: Person, task: Activity, target?: number): void;
   walkTo(p: Person, to: Point): boolean;
@@ -42,7 +45,7 @@ interface RewardTown extends TownState {
 /** Distance from the founding shore orders the campaign. Days, survivors and later camps cannot move a tier. */
 export function dungeonChallenge(town: TownState, gate: number) {
   const tier = gateOrder(town).indexOf(gate) + 1;
-  return { tier, level: Math.min(Person.maximumLevel, tier * 10), partySize: tier ? 9 + tier : 0 };
+  return { tier, level: Math.min(Person.maximumLevel, tier * dungeonLevelsPerTier), partySize: tier ? 9 + tier : 0 };
 }
 export function dungeonWeaponTier(tier: number): 'stone' | 'iron' | 'regional' {
   return tier <= 2 ? 'stone' : tier <= 4 ? 'iron' : 'regional';
@@ -95,11 +98,12 @@ function pushFrom(town: TownState, unit: Person | Monster, center: Point) {
   const gap = distance(unit.position, center);
   if (gap > siegeRules.blastRadius) return false;
   const away = gap < 0.01 ? rotated(point(1, 0), unit.id * 2.39996) : normalized(sub(unit.position, center));
-  const start = unit.position;
+  const start = unit.position, pen = unit instanceof Monster && unit.pen >= 0 ? town.building(unit.pen) : null;
+  const fence = pen && pastureOutline(pen);
   // Stop at the last clear point so the shock cannot throw a unit through the ridge or into water.
   for (let step = 1; step <= 8; ++step) {
     const next = add(start, scale(away, siegeRules.knockback * step / 8));
-    if (!town.grid.walkable(next) || !town.grid.clear(start, next, Infinity)) break;
+    if ((fence && !contains(fence, next)) || !town.grid.walkable(next) || !town.grid.clear(start, next, Infinity)) break;
     unit.position = next;
   }
   unit.path = [];
@@ -151,6 +155,7 @@ export function attackDungeon(town: AttackTown, p: Person, gate: number, dt: num
     return;
   }
   p.path = [];
+  town.engage(p);
   if (town.time < p.ready) return;
   const challenge = dungeonChallenge(town, gate), maxHealth = gateHealth(challenge);
   const siege = town.sieges[gate] ??= { health: maxHealth, summonAt: -1, reviveAt: -1, guardian: -1, village: town.settlementOf(p) };
@@ -223,6 +228,18 @@ function summon(town: TownState, gate: number, siege: DungeonSiege, challenge: D
   }
   ++town.changes;
 }
+/** The collapse turns its attackers' orders into an attack-move to the breach. */
+function helpsSeal(town: TownState, p: Person, mouth: Point, summonedAt: number): boolean {
+  if (p.downedAt >= 0 || p.activity === Activity.Tending || p.task === Activity.Tending) return true;
+  if (huntsWildlife(p, town.animals)) return false;
+  if (p.activity === Activity.Fighting) return true;
+  if (p.task === Activity.Moving && p.aggressive && distance(p.goal, mouth) <= siegeRules.blastRadius) return true;
+  // Between blows, guards hold the position and bards and clerics support the party from behind it.
+  if (p.activity !== Activity.Holding && p.activity !== Activity.Idle && p.activity !== Activity.Guarding) return false;
+  // Weapon and skill cooldowns survive a save if their last target fell before the seal was resolved.
+  return p.holding || p.activity === Activity.Guarding || p.calling === Calling.Bard || p.calling === Calling.Cleric ||
+    p.ready > summonedAt || p.abilityReadyAt > summonedAt || p.abilityReadyAt2 > summonedAt;
+}
 function seal(town: RewardTown, gate: number, siege: DungeonSiege) {
   const site = town.world.dungeons()[gate], world = town.world.destination(site);
   while (town.depth.length <= gate) town.depth.push(0);
@@ -236,9 +253,11 @@ function seal(town: RewardTown, gate: number, siege: DungeonSiege) {
   town.credit(hoard, village);
   town.changeRenown(village, 15);
   const at = monsterEntrance(site);
-  const experience = experienceForLevels(dungeonChallenge(town, gate).level, 5);
-  for (const p of town.folk)
-    if (isPlayerResident(p) && !p.inside && distance(p.position, at) <= 12) town.rewardExperience(p, experience, true);
+  const { level } = dungeonChallenge(town, gate);
+  for (const p of town.folk) {
+    if (!isPlayerResident(p) || p.inside || distance(p.position, at) > 12 || !helpsSeal(town, p, at, siege.summonAt)) continue;
+    town.rewardExperience(p, experienceForLevels(Math.min(p.level, level), 5), true);
+  }
   const { sealed, total } = sealProgress(town);
   town.notify(sealed === total ? `${site.name} is sealed. Every gate is closed: Midgard is safe!`
     : `${site.name} is sealed for good (${sealed} of ${total} gates closed)`);
@@ -272,21 +291,21 @@ export function guardianSlam(town: BiteTown, beast: Monster, prey?: Person): boo
   if (beast.rank !== MonsterRank.Guardian || beast.brood !== beast.id) return false;
   if (beast.windupUntil >= 0) {
     if (town.time >= beast.windupUntil) {
-      for (const p of town.folk)
-        if (!p.inside && p.health > 0 && distance(p.position, beast.position) <= rankRules.slamRadius)
-          monsterBite(town, beast, p, breedOf(town.world.dungeons()[beast.lair].kind), rankRules.slamPower * siegeRules.slamPower, true);
+      if (prey && distance(prey.position, beast.position) <= rankRules.slamRadius)
+        monsterBite(town, beast, prey, breedOf(town.world.dungeons()[beast.lair].kind), rankRules.slamPower * siegeRules.slamPower, true);
       town.emit(CombatCue.Slam, beast.position, { creature: beast.id, radius: rankRules.slamRadius });
       beast.windupUntil = -1;
       town.combatState.slamAt.set(beast.id, town.time + siegeRules.slamRecovery + rankRules.slamPause);
     }
     return true;
   }
-  // Give the party a beat to spread out after a ground strike before the guardian can step or bite.
+  // The guardian stays rooted briefly after its ground strike.
   const due = town.combatState.slamAt.get(beast.id);
   if (due !== undefined && due - town.time > rankRules.slamPause) return true;
   if (!prey || distance(prey.position, beast.position) > rankRules.slamRadius) return false;
   if (due === undefined) town.combatState.slamAt.set(beast.id, town.time + siegeRules.firstSlam);
   else if (town.time >= due) {
+    town.engage(prey);
     beast.path = [];
     beast.windupUntil = town.time + rankRules.slamWindup;
     town.emit(CombatCue.Telegraph, beast.position, { creature: beast.id, radius: rankRules.slamRadius, duration: rankRules.slamWindup });

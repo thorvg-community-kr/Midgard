@@ -59,34 +59,25 @@ function foe(town: Town, at: Point) {
   town.beasts.push(m);
   return m;
 }
-const struck = (town: Town, ms: Monster[]) => ms.map((m) => Math.round((100 - m.health) * 100) / 100);
-
 describe('the weapon in hand shapes the blow', () => {
   it('maps weapon shapes to strikes, and tools or bare hands to one target', () => {
-    expect(strikeOf('sword').kind).toBe(StrikeKind.Cleave);
+    expect(strikeOf('sword').kind).toBe(StrikeKind.Single);
     expect(strikeOf('mace').kind).toBe(StrikeKind.Crush);
-    expect(strikeOf('bow').kind).toBe(StrikeKind.Pierce);
+    expect(strikeOf('bow').kind).toBe(StrikeKind.Single);
     expect(strikeOf('staff').kind).toBe(StrikeKind.Splash);
     expect(strikeOf('axe').kind).toBe(StrikeKind.Single);
     expect(strikeOf(null).kind).toBe(StrikeKind.Single);
   });
-  it('lets a sword cleave the enemies beside its target, at most three in all', () => {
+  it.each(['sword', 'spear', 'mace', 'bow'])('hits only the marked foe in a crowd with a %s', (weapon) => {
     const town = fixture(),
-      p = fighter(town, point(20, 20), Calling.Warrior, 'sword'),
+      p = fighter(town, point(20, 20), Calling.Warrior, weapon),
+      beside = foe(town, point(20.7, 20.3)),
       target = foe(town, point(20.8, 20)),
-      beside = [foe(town, point(20.8, 20.7)), foe(town, point(20.8, 19.3)), foe(town, point(21.2, 20.9))],
-      far = foe(town, point(23, 20)),
-      blow = town.blowStrength(p);
+      behind = foe(town, point(21, 20));
     town.strike(p, target);
-    expect(100 - target.health).toBeCloseTo(blow, 4);
-    const caught = beside.filter((m) => m.health < 100);
-    expect(caught).toHaveLength(2);
-    for (const m of caught) expect(100 - m.health).toBeCloseTo(blow * strikeOf('sword').share, 4);
-    expect(far.health).toBe(100);
-    const hits = town.hits().filter((hit) => hit.attacker === p.id);
-    expect(hits).toHaveLength(3);
-    expect(hits.filter((hit) => hit.primary)).toHaveLength(1);
-    expect(hits.every((hit) => hit.strike === StrikeKind.Cleave)).toBe(true);
+    expect(100 - target.health).toBeCloseTo(town.blowStrength(p), 4);
+    expect([beside.health, behind.health]).toEqual([100, 100]);
+    expect(town.hits().filter(hit => hit.attacker === p.id)).toHaveLength(1);
     expect(p.swingAt).toBe(town.clock());
   });
   it('lets a mace stagger its target, delaying its next bite', () => {
@@ -99,22 +90,6 @@ describe('the weapon in hand shapes the blow', () => {
     expect(target.ready).toBeCloseTo(town.clock() + strikeOf('mace').stagger, 5);
     expect(other.health).toBe(100);
     expect(town.hits().at(-1)).toMatchObject({ strike: StrikeKind.Crush, primary: true });
-  });
-  it('lets an arrow fly on through to one enemy behind the target, not one beside the archer', () => {
-    const town = fixture(),
-      p = fighter(town, point(20, 20), Calling.Ranger, 'bow'),
-      target = foe(town, point(22, 20)),
-      behind = foe(town, point(23.5, 20.2)),
-      further = foe(town, point(24, 19.8)),
-      aside = foe(town, point(20, 21.2));
-    town.strike(p, target);
-    expect(struck(town, [behind, further, aside]).filter((d) => d > 0)).toHaveLength(1);
-    expect(behind.health).toBeLessThan(100);
-    expect(aside.health).toBe(100);
-    expect(town.hits().filter((hit) => hit.attacker === p.id && !hit.primary)[0]).toMatchObject({
-      strike: StrikeKind.Pierce,
-      from: target.position,
-    });
   });
   it('lets a staff bolt splash those around its target', () => {
     const town = fixture(),

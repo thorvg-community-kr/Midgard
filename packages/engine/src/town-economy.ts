@@ -19,9 +19,10 @@ import { Ledger, type CampEconomy } from './camp-economy';
 import { Terrain, type Tile } from './world-types';
 import { add, sub, scale, point, rotated, distance, type Point } from './geometry';
 import { f32 as f, lround, hash01 } from './numeric';
+import { livestockBatches } from './ranch-cycle';
 import { pressureNotice } from './raid-progression';
-import { clearMuster, gateActive, updateGateOpenings } from './gate-progression';
-import { Boon, boon, boonRules } from './gate-boons';
+import { gateActive, updateGateOpenings } from './gate-progression';
+import { expectedCrops } from './farm-work';
 import { economyRules, swornCalling } from './economy-rules';
 import { coverDeposits } from './mining';
 export interface Reason {
@@ -127,17 +128,8 @@ export function dailyOutput(this: EconomyTown, item: Building): Resources {
     case Product.Water:
       out.water = amount * (this.nearbyTiles(item.center, 4, (t) => t.terrain === Terrain.Water) ? 2 : 1);
       break;
-    case Product.Food: {
-      const season = this.calendar().season;
-      if (season === Season.Summer || season === Season.Autumn) {
-        const village = this.settlementOf(item),
-          acres = this.fieldAcres(village),
-          share = acres ? Math.trunc((this.tendedFieldAcres(village) * Math.min(amount, acres)) / acres) : 0;
-        out.food = Math.trunc(share / 2);
-      } else out.food = lround(f(f(item.workers * item.attendance) * 2));
-      if (boon(this, Boon.Plenty)) out.food = lround(out.food * boonRules.plentyFood);
-      break;
-    }
+    // Farm food enters storage when the last harvest stroke is made on its plot.
+    case Product.Food:
     case Product.None:
       break;
   }
@@ -162,7 +154,6 @@ export function advance(this: EconomyTown, seconds: number): boolean {
 export function newDay(this: EconomyTown): void {
   const before = this.calendar();
   ++this.days;
-  clearMuster(this);
   const date = this.calendar(),
     shift = f(TownState.secondsPerDay * f(0.4));
   for (const item of this.placed) {
@@ -171,30 +162,18 @@ export function newDay(this: EconomyTown): void {
   }
   for (const item of this.placed)
     if (this.settlementOf(item) >= 0) this.store(this.dailyOutput(item), this.settlementOf(item));
+  for (const { camp, stock } of this.villages) {
+    for (const batch of livestockBatches(this, camp, stock.food, stock.water)) {
+      stock.food -= batch.feed;
+      stock.water -= batch.water;
+      batch.pen.storedProduce += batch.produce;
+    }
+  }
   // Water is consumed at a water facility by individual thirsty residents.
   // Daily stock deductions would charge the same drink twice and ignore hydration.
   for (const village of [this.provisions, ...this.villages]) village.parched = false;
   this.settleAccounts();
   for (const person of this.folk) ++person.days;
-  for (const village of this.villages) {
-    if (before.season === Season.Summer || before.season === Season.Autumn) {
-      village.growingTended = f(village.growingTended + f(this.tendedFieldAcres(village.camp)));
-      ++village.growingDays;
-    }
-    if (before.month !== harvestMonth || date.month === harvestMonth) continue;
-    const harvest = expectedHarvest(this, village);
-    village.growingTended = 0;
-    village.growingDays = 0;
-    const beforeHarvest = village.stock.food;
-    this.store(new Resources(0, 0, 0, harvest), village.camp);
-    const stored = village.stock.food - beforeHarvest;
-    if (!harvest) this.notify('Autumn ends with no harvest');
-    else {
-      let message = `Harvest: +${stored} food`;
-      if (stored < harvest) message += ` (${harvest} produced, ${harvest - stored} not stored)`;
-      this.notify(message);
-    }
-  }
   if (before.season !== date.season)
     this.notify(
       seasonName(date.season) + (date.season === Season.Spring ? ` of year ${date.year}` : '') + ' begins',
@@ -202,7 +181,7 @@ export function newDay(this: EconomyTown): void {
   if (before.season !== date.season && date.season === Season.Autumn)
     this.notify('Winter is one season away: fields will lie fallow and game will thin. Store food.');
   if (before.season !== date.season && date.season === Season.Winter)
-    this.notify('Winter: game is scarce and hungry monsters raid more often');
+    this.notify('Game is scarce in winter.');
   if (before.season === Season.Autumn && date.season === Season.Autumn)
     for (const village of this.villages) {
       if (village.faction !== this.controlFaction || !this.population(village.camp)) continue;
@@ -286,15 +265,11 @@ export function wageOf(person: Person): number {
 }
 const daysPerYear = TownState.daysPerMonth * monthsPerYear,
   winterStartDay = TownState.daysPerMonth * harvestMonth;
-function expectedHarvest(town: EconomyTown, village: CampEconomy): number {
-  const yieldFood = village.growingDays ? f(f(village.growingTended / village.growingDays) * 10) : 0;
-  return lround(boon(town, Boon.Plenty) ? f(yieldFood * f(boonRules.plentyFood)) : yieldFood);
-}
 export interface WinterOutlook {
   /** 0 while winter lasts. */
   daysToWinter: number;
   foodStored: number;
-  /** The autumn harvest still to come in (it lands on the first day of winter), within storage room. */
+  /** Food from the current crop cycles that can still reach storage before winter. */
   harvestExpected: number;
   /** What the settlement eats through the (rest of the) winter at its current size. */
   foodNeeded: number;
@@ -307,7 +282,7 @@ export function winterOutlook(this: EconomyTown, village = this.camp()?.id ?? -1
     ledger = this.settlement(village),
     stored = ledger.stock.food,
     room = Math.max(0, this.capacity(village).food - stored),
-    due = winter || this.calendar().season === Season.Spring ? 0 : Math.min(room, expectedHarvest(this, ledger)),
+    due = winter ? 0 : Math.min(room, expectedCrops(this, village, winterStartDay - day - this.dayFraction(), ledger.stock.water).food),
     mouths = this.population(village) + this.guests(village),
     needed = Math.ceil((mouths * (winter ? daysPerYear - day : daysPerYear - winterStartDay)) / economyRules.daysPerMeal);
   return {
@@ -342,8 +317,24 @@ export function forecast(this: EconomyTown, village = this.camp()?.id ?? -1): Fo
   for (const item of this.placed)
     if (item.faction === faction && this.settlementOf(item) === village) day.made.add(this.dailyOutput(item));
   const mouths = this.population(village) + this.guests(village);
-  day.used.food = yesterday.eaten || Math.ceil(mouths / 7.5);
-  day.used.water = yesterday.drunk || Math.ceil(mouths / 3.75);
+  day.used.food = yesterday.eaten || Math.ceil(mouths / economyRules.daysPerMeal);
+  day.used.water = yesterday.drunk || Math.ceil(mouths / economyRules.daysPerDrink);
+  const growingDays = Math.min(1, winterStartDay - this.days % daysPerYear - this.dayFraction());
+  const stock = this.stock(village);
+  const crops = expectedCrops(this, village, growingDays, stock.water);
+  day.used.water += crops.water;
+  day.made.food += Math.min(crops.food, Math.max(0, this.capacity(village).food - stock.food));
+  const availableFood = Math.max(0, stock.food + day.made.food - day.used.food);
+  const availableWater = Math.max(0, stock.water + day.made.water - day.used.water);
+  let room = Math.max(0, this.capacity(village).food - availableFood);
+  for (const batch of livestockBatches(this, village, availableFood, availableWater)) {
+    day.used.food += batch.feed;
+    day.used.water += batch.water;
+    room += batch.feed;
+    const stored = Math.min(room, batch.produce);
+    day.made.food += stored;
+    room -= stored;
+  }
   return day;
 }
 export function settleAccounts(this: EconomyTown): void {

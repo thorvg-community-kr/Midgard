@@ -9,11 +9,10 @@ import type { CampEconomy } from './camp-economy';
 import { point, add, sub, scale, distance, type Point } from './geometry';
 import { f32 as f, lround } from './numeric';
 import { breedOf, monsterBite } from './town-monsters';
-import { raidDue, raidKind, raidWarning, RaidKind } from './raid-progression';
+import { raidRoom, raidKind, raidWarning, RaidKind } from './raid-progression';
 import { CombatCue, MonsterRank, combatRules } from './combat-events';
-import { clearMuster, firstRaidDue, gateActive, musterRaid, musteredGates, raidSeat, updateGateOpenings } from './gate-progression';
+import { clearMuster, gateActive, musteredGates, musterRaid, raidSeat, updateGateOpenings } from './gate-progression';
 import { belongsToFaction } from './faction';
-import { Season, type Calendar } from './town-models';
 import { losePrey, planRaiderApproach, pursueResident, separateMonsters } from './monster-navigation';
 import { MeleeFront } from './monster-engagement';
 import { choosePrey, raidRewardHealth, rankPace, slowedBy, tauntedBy } from './monster-ranks';
@@ -41,7 +40,12 @@ export interface EncounterTown extends TownState {
   strikeDown(p: Person, cause: string, notice?: string): void;
   settlementOf(p: Person | Building): number;
   inRealm(p: Point): boolean;
-  calendar(): Calendar;
+}
+function launchNightRaid(town: EncounterTown, day: number, kind: RaidKind, gates: number[]): void {
+  if (gates.length && raidRoom(town) === 0) return;
+  if (gates.length) town.summonRaid(kind, gates);
+  town.raidedDay = day;
+  clearMuster(town);
 }
 export function stir(this: EncounterTown, dt: number): void {
   this.blows = this.blows.filter((h) => !(this.time - h.at > 2));
@@ -51,27 +55,27 @@ export function stir(this: EncounterTown, dt: number): void {
   });
   this.wakeGiants();
   this.stirWildlife(dt);
-  const hour = this.dayFraction(), night = hour > f(0.5) && this.climate().night > f(0.6);
+  const hour = this.dayFraction(), dark = this.climate().night > f(0.6), night = hour > f(0.5) && dark;
+  // A wave held at capacity still belongs to the evening that reserved it, even after midnight.
+  const previousDay = this.days - 1;
+  if (this.raidedDay < previousDay) {
+    const pending = dark && hour < f(0.5) ? musteredGates(this).filter(gate => gateActive(this, gate)) : [];
+    launchNightRaid(this, previousDay, raidKind(this.world.seed(), previousDay), pending);
+  }
   // Take the dusk muster before admitting a gate that awakens after dark.
   if (!night) updateGateOpenings(this);
   const fire = this.camp();
   if (this.raidedDay !== this.days && (night || (fire && hour > f(0.3) && this.raidWarnedDay !== this.days))) {
     const kind = raidKind(this.world.seed(), this.days);
-    const due = raidDue(this.world.seed(), this.days, this.calendar().season === Season.Winter) || firstRaidDue(this);
+    const gates = musterRaid(this, kind).filter(gate => gateActive(this, gate));
     if (night) {
-      this.raidedDay = this.days;
-      const gates = due ? musterRaid(this, kind) : musteredGates(this);
-      if (gates.length) this.summonRaid(kind, gates);
-      clearMuster(this);
-    } else if (due) {
-      const gates = musterRaid(this, kind).filter(gate => gateActive(this, gate));
-      if (gates.length) {
-        this.raidWarnedDay = this.days;
-        const shape = kind === RaidKind.Pincer && gates.length === 1 ? RaidKind.Pack : kind;
-        for (const gate of gates) {
-          const seat = raidSeat(this, gate);
-          if (seat) this.notify(raidWarning(shape, this.world.dungeons()[gate].name, seat.id));
-        }
+      launchNightRaid(this, this.days, kind, gates);
+    } else if (gates.length) {
+      this.raidWarnedDay = this.days;
+      const shape = kind === RaidKind.Pincer && gates.length === 1 ? RaidKind.Pack : kind;
+      for (const gate of gates) {
+        const seat = raidSeat(this, gate);
+        if (seat) this.notify(raidWarning(shape, this.world.dungeons()[gate].name, seat.id));
       }
     }
   }
@@ -103,6 +107,7 @@ export function stir(this: EncounterTown, dt: number): void {
     while (claim) {
       const goal = front.goal(claim);
       if (front.inPlace(beast, claim, goal)) {
+        this.engage(claim.person);
         beast.prey = -1;
         if (beast.path.length) beast.path = [];
         if (this.time >= beast.ready) monsterBite(this, beast, claim.person, breed);

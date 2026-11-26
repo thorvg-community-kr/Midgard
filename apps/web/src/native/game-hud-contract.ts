@@ -8,7 +8,7 @@ export interface GameHudApp extends GameAppState {
   reducedMotion(): boolean;
   animatingUi(): boolean;
   gameSpeed(): number;
-  speedHeld(): boolean;
+  speedLimit(): number;
   setSpeed(value: number): void;
   togglePause(): void;
   selectBuilding(id: number): void;

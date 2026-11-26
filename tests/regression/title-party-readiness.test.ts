@@ -5,10 +5,11 @@ import { point } from '../../packages/engine/src/geometry';
 import { partyLevel, partyVerdict, Verdict } from '../../apps/web/src/native/swarm-hud';
 import { commandSiege, defend, readyParty, sendParty, partyState } from '../../apps/web/src/native/title-party';
 import { available } from '../../apps/web/src/native/title-roster';
+import { staffJobs } from '../../apps/web/src/native/title-workforce';
 import { OrderLedger } from '../../apps/web/src/native/title-orders';
 import { Traffic } from '../../apps/web/src/native/title-traffic';
 import { Town } from '../../packages/engine/src/town';
-import { Building } from '../../packages/engine/src/town-models';
+import { Building, Field } from '../../packages/engine/src/town-models';
 import { Structure } from '../../packages/engine/src/building-catalog';
 import { dungeonChallenge, dungeonStatus, targetedDungeon } from '../../packages/engine/src/dungeon-siege';
 import { monsterEntrance } from '../../packages/engine/src/town-monsters';
@@ -37,6 +38,34 @@ function context(town: Town) {
   return { town, free: [...town.folk], party: new Set<number>(), step: 0, seed: 5, ledger: new OrderLedger(),
     later: new Map<string, number>(), staffed: new Map<number, number>(), efficiency: new WorkEfficiency(town), traffic: new Traffic() };
 }
+it('supplies the first field with water and shares both jobs after a loss', () => {
+  const { town, camp } = expeditionTown();
+  const farm = new Building(1, Structure.Farm, camp.door(), 0, 0);
+  const well = new Building(2, Structure.Well, camp.door(), 0, 0);
+  farm.village = well.village = camp.id;
+  town.placed.push(farm, well);
+  town.farmland.push(new Field(0, [point(10, 10), point(15, 10), point(15, 14), point(10, 14)], camp.id));
+  town.stock().water = 0;
+  town.folk = [fighter(0, 1, 'wooden-sword'), fighter(1, 1, 'wooden-sword')];
+  for (const p of town.folk) p.home = p.village = camp.id;
+  const ctx = context(town);
+  staffJobs(ctx);
+  expect([farm.workers, well.workers]).toEqual([1, 1]);
+  town.setWorkers(farm.id, 2);
+  expect([farm.workers, well.wanted]).toEqual([2, 0]);
+  staffJobs(ctx);
+  expect([farm.workers, well.workers]).toEqual([1, 1]);
+
+  town.folk.pop();
+  staffJobs(ctx);
+  expect([farm.workers, well.workers]).toEqual([0, 1]);
+  town.stock().water = 6;
+  staffJobs(ctx);
+  expect([farm.workers, well.workers]).toEqual([1, 0]);
+  town.folk = [];
+  staffJobs(ctx);
+  expect([farm.wanted, well.wanted]).toEqual([0, 0]);
+});
 describe('the title party', () => {
   it('weighs endurance and actual weapon damage independently before sending a party', () => {
     const wooden = [9, 9, 8, 8].map((level, id) => fighter(id, level, 'wooden-sword'));
@@ -102,6 +131,25 @@ describe('the title party', () => {
     expect(state.members).toHaveLength(10);
     expect(state.members).not.toContain(10);
     expect(state.members).not.toContain(11);
+  });
+  it('keeps settlers at work until a raider closes on the camp door', () => {
+    const { town, camp } = expeditionTown(), door = camp.door();
+    const settler = fighter(0, 10, 'flint-sword');
+    settler.position = town.grid.nearestWalkable(point(door.x + 8, door.y));
+    settler.task = Activity.Working;
+    town.folk.push(settler);
+    const raider = new Monster(town.nextMonster++, 0, point(door.x + 12, door.y));
+    raider.raider = true;
+    town.beasts.push(raider);
+    const ctx = context(town), state = partyState();
+    expect(defend(ctx, state)).toBe(false);
+    expect(ctx.free).toContain(settler);
+    expect(settler).toMatchObject({ ordered: false, task: Activity.Working });
+
+    raider.position = point(door.x + 4, door.y);
+    expect(defend(ctx, state)).toBe(true);
+    expect(ctx.free).not.toContain(settler);
+    expect(settler).toMatchObject({ ordered: true, task: Activity.Moving, aggressive: true });
   });
   it('sends its only helper to the casualty who will bleed out first', () => {
     const { town, camp } = expeditionTown();

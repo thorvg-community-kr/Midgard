@@ -78,6 +78,18 @@ describe('language choice', () => {
 
 describe('Korean tables', () => {
   const known = (text: string) => expect(hasHangul(korean.translate(text)), text).toBe(true);
+  it('translates crop stages, progress and a field waiting for irrigation', () => {
+    for (const stage of ['Tilling', 'Sowing seeds', 'Watering', 'Tending crops', 'Harvesting'])
+      expect(korean.translate(`${stage} · 41% · 12 acres`), stage).not.toMatch(/[a-z]/i);
+    for (const line of ['Watering · Needs 4 water · 12 acres', 'Fallow until spring · 12 acres'])
+      expect(korean.translate(line), line).not.toMatch(/[a-z]/i);
+  });
+  it('translates livestock counts, rations and collection notices in full', () => {
+    for (const line of ['Daily ration · 2 food, 2 water', 'Cows 1 / 2', 'Hens 3 / 5',
+      'Milk in pails 5 / 20', 'Eggs in nest 2 / 12', 'Milk collected +5 food',
+      'Askr brought a chicken to the chicken coop', 'Askr brought a cow to the cowshed'])
+      expect(korean.translate(line), line).not.toMatch(/[a-z]/i);
+  });
   it('translates the gear actions, required materials and the item currently in use', () => {
     for (const words of ['Works from the backpack', 'Storage', 'Worn gear', 'Currently using Bare hands', 'Upgrades from Wooden axe',
       'Missing 2 wood, 1 stone', 'Gathers 2 stone', 'Craft Wooden sword', 'Refine Iron ingot', 'Upgrade Stone axe', 'View upgrade',

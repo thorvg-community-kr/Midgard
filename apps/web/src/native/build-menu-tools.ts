@@ -61,7 +61,8 @@ export const toolInfo: readonly ToolInfo[] = [
   { label: 'Runestone', key: '', hint: '' },
   { label: 'Workbench', key: '', hint: 'Residents make tools here, one at a time.' },
   { label: 'Foundry', key: '', hint: '' },
-  { label: 'Ranch', key: '', hint: '' },
+  { label: 'Chicken coop', key: '', hint: 'Draw a pasture for hens. A larger pasture holds more hens.' },
+  { label: 'Cowshed', key: '', hint: 'Draw a pasture for cows. A larger pasture holds more cows.' },
 ];
 export interface BuildGroup {
   name: string;
@@ -74,7 +75,7 @@ export const buildMenuGroups: readonly BuildGroup[] = [
   {
     name: 'Food & materials',
     glyph: 'materials',
-    tools: [Tool.Farm, Tool.Ranch, Tool.Lumberyard, Tool.Quarry, Tool.Sawmill, Tool.Stoneworks, Tool.Foundry],
+    tools: [Tool.Farm, Tool.ChickenCoop, Tool.Cowshed, Tool.Lumberyard, Tool.Quarry, Tool.Sawmill, Tool.Stoneworks, Tool.Foundry],
   },
   {
     name: 'Water & storage',

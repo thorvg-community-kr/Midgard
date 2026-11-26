@@ -44,13 +44,10 @@ export enum RaidKind {
   Brutes,
   Pincer,
 }
-export const raidGraceDays = 2;
-const rawDue = (seed: number, day: number, winter: boolean): boolean =>
-  day >= raidGraceDays && hash01(seed, day, 7, 301) < (winter ? 0.7 : 0.45);
-/** Raids skip nights, but never leave more than two quiet nights in a row. */
-export function raidDue(seed: number, day: number, winter = false): boolean {
-  if (day < raidGraceDays) return false;
-  return rawDue(seed, day, winter) || (!rawDue(seed, day - 1, winter) && !rawDue(seed, day - 2, winter));
+/** Raiders still on the field share the population limit with the next night's reinforcements. */
+export function raidRoom(town: TownState): number {
+  const alive = town.beasts.reduce((count, m) => count + Number(m.raider && m.health > 0), 0);
+  return Math.max(0, TownState.maxRaiders - alive);
 }
 export function raidKind(seed: number, day: number): RaidKind {
   // The first raids are plain packs so the shapes are learned one at a time.

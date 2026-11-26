@@ -16,9 +16,7 @@ const workStats: Record<WorkKind, string> = {
   reaping: 'Reaping efficiency',
 };
 const strikeTags: Partial<Record<StrikeKind, string>> = {
-  [StrikeKind.Cleave]: 'Cleaves',
   [StrikeKind.Crush]: 'Staggers',
-  [StrikeKind.Pierce]: 'Pierces',
   [StrikeKind.Splash]: 'Splashes',
 };
 export const attributeLine = (stats: Attributes): string =>

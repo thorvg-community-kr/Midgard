@@ -33,6 +33,15 @@ export function creature(this: TownState, id: number): Monster | null {
 export function creatureTarget(this: TownState, id: number): Monster | null {
   return creature.call(this, id);
 }
+// Region borders are procedural. A released animal's home stays fixed while it ranges around it.
+const homeRegions = new WeakMap<Monster, { world: WildlifeTown['world']; home: Point; region: Region }>();
+function homeRegion(town: WildlifeTown, animal: Monster): Region {
+  const known = homeRegions.get(animal);
+  if (known?.home === animal.home && known.world === town.world) return known.region;
+  const region = town.world.regionAt(animal.home);
+  homeRegions.set(animal, { world: town.world, home: animal.home, region });
+  return region;
+}
 /** Herd and yard animals sleep at night; wolves and cats prowl then and sleep by day. A blow wakes any of them. */
 export function animalAsleep(this: TownState, animal: Monster): boolean {
   if (animal.animal === null || animal.health <= 0 || animal.angry || (animal.pen < 0 && herdLeader(this, animal)) || (animal.pen >= 0 && animal.path.length)) return false;
@@ -62,6 +71,7 @@ export function populateWildlife(this: WildlifeTown): void {
     this.grid.walkable(p) &&
     this.world.cell(p)!.dungeon < 0 &&
     distance(p, clearing) >= 4;
+  let wildCount = this.animals.filter(animal => animal.pen < 0 && animal.health > 0).length;
   for (let kind = 0; kind < animalKindCount; ++kind) {
     let count = this.animals.filter((m) => m.animal === kind && m.pen < 0 && m.health > 0).length;
     let nearby = this.animals.filter(
@@ -70,7 +80,7 @@ export function populateWildlife(this: WildlifeTown): void {
     const nearbyTarget = kind === AnimalKind.Wolf ? 0 : 1;
     let attempts = 0,
       born = 0;
-    while (count < perKind && this.animals.length < 128 && born < births && attempts++ < 2000) {
+    while (count < perKind && wildCount < 128 && born < births && attempts++ < 2000) {
       const salt = kind * 2000 + attempts,
         a = hash01(this.world.seed(), this.days, salt, 190),
         b = hash01(this.world.seed(), this.days, salt, 191);
@@ -90,6 +100,7 @@ export function populateWildlife(this: WildlifeTown): void {
       animal.health = animal.vigor = animalSpec(kind).health;
       animal.ready = this.time + f(hash01(this.world.seed(), animal.id, this.days, 192) * 5);
       this.animals.push(animal);
+      ++wildCount;
       ++count;
       ++born;
       if (fromClearing <= 11) ++nearby;
@@ -99,8 +110,6 @@ export function populateWildlife(this: WildlifeTown): void {
 export function stirWildlife(this: WildlifeTown, dt: number): void {
   this.animalCalls = this.animalCalls.filter((call) => this.time - call.at <= 2);
   this.populateWildlife();
-  const habitat = (at: Point): boolean =>
-    this.world.inside(at) && this.world.regionAt(at) === Region.Middle && this.grid.walkable(at);
   for (const animal of this.animals) {
     const spec = animalSpec(animal.animal!);
     if (animal.health <= 0) {
@@ -113,7 +122,7 @@ export function stirWildlife(this: WildlifeTown, dt: number): void {
         before = this.stock(village).food;
       const remains = new Resources();
       remains.hides = Math.ceil(dressed);
-      remains.bones = Math.ceil(Math.max(1, Math.ceil(spec.food / 3)) * dressed);
+      remains.bones = Math.ceil(spec.bones * dressed);
       this.store(remains, village);
       if (hunter?.hunting && hunter.foe === animal.id) {
         hunter.hunting = false; hunter.foe = -1; hunter.path = [];
@@ -133,13 +142,17 @@ export function stirWildlife(this: WildlifeTown, dt: number): void {
       continue;
     }
     if (tendLivestock(this, animal, dt)) continue;
+    // A herd released from a removed pasture may now live beyond the founding region.
+    const region = homeRegion(this, animal);
+    const habitat = (at: Point): boolean =>
+      this.world.inside(at) && this.world.regionAt(at) === region && this.grid.walkable(at);
     let attacker = animal.angry ? this.person(animal.provokedBy) : null;
     if (
       attacker &&
       (attacker.health <= 0 ||
         attacker.inside ||
         distance(attacker.position, animal.home) > 8 ||
-        this.world.regionAt(attacker.position) !== Region.Middle)
+        this.world.regionAt(attacker.position) !== region)
     )
       attacker = null;
     if (!attacker) {
@@ -150,6 +163,7 @@ export function stirWildlife(this: WildlifeTown, dt: number): void {
       const gap = distance(animal.position, attacker.position);
       animal.path = [];
       if (gap <= f(0.8) && this.time >= animal.ready) {
+        this.engage(attacker);
         const bite = f(
           (animal.animal === AnimalKind.Wolf ? f(0.045) : f(0.028)) * (1 - armorProtection(attacker)) / attacker.vitalityMultiplier(),
         );

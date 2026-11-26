@@ -1,4 +1,4 @@
-import { leadLivestock, orderRanchHarvest } from './livestock';
+import { availableRanchHand, leadLivestock, orderRanchHarvest } from './livestock';
 import { canControl } from './faction';
 import type { Town } from './town';
 import { Person, Role, Activity } from './person';
@@ -113,6 +113,16 @@ export function scheduleAutomatic(this: Town, p: Person): boolean {
     if (p.activity === Activity.Idle) this.resumeOrder(p);
     return true;
   }
+  const workplace = p.job < 0 ? null : this.building(p.job);
+  if (workplace && availableRanchHand(this, p, workplace)) {
+    if ((workplace.storedProduce > 0 && orderRanchHarvest(this, p, workplace)) || leadLivestock(this, p)) return true;
+    if (!directWork) {
+      p.ordered = true;
+      p.task = Activity.Working;
+      p.taskSite = workplace.id;
+      return this.resumeOrder(p);
+    }
+  }
   if (directWork) {
     const job = this.building(p.taskSite);
     // Keep gathering inputs, output delivery and temporary care in the same
@@ -154,12 +164,11 @@ export function scheduleAutomatic(this: Town, p: Person): boolean {
   if (p.hydration < f(.25) && this.drink(p)) return true;
 
   // The selected resource is a finite transaction: gather, deliver, then reevaluate.
-  if (p.job < 0 && p.task === Activity.Idle && (orderRanchHarvest(this, p) || leadLivestock(this, p))) return true;
   if ((p.task === Activity.Felling || p.task === Activity.Mining) && p.rest >= f(.2)) {
     if (p.activity === p.task) return true;
     if (this.resumeOrder(p) && Number(p.task) !== Activity.Idle) return true;
   }
-  const job = this.building(p.job);
+  const job = workplace;
   if (job?.built() && (p.rest >= f(.2) || (job.kind !== Structure.Lumberyard && job.kind !== Structure.Quarry))) {
     if (p.task !== Activity.Working || p.taskSite !== job.id) {
       p.task = Activity.Working; p.taskSite = job.id; p.activity = Activity.Idle;

@@ -7,9 +7,10 @@ export class Building {
   faction = 0;
   devotionDueDay = -1;
   trainingCount = 0;
-  eggs = 0;
-  pigBreeding = 0;
-  cowBreeding = 0;
+  /** Food waiting in the nest or dairy pails until a settler collects it. */
+  storedProduce = 0;
+  /** Grazing ground beside a livestock shelter. Earlier point-placed pens use their original enclosure. */
+  pasture: Outline = [];
   materials = new ConstructionMaterials();
   repairPending = false; repairCredit = 0; productionProgress = 0; workers = 0; wanted = -1; growth = 0; version = 0; replaced: Stage[] = []; progress = 1; workedSeconds = 0; attendance = 1; earned = 0; registered = 0; faith = Faith.Dawn; owner = -1; health = 1; village = -1;
   constructor(public id: number, public kind: Structure, public center: Point, public angle: number, public variant: number) {}
@@ -30,8 +31,10 @@ export function walkingObstacles(buildings: readonly Building[]): Footprint[] {
 }
 export class Field {
   faction = 0;
-  /** Share of the plot turned by hand; a staked plot yields nothing until it is tilled. */
-  tilled = 1;
+  /** Whole stages completed and the share of the current stage worked. Older fields start ready for sowing. */
+  cropProgress = 1;
+  get tilled(): number { return Math.min(1, this.cropProgress); }
+  set tilled(value: number) { this.cropProgress = value; }
   constructor(public id: number, public outline: Outline, public village = -1) {}
   acres(): number { return lround(area(this.outline)); }
   tilledAcres(): number { return lround(f(area(this.outline) * this.tilled)); }

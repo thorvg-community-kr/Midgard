@@ -73,8 +73,9 @@ describe('new buildings', () => {
     // The workbench came after these, appended so saved building kinds keep their numbers.
     expect(Structure.Workbench).toBe(38);
     expect(Structure.Foundry).toBe(39);
-    expect(Structure.Ranch).toBe(40);
-    expect(Structure.Count).toBe(41);
+    expect(Structure.ChickenCoop).toBe(40);
+    expect(Structure.Cowshed).toBe(41);
+    expect(Structure.Count).toBe(42);
     expect(added.map((kind) => structureSpec(kind).name)).toEqual(['Watchtower', 'Training yard', 'Runestone']);
     expect(added.map((kind) => structureSpec(kind).jobs)).toEqual([0, 0, 0]);
     expect(structureSpec(Structure.Runestone).cost.stone).toBeGreaterThan(structureSpec(Structure.Runestone).cost.wood);
@@ -88,15 +89,18 @@ describe('new buildings', () => {
     expect(toolStructure(Tool.Workbench)).toBe(Structure.Workbench);
     expect(Tool.Workbench + 1).toBe(Tool.Foundry);
     expect(toolStructure(Tool.Foundry)).toBe(Structure.Foundry);
-    expect(Tool.Foundry + 1).toBe(Tool.Ranch);
-    expect(toolStructure(Tool.Ranch)).toBe(Structure.Ranch);
-    expect(Tool.Ranch + 1).toBe(Tool.Count);
+    expect(Tool.Foundry + 1).toBe(Tool.ChickenCoop);
+    expect(toolStructure(Tool.ChickenCoop)).toBe(Structure.ChickenCoop);
+    expect(Tool.ChickenCoop + 1).toBe(Tool.Cowshed);
+    expect(toolStructure(Tool.Cowshed)).toBe(Structure.Cowshed);
+    expect(Tool.Cowshed + 1).toBe(Tool.Count);
     for (const [key, id] of [
       ['Watchtower', 'watchtower'],
       ['TrainingYard', 'training-yard'],
       ['Runestone', 'runestone'],
       ['Foundry', 'foundry'],
-      ['Ranch', 'ranch'],
+      ['ChickenCoop', 'ranch'],
+      ['Cowshed', 'cowshed'],
     ] as const) {
       const asset = decodeBuildingAsset(JSON.stringify(BUILDING_ASSETS[key]));
       expect(asset.id).toBe(id);
@@ -109,13 +113,13 @@ describe('new buildings', () => {
         );
     }
   });
-  it('rejects retired wall tools and building commands', () => {
+  it('rejects removed and unknown tools and building commands', () => {
     const { town, camp } = settlement();
-    for (const tool of [35, 36]) {
+    for (const tool of [Tool.Count, Tool.Count + 1]) {
       expect(toolAvailable(town, tool)).toBe(false);
       expect(toolStructure(tool)).toBeUndefined();
     }
-    for (const kind of [41, 42]) {
+    for (const kind of [Structure.Count, Structure.Count + 1]) {
       expect(town.place(kind, camp.center, 0)).toBe(false);
     }
     expect(town.placed).toEqual([camp]);
@@ -306,6 +310,14 @@ describe('unlocks by deeds', () => {
     expect(structureSpec(Structure.Apothecary).cost.mana).toBe(0);
     expect(buildingUnlock(town, Structure.MageTower).reason).toBe('Complete Apothecary');
   });
+  it.each([Structure.Farm, Structure.ChickenCoop, Structure.Cowshed])(
+    'opens the well for a completed food producer before its usual quest', kind => {
+      const { town } = settlement();
+      expect(buildingUnlock(town, Structure.Well).available).toBe(false);
+      facility(town, kind);
+      expect(buildingUnlock(town, Structure.Well).available).toBe(true);
+    },
+  );
   it('brings each founding building into the menu with its quest, one at a time', () => {
     const { town } = settlement();
     // A founded camp asks for a road first: nothing of the chain is offered until it is laid.
@@ -344,7 +356,7 @@ describe('unlocks by deeds', () => {
     facility(town, Structure.Workbench);
     residents(town, 1);
     addInventory(town.people()[0], 'wooden-axe');
-    expect(open()).toEqual(['Build a workbench', 'Build a smithy', 'Build a tent']);
+    expect(open()).toEqual(['Build a workbench', 'Build a smithy', 'Build a tent', 'Build a well']);
   });
   it('keeps the depots, the granary, lodging and paving back until their own step', () => {
     const { town } = settlement();
@@ -524,7 +536,7 @@ describe('quests that follow the combat loop', () => {
       fulfil(town, goal);
     }
   });
-  it('opens one thing in the build menu at each founding step', () => {
+  it('introduces the founding buildings in order and offers water when the farm needs it', () => {
     const { town } = settlement(),
       chain = goals.filter((goal) => goal.branch === GoalBranch.Core && goal.building !== Structure.Camp),
       placing: Tool[] = [];
@@ -532,7 +544,7 @@ describe('quests that follow the combat loop', () => {
       if (toolStructure(tool) !== undefined || tool === Tool.Road || tool === Tool.Pave)
         placing.push(tool);
     const known = new Set(placing.filter((tool) => toolAvailable(town, tool)));
-    expect([...known].map((tool) => Tool[tool])).toEqual(['Road', 'Camp', 'Ranch']);
+    expect([...known].map((tool) => Tool[tool])).toEqual(['Road', 'Camp', 'ChickenCoop', 'Cowshed']);
     const steps: string[] = [];
     for (const goal of chain) {
       fulfil(town, goal);
@@ -540,7 +552,7 @@ describe('quests that follow the combat loop', () => {
       for (const tool of opened) known.add(tool);
       steps.push(`${goal.title}: ${opened.map((tool) => Tool[tool]).join(' + ')}`);
     }
-    // Never two at once: what is not in the chain waits for a step that brings nothing else.
+    // The farm unlocks its water supply alongside the altar.
     expect(steps).toEqual([
       'Lay a road: Workbench',
       'Build a workbench: ',
@@ -548,11 +560,11 @@ describe('quests that follow the combat loop', () => {
       'Build a smithy: ',
       'Make a weapon or a shield: Tent',
       'Build a tent: Farm',
-      'Lay out a farm: Shrine',
+      'Lay out a farm: Well + Shrine',
       'Build an altar: Torch',
       'Reach 4 residents: Inn',
       'Upgrade the workbench: Lumberyard',
-      'Build a lumberyard: Well',
+      'Build a lumberyard: ',
       'Build a well: Quarry',
       'Build a quarry: Pave',
       'Upgrade the smithy: Storehouse',

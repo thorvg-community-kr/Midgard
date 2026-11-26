@@ -33,6 +33,7 @@ import { sprout, buildTreeRow } from './world-trees';
 import { settlePeaks } from './mountain-peaks';
 import { Rect } from '../../native-ui/src/types';
 import { damagePaint } from './building-damage';
+import { paintPastureFence, paintPastureGround } from './pasture-paint';
 const arcaneWisp: Rgb = [130, 240, 220],
   violetWisp: Rgb = [200, 150, 255],
   warmLight: Rgb = [232, 150, 64];
@@ -153,7 +154,13 @@ export function buildObjects(s: WorldRendererState, town: Town, climate: Readonl
   for (const scene of s.rowBuildings) scene.remove();
   const buildingRows: Building[][] = Array.from({ length: count }, () => []),
     dungeonRows: Dungeon[][] = Array.from({ length: count }, () => []);
-  for (const b of town.buildings()) buildingRows[drawRow(map, b.footprint(), count)].push(b);
+  for (const b of town.buildings()) {
+    buildingRows[drawRow(map, b.footprint(), count)].push(b);
+    if (b.kind === Structure.ChickenCoop || b.kind === Structure.Cowshed) {
+      paintPastureGround(s.farmland, b);
+      paintPastureFence(s.rowBuildings, b);
+    }
+  }
   for (const site of map.dungeons())
     if (site.discovered)
       dungeonRows[Math.min(f32(count - 1), f32(f32(site.origin.x + site.origin.y) + 2))].push(site);
@@ -234,13 +241,13 @@ export function buildObjects(s: WorldRendererState, town: Town, climate: Readonl
       });
       const size = structureSpec(b.kind).size,
         middle = b.center;
-      if (b.kind === Structure.Ranch && b.built()) {
+      if (b.kind === Structure.ChickenCoop && b.built()) {
         const foot = add(middle, rotated(point(-.19, .72), b.angle)), nest = project(foot.x, foot.y);
         here.add(ellipse(nest, 5, 2.45, [164, 125, 69, 255]));
         here.add(ellipse(add(nest, point(0, -.45)), 3.8, 1.65, [111, 81, 55, 255]));
         visual.nestEggs = [point(-2.1, -.9), point(.45, -1.5), point(2.2, -.25), point(-.4, .2)].map((offset, i) => {
           const egg = ellipse(add(nest, offset), 1.25, 1.65, [252, 232, 187, 255]);
-          here.add(egg.opacity(i < b.eggs ? 255 : 0));
+          here.add(egg.opacity(i < b.storedProduce ? 255 : 0));
           return egg;
         });
       }

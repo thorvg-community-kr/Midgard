@@ -29,7 +29,7 @@ import {
   carryLimit,
   stowCargo,
 } from '../../packages/engine/src/carried-resources';
-import { fieldWork } from '../../packages/engine/src/farm-work';
+import { CropStage, fieldWork } from '../../packages/engine/src/farm-work';
 import { animalSpec } from '../../packages/engine/src/wildlife';
 import { StrikeKind, strikeOf } from '../../packages/engine/src/skill-catalog';
 import { recipeGroup, stationRecipes, type RecipeGroup } from '../../apps/web/src/native/craft-station-hud';
@@ -180,8 +180,9 @@ function tillTime(tool: string | null): number {
   return town.clock() - started;
 }
 /** Field work a farmhand puts toward the harvest per second at a tilled plot, over a minute. */
-function tendRate(tool: string | null, summer: boolean): number {
-  const { town, p, farm, field } = farmFixture(tool, true, summer);
+function tendRate(tool: string | null, harvesting: boolean): number {
+  const { town, p, farm, field } = farmFixture(tool, true, false);
+  field.cropProgress = harvesting ? CropStage.Harvesting : CropStage.Sowing;
   for (
     let i = 0;
     i < 4000 && !(p.workField === field.id && p.activity === Activity.Working && !p.moving());
@@ -298,33 +299,35 @@ describe('the shovel lays roads and breaks in fields', () => {
 });
 
 describe('the sickle tends the standing crop', () => {
-  it('counts for more field work in summer and autumn, and does nothing in spring', () => {
-    const summer = Object.fromEntries(
+  it('speeds up harvest work and leaves sowing to the hoe', () => {
+    const harvest = Object.fromEntries(
       [null, 'stone-hoe', 'hoe', 'flint-sickle', 'sickle', 'hoe+sickle'].map((t) => [
         t ?? 'bare',
         tendRate(t, true),
       ]),
     );
-    const spring = {
+    const sow = {
       bare: tendRate(null, false),
       sickle: tendRate('sickle', false),
       hoe: tendRate('hoe', false),
     };
-    report('summer field work per s', summer);
-    report('spring field work per s', spring);
-    expect(summer['flint-sickle']).toBeCloseTo(summer['stone-hoe'], 2);
-    expect(summer.sickle).toBeGreaterThan(summer['flint-sickle'] * 1.05);
-    expect(summer['hoe+sickle']).toBeCloseTo(summer.sickle, 2);
-    expect(spring.sickle).toBeCloseTo(spring.bare, 2);
-    expect(spring.hoe).toBeCloseTo(summer.hoe, 2);
+    report('harvest field work per s', harvest);
+    report('sow field work per s', sow);
+    expect(harvest['flint-sickle']).toBeCloseTo(harvest['stone-hoe'], 2);
+    expect(harvest.sickle).toBeGreaterThan(harvest['flint-sickle'] * 1.05);
+    expect(harvest['hoe+sickle']).toBeCloseTo(harvest.sickle, 2);
+    expect(sow.sickle).toBeCloseTo(sow.bare, 2);
+    expect(sow.hoe).toBeCloseTo(harvest.hoe, 2);
   });
   it('names the kinds of field work a farmhand’s tools count for', () => {
     const { town, p, field } = farmFixture(null, false, true);
     p.workField = field.id;
     expect(fieldWork(town, p)).toEqual(['digging', 'farming']);
     field.tilled = 1;
-    // A day is a whole number of 12-second hoe-and-water cycles, so its first seconds are hoeing.
-    town.time = town.days * TownState.secondsPerDay + 0.5;
+    expect(fieldWork(town, p)).toEqual(['farming']);
+    field.cropProgress = CropStage.Watering;
+    expect(fieldWork(town, p)).toEqual(['watering']);
+    field.cropProgress = CropStage.Harvesting;
     expect(fieldWork(town, p)).toEqual(['reaping', 'farming']);
   });
 });
@@ -432,8 +435,8 @@ describe('the spear', () => {
     town.strike(p, target);
     return { target: 100 - target.health, behind: 100 - behind.health, blow, reach: attackReach(p) };
   }
-  it('reaches further than a sword and runs through to the enemy behind its target', () => {
-    expect(strikeOf('spear').kind).toBe(StrikeKind.Pierce);
+  it('reaches farther than a sword and hits only its target', () => {
+    expect(strikeOf('spear').kind).toBe(StrikeKind.Single);
     const sword = fight('sword'),
       spear = fight('spear'),
       wooden = fight('wooden-spear'),
@@ -448,8 +451,8 @@ describe('the spear', () => {
     expect(wooden.reach).toBe(spear.reach);
     expect(sword.behind).toBe(0);
     expect(bare.behind).toBe(0);
-    expect(spear.behind).toBeGreaterThan(0);
-    expect(spear.behind).toBeLessThan(spear.target);
+    expect(spear.behind).toBe(0);
+    expect(wooden.behind).toBe(0);
     expect(wooden.target).toBeGreaterThan(bare.target);
     expect(spear.target).toBeGreaterThan(wooden.target);
   });

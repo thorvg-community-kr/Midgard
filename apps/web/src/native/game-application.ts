@@ -436,7 +436,7 @@ export class GameApplication implements Application {
   }
   properties(): Property[] {
     return [
-      property('speed', 'Simulation speed', this.game.gameSpeed(), 0, 5, 1),
+      property('speed', 'Simulation speed', this.game.gameSpeed(), 0, this.game.speedLimit(), 1),
       property('zoom', 'Camera zoom', this.game.view().zoom, 0.1, 6, 0.1),
       property('camera.x', 'Camera X', this.game.view().x, -20000, 20000, 10),
       property('camera.y', 'Camera Y', this.game.view().y, -20000, 20000, 10),

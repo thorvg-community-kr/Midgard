@@ -47,6 +47,7 @@ export const titleReadings = [
   'raiding',
   'monsters',
   'wildlife',
+  'fields',
   'fieldAcres',
   'fit',
   'canPlace',

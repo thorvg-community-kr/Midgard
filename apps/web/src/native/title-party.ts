@@ -69,21 +69,22 @@ export function defend(ctx: TitleContext, state: PartyState): boolean {
     .filter((m) => m.health > 0 && (m.raider || m.angry) && !town.inRealm(m.position) && distance(m.position, seat.center) < TownState.campReach * 1.8);
   const folk = living(town).filter((p) => !beyond(town, p));
   tendDowned(ctx, folk, town.people().filter((p) => p.faction === 0 && p.downedAt >= 0 && !town.inRealm(p.position)), raiders.map((m) => m.position), 1.5);
-  if (!raiders.length) return false;
+  // A distant raider can linger on the approach. Call settlers off their jobs once the camp is threatened.
+  const rally = seat.door(),
+    near = raiders
+      .filter((m) => distance(m.position, rally) < 6)
+      .sort((a, b) => distance(a.position, rally) - distance(b.position, rally))[0];
+  if (!near) return false;
   const defenders = folk.filter(
     (p) => homeDefender(p) && p.task !== Activity.Praying && p.task !== Activity.Tending && !ctx.party.has(p.id),
   );
   for (const p of defenders) take(ctx, p);
   if (!defenders.length || town.clock() - state.homeOrderedAt < regroupSeconds) return true;
   state.homeOrderedAt = town.clock();
-  const rally = seat.door(),
-    near = raiders
-      .filter((m) => distance(m.position, rally) < 6)
-      .sort((a, b) => distance(a.position, rally) - distance(b.position, rally))[0],
-    away = defenders.filter((p) => distance(p.position, rally) > 3 || p.health < 0.5),
+  const away = defenders.filter((p) => distance(p.position, rally) > 3 || p.health < 0.5),
     ready = defenders.filter((p) => !away.includes(p));
   if (away.length) order(ctx, `rally:${town.clock() | 0}`, [], () => (town.orderAttackMove(away.map((p) => p.id), rally), true));
-  if (near && ready.length)
+  if (ready.length)
     order(ctx, `defend:${near.id}:${town.clock() | 0}`, [], () => (town.orderAttackMove(ready.map((p) => p.id), near.position), true));
   return true;
 }

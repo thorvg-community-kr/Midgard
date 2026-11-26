@@ -1,4 +1,4 @@
-import { isRanchHarvest, leadLivestock, livestockKind, localRanches, orderRanchHarvest, workWithLivestock } from '../../../../packages/engine/src/livestock';
+import { canLeadAnimal, isRanchHarvest, livestockKind, workWithLivestock } from '../../../../packages/engine/src/livestock';
 // Direct translation of native game_commands.cpp.
 import type { GameInputApp } from './game-input';
 import { Tool, Order } from '../../../../packages/engine/src/game-tools';
@@ -116,13 +116,15 @@ export function prepare(this: GameCommandApp, order: Order): void {
         candidates: { busy: boolean; distance: number; id: number }[] = [];
       if (animal && animal.animal !== null && animal.health > 0)
         for (const p of this.town.people()) {
-          if (!canControl(p) || p.inside || p.ordered || !interruptible(p.activity)) continue;
+          if (order === Order.Work && animal.pen < 0) {
+            if (!canLeadAnimal(this.town, p, animal)) continue;
+          } else if (!canControl(p) || p.inside || p.ordered || !interruptible(p.activity)) continue;
           const idle = !p.moving() && (p.activity === Activity.Idle || p.activity === Activity.Holding);
           candidates.push({ busy: !idle, distance: distance(p.position, animal.position), id: p.id });
         }
       candidates.sort((a, b) => Number(a.busy) - Number(b.busy) || a.distance - b.distance || a.id - b.id);
-      if (candidates.some(candidate => order === Order.Work && animal && livestockKind(animal.animal)
-          ? workWithLivestock(this.town, this.town.person(candidate.id)!, animal)
+      if (candidates.some(candidate => order === Order.Work
+          ? !!animal && workWithLivestock(this.town, this.town.person(candidate.id)!, animal)
           : this.town.orderAttack([candidate.id], this.selectedAnimal)))
         this.cue(Cue.Order);
     }
@@ -199,9 +201,6 @@ export function issueOrder(this: GameCommandApp, order: Order): void {
     struck = struckByAttack(this, hit),
     // A downed body is not pickable, so it is found by distance on screen.
     fallen = order === Order.Work && !personTarget && !creature ? downedUnderCursor(this) : null,
-    handlers = creature && livestockKind(creature.animal)
-      ? ids.map(id => this.town.person(id)!).filter(p => localRanches(this.town, p).length)
-      : [],
     moving: number[] = [];
   if (order === Order.Move) this.town.orderMove(ids, this.cursor);
   else if (fallen) {
@@ -242,10 +241,16 @@ export function issueOrder(this: GameCommandApp, order: Order): void {
     // A crafting station opens its recipes; it picks who gets an item itself, so the selection is not bound to it.
     openStation(this, place);
     return;
-  } else if (creature && handlers.length) {
+  } else if (order === Order.Work && creature && livestockKind(creature.animal) && !creature.angry) {
+    const handlers = ids.map(id => this.town.person(id)!);
     handlers.sort((a, b) => distance(a.position, creature.position) - distance(b.position, creature.position) || a.id - b.id);
-    if (creature.pen >= 0 && order !== Order.Work) return;
-    if (!handlers.some(p => workWithLivestock(this.town, p, creature))) return;
+    if (!handlers.some(p => workWithLivestock(this.town, p, creature))) {
+      if (creature.pen < 0 && !handlers.some(p => p.task === Activity.Herding && p.herdAnimal === creature.id)) {
+        this.status = 'Choose a keeper with room in their pasture.';
+        this.town.orderMove(ids, this.cursor);
+      }
+      return;
+    }
   } else if (order === Order.Attack && !struck && hit?.kind !== 'tree' && hit?.kind !== 'rock') {
     this.town.orderAttackMove(ids, this.cursor);
   } else {
@@ -267,7 +272,6 @@ export function issueOrder(this: GameCommandApp, order: Order): void {
       else if (place && !isPlayerBuilding(place)) this.status = buildingControlReason(place);
       else if (place && (!place.built() || place.health < 1))
         accepted = this.town.orderBuild(unit, place.id);
-      else if (place?.kind === Structure.Ranch) accepted = orderRanchHarvest(this.town, this.town.person(id)!, place) || leadLivestock(this.town, this.town.person(id)!, undefined, place);
       else if (place && isHome(place.kind)) accepted = this.town.orderRest(unit, place.id);
       else if (place && structureSpec(place.kind).jobs > 0) accepted = this.town.assignJob(unit, place.id);
       else if (hit?.kind === 'road') {

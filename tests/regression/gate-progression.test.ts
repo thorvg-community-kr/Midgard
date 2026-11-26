@@ -3,8 +3,8 @@ import { Structure } from '../../packages/engine/src/building-catalog';
 import { gateActive, gateOrder, musteredGates, raidSeat, raidSources } from '../../packages/engine/src/gate-progression';
 import { gateSealed, sealFloors } from '../../packages/engine/src/gate-seals';
 import { distance, point } from '../../packages/engine/src/geometry';
-import { Calling, Role } from '../../packages/engine/src/person';
-import { RaidKind, raidDue, raidKind } from '../../packages/engine/src/raid-progression';
+import { Calling, Monster, Role } from '../../packages/engine/src/person';
+import { RaidKind, raidKind } from '../../packages/engine/src/raid-progression';
 import { decodeTown, encodeTown } from '../../packages/engine/src/save-game';
 import { Town } from '../../packages/engine/src/town';
 import { Building } from '../../packages/engine/src/town-models';
@@ -47,10 +47,19 @@ function hour(town: Town, day: number, time: number) {
   town.editHour(time);
   town.stir(0);
 }
+function fillRaiderSlots(town: Town, gate: number, seat: number) {
+  for (let i = 0; i < Town.maxRaiders; ++i) {
+    const beast = new Monster(town.nextMonster++, gate, point(14 + i % 12, 15 + Math.floor(i / 12)));
+    beast.raider = true;
+    beast.prey = seat;
+    beast.home = beast.position;
+    town.beasts.push(beast);
+  }
+}
 const warnings = (town: Town) => town.notices.filter(line => line.endsWith(' tonight'));
 
 describe('dormant gates and raids on settlements', () => {
-  it('lets a discovered dungeon be assaulted before it awakens, and gives an unprovoked settlement two quiet nights', () => {
+  it('lets a discovered dungeon be assaulted before it awakens and sends scouts on the first night of a finished camp', () => {
     const { town, camp, gates, addResident } = settlement(), hero = addResident();
     const [first, second] = gates;
     town.map().dungeons()[second].discovered = true;
@@ -58,18 +67,14 @@ describe('dormant gates and raids on settlements', () => {
     expect(gates.every(gate => !gateActive(town, gate) && !town.floorOpen(gate, 0))).toBe(true);
     expect(town.orderAttackDungeon([hero.id], second)).toBe(true);
     town.orderStop([hero.id]);
-    for (const day of [0, 1]) {
-      hour(town, day, 12);
-      hour(town, day, 23);
-      town.releaseMonster(camp.center);
-      expect(town.beasts.filter(b => !b.giant())).toHaveLength(0);
-    }
     camp.progress = 0.9;
-    hour(town, 2, 12);
+    hour(town, 0, 12);
+    town.releaseMonster(camp.center);
     expect(raidSources(town, RaidKind.Pack)).toEqual([]);
     expect(warnings(town)).toEqual([]);
+    expect(town.beasts.filter(b => !b.giant())).toHaveLength(0);
     camp.progress = 1;
-    hour(town, 2, 13);
+    hour(town, 0, 13);
     expect(gates.filter(gate => gateActive(town, gate))).toEqual([first]);
     expect(town.canSendExpedition([hero.id], first).reason).toBe('No known dungeon there');
     expect(warnings(town)).toEqual(['A pack from Gate 12 will raid Camp #1 tonight']);
@@ -77,12 +82,102 @@ describe('dormant gates and raids on settlements', () => {
     town.map().dungeons()[first].discovered = true;
     expect(town.sendExpedition([hero.id], first)).toBe(true);
     expect(town.floorOpen(first, 1)).toBe(false);
-    hour(town, 2, 23);
+    hour(town, 0, 23);
     expect(town.raids()).toBe(1);
-    expect(town.beasts.filter(b => b.raider).every(b => b.lair === first)).toBe(true);
-    hour(town, 2, 23);
-    expect(town.raids()).toBe(1);
+    const scouts = town.beasts.filter(b => b.raider);
+    expect(scouts.length).toBeGreaterThan(0);
+    expect(scouts.every(b => b.lair === first && b.level === 1 && b.health <= 1)).toBe(true);
     expect(town.notices.filter(n => n.endsWith('has opened'))).toEqual(['Gate 12 has opened']);
+  });
+
+  it.each([0, 45])('warns and launches exactly once on consecutive nights from day %i, even when raiders survive', start => {
+    const { town, gates } = settlement();
+    for (let night = 0; night < 6; ++night) {
+      const day = start + night;
+      hour(town, day, 12);
+      hour(town, day, 13);
+      expect(warnings(town)).toHaveLength(night + 1);
+      expect(town.raids()).toBe(night);
+      const nextId = town.nextMonster;
+      hour(town, day, 22);
+      expect(town.raids()).toBe(night + 1);
+      const newWave = town.beasts.filter(b => b.raider && b.id >= nextId);
+      expect(newWave.length).toBeGreaterThan(0);
+      expect(newWave.every(b => b.lair === gates[0])).toBe(true);
+      hour(town, day, 23);
+      expect(town.raids()).toBe(night + 1);
+      // Keep a survivor on the field as the next wave departs.
+      town.beasts = [newWave[0]];
+    }
+    for (const gate of gates) town.depth[gate] = sealFloors;
+    hour(town, start + 6, 12);
+    hour(town, start + 6, 23);
+    expect(warnings(town)).toHaveLength(6);
+    expect(town.raids()).toBe(6);
+  });
+
+  it('keeps the wave waiting through a full field and a save, then fills the first opening just once', () => {
+    const { town, gates, camp } = settlement();
+    hour(town, 0, 12);
+    fillRaiderSlots(town, gates[0], camp.id);
+    hour(town, 0, 22);
+    expect(town.raids()).toBe(0);
+    expect(town.beasts.filter(b => b.raider)).toHaveLength(Town.maxRaiders);
+    const resumed = decodeTown(encodeTown(town), map => new Town(map, 64, false, true));
+    const previous = resumed.beasts.filter(b => b.raider);
+    previous[0].health = 0;
+    const nextId = resumed.nextMonster;
+    hour(resumed, 0, 23);
+    const arrived = resumed.beasts.filter(b => b.raider && b.id >= nextId);
+    expect(arrived.map(b => b.lair)).toEqual([gates[0]]);
+    expect(resumed.beasts.filter(b => b.raider)).toHaveLength(Town.maxRaiders);
+    expect(resumed.raids()).toBe(1);
+    previous[1].health = 0;
+    hour(resumed, 0, 23.5);
+    expect(resumed.beasts.filter(b => b.raider)).toHaveLength(Town.maxRaiders - 1);
+    expect(resumed.raids()).toBe(1);
+  });
+
+  it('keeps the previous night\'s wave pending across midnight and a save until daylight', () => {
+    const { town, gates, camp } = settlement();
+    town.open[gates[0]] = 1;
+    hour(town, 0, 12);
+    fillRaiderSlots(town, gates[0], camp.id);
+    hour(town, 0, 23);
+    expect(town.raids()).toBe(0);
+    // This newly opened gate gets the next day's wave, once the pending wave is resolved.
+    town.open[gates[1]] = 2;
+    town.editHour(23.999);
+    expect(town.advance(0.1)).toBe(true);
+    expect(town.days).toBe(1);
+    hour(town, 1, 1);
+    const saved = encodeTown(town);
+    const resume = () => decodeTown(saved, map => new Town(map, 64, false, true));
+    const early = resume();
+    const oldRaiders = early.beasts.filter(b => b.raider);
+    const firstId = early.nextMonster;
+    oldRaiders[0].health = 0;
+    hour(early, 1, 2);
+    expect(early.raids()).toBe(1);
+    expect(early.beasts.filter(b => b.raider && b.id >= firstId).map(b => b.lair)).toEqual([gates[0]]);
+    oldRaiders[1].health = 0;
+    hour(early, 1, 3);
+    hour(early, 1, 12);
+    expect(early.raids()).toBe(1);
+    const nextId = early.nextMonster;
+    hour(early, 1, 22);
+    expect(early.raids()).toBe(2);
+    expect(early.beasts.filter(b => b.raider && b.id >= nextId).map(b => b.lair)).toEqual([gates[1]]);
+
+    const late = resume();
+    hour(late, 1, 7);
+    expect(late.climate().night).toBeLessThan(0.6);
+    late.beasts.find(b => b.raider)!.health = 0;
+    hour(late, 1, 12);
+    expect(musteredGates(late)).toEqual([gates[1]]);
+    expect(late.raids()).toBe(0);
+    hour(late, 1, 22);
+    expect(late.raids()).toBe(1);
   });
 
   it('uses player deeds and completed buildings, and remembers each opening after losses and a save', () => {
@@ -171,7 +266,7 @@ describe('dormant gates and raids on settlements', () => {
     const { town, gates } = settlement();
     town.open[gates[0]] = town.open[gates[1]] = 1;
     let day = 7;
-    while (!raidDue(5, day) || raidKind(5, day) !== RaidKind.Pincer) ++day;
+    while (raidKind(5, day) !== RaidKind.Pincer) ++day;
     hour(town, day, 12);
     expect(warnings(town)).toHaveLength(2);
     expect(musteredGates(town)).toEqual(gates.slice(0, 2));
@@ -210,5 +305,22 @@ describe('dormant gates and raids on settlements', () => {
     const afterRaid = resume(loaded);
     hour(afterRaid, 3, 23);
     expect(afterRaid.raids()).toBe(1);
+  });
+
+  it('cancels the warned wave when its only source is sealed, even with another gate open', () => {
+    const { town, gates } = settlement();
+    town.open[gates[0]] = town.open[gates[1]] = 1;
+    hour(town, 0, 12);
+    expect(musteredGates(town)).toEqual([gates[0]]);
+    town.depth[gates[0]] = sealFloors;
+    const resumed = decodeTown(encodeTown(town), map => new Town(map, 64, false, true));
+    hour(resumed, 0, 22);
+    hour(resumed, 0, 23);
+    expect(resumed.raids()).toBe(0);
+    expect(resumed.beasts.some(b => b.raider)).toBe(false);
+    hour(resumed, 1, 12);
+    expect(musteredGates(resumed)).toHaveLength(1);
+    hour(resumed, 1, 22);
+    expect(resumed.raids()).toBe(1);
   });
 });

@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { Town } from '../../packages/engine/src/town';
-import { Building, Season } from '../../packages/engine/src/town-models';
+import { Building, Field, Season } from '../../packages/engine/src/town-models';
 import { Product, Resources, Structure } from '../../packages/engine/src/building-catalog';
-import { Activity, Calling, Role, type Person } from '../../packages/engine/src/person';
+import { Activity, AnimalKind, Calling, Monster, Role, type Person } from '../../packages/engine/src/person';
 import { CombatCue, combatRules } from '../../packages/engine/src/combat-events';
 import { Boon, boon, boonOfWorld } from '../../packages/engine/src/gate-boons';
 import { sealFloors, sealable } from '../../packages/engine/src/gate-seals';
 import { DungeonKind } from '../../packages/engine/src/world-types';
 import { dayCycle } from '../../packages/engine/src/day-cycle';
 import { point } from '../../packages/engine/src/geometry';
+import { CropStage, workCrop } from '../../packages/engine/src/farm-work';
 import { economyRules } from '../../packages/engine/src/economy-rules';
 import { itemSpec } from '../../packages/engine/src/equipment';
 import { levelVariant } from '../../packages/engine/src/craft-stations';
@@ -50,6 +51,41 @@ function grantBoon(town: Town, which: Boon) {
   town.depth = sites.map((_, i) => (i === index ? sealFloors : (town.depth[i] ?? 0)));
   expect(boon(town, which)).toBe(true);
 }
+
+describe('a camp food supply', () => {
+  it('uses hunted food for feed and shares a finite water supply between livestock and a crop', () => {
+    const town = settlement(), farmer = resident(town);
+    const farm = facility(town, Structure.Farm), coop = facility(town, Structure.ChickenCoop);
+    const field = new Field(town.nextId++, [point(8, 4), point(12, 4), point(12, 7), point(8, 7)], 0);
+    town.farmland.push(field);
+    field.cropProgress = CropStage.Watering;
+    farmer.workField = field.id;
+    const hen = new Monster(town.nextMonster++, -1, coop.door());
+    hen.animal = AnimalKind.Chicken;
+    hen.pen = coop.id;
+    const pig = new Monster(town.nextMonster++, -1, farmer.position);
+    pig.animal = AnimalKind.Pig;
+    pig.health = 0;
+    pig.provokedBy = farmer.id;
+    town.animals.push(hen, pig);
+    town.wildlifeDay = town.days;
+    town.stirWildlife(0);
+    const stock = town.stock(0);
+    expect(stock.food).toBe(4);
+    expect(stock.bones).toBe(4);
+    stock.water = 4;
+    expect(workCrop(town, farmer, farm, 1)).toBe(true);
+    town.newDay();
+    expect([stock.water, stock.food, coop.storedProduce]).toEqual([0, 4, 0]);
+    stock.water = 1;
+    town.newDay();
+    expect([stock.water, stock.food, coop.storedProduce]).toEqual([0, 3, 2]);
+    field.cropProgress = CropStage.Harvesting + 0.999;
+    expect(workCrop(town, farmer, farm, 200)).toBe(true);
+    expect([stock.water, stock.food, coop.storedProduce]).toEqual([0, 11, 2]);
+    expect(field.cropProgress).toBe(CropStage.Tilling);
+  });
+});
 
 describe('market trade', () => {
   it('needs a built, staffed market and explains why not', () => {
@@ -270,34 +306,32 @@ describe('wages, boons and winter', () => {
     expect(town.ledger(0).wages).toBe(8);
   });
 
-  it('Plenty raises field food and the harvest by a quarter', () => {
-    const plain = settlement(),
-      blessed = settlement();
+  it('Plenty raises the harvest and its winter outlook without a calendar payout', () => {
+    const plain = settlement(), blessed = settlement();
     grantBoon(blessed, Boon.Plenty);
     for (const town of [plain, blessed]) {
+      const farm = facility(town, Structure.Farm), farmer = resident(town);
+      const field = new Field(town.nextId++, [point(11, 4), point(15, 4), point(15, 7), point(11, 7)], 0);
+      town.farmland.push(field);
+      farmer.job = farm.id;
+      farmer.workField = field.id;
+      farmer.activity = Activity.Working;
+      field.cropProgress = CropStage.Harvesting + 0.9;
       town.days = 40;
+      town.editHour(9);
+      town.stock(0).food = 0;
+      expect(town.winterOutlook(0).harvestExpected).toBe(town === plain ? 8 : 10);
+      expect(town.forecast(0).made.food).toBe(town === plain ? 8 : 10);
+      workCrop(town, farmer, farm, 100);
+      expect(town.dailyOutput(farm).food).toBe(0);
+      expect(town.stock(0).food).toBe(town === plain ? 8 : 10);
+      town.days = 44;
+      // Saves from the previous farm rules can still carry old attendance totals.
       town.economy(0).growingTended = 4;
       town.economy(0).growingDays = 1;
-      resident(town);
-    }
-    expect(plain.winterOutlook(0).harvestExpected).toBe(40);
-    expect(blessed.winterOutlook(0).harvestExpected).toBe(50);
-    for (const town of [plain, blessed]) {
-      // The last autumn day adds an untended day to the average: 4 acres over 2 days, times 10.
-      town.days = 44;
-      town.stock().food = 0;
       town.newDay();
+      expect(town.stock(0).food).toBe(town === plain ? 8 : 10);
     }
-    expect([plain.stock().food, blessed.stock().food]).toEqual([20, 25]);
-    expect(blessed.notices).toContain('Harvest: +25 food');
-    const farm = (town: Town) => {
-      const b = facility(town, Structure.Farm, 2);
-      b.attendance = 1;
-      town.days = 0;
-      return town.dailyOutput(b).food;
-    };
-    expect(farm(plain)).toBe(4);
-    expect(farm(blessed)).toBe(5);
   });
 
   it('Forge halves crafting time and forged weapons are counted', () => {
@@ -347,12 +381,12 @@ describe('wages, boons and winter', () => {
     town.newDay();
     expect(town.days).toBe(36);
     expect(town.notices.filter((n) => n.startsWith('Winter in 9 days:'))).toEqual([
-      'Winter in 9 days: 5 food stored or due, 12 needed. Farm, hunt or trade for food.',
+      'Winter in 9 days: 5 food stored or due, 24 needed. Farm, hunt or trade for food.',
     ]);
-    town.stock().food = 12;
+    town.stock().food = 24;
     expect(town.winterOutlook(0).enough).toBe(true);
     town.days = 50;
-    expect(town.winterOutlook(0)).toMatchObject({ daysToWinter: 0, foodNeeded: Math.ceil((6 * 10) / 7.5) });
+    expect(town.winterOutlook(0)).toMatchObject({ daysToWinter: 0, foodNeeded: Math.ceil((6 * 10) / economyRules.daysPerMeal) });
     town.days = 5;
     expect(town.winterOutlook(0).daysToWinter).toBe(40);
   });

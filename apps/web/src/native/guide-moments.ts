@@ -153,7 +153,7 @@ const moments: GuideMoment[] = [
     key: 'food',
     title: 'Food from the hunt',
     text: () => [
-      'Hunt for early meals. At a ranch, residents collect eggs from chickens and raise pairs of pigs or cows for meat. A farmhouse grows crops.',
+      'Hunt for early meals. Feed and water hens for eggs or cows for milk. Farmers grow crops in watered fields.',
       'Game grows scarce in winter, so lay food by before it comes.',
     ],
     spot: (scan) => {
@@ -224,11 +224,11 @@ const moments: GuideMoment[] = [
     key: 'field',
     title: 'The first field',
     text: () => [
-      'Farmhands of a farmhouse tend the fields close to it; more farmhands can tend more fields.',
-      'Fields grow while they are tended through summer and autumn, and the harvest comes in when autumn ends.',
+      'Farmhands till the soil, sow seeds, water the rows, tend the crop and harvest the grain.',
+      'Keep water in the camp stores. One farmer takes about a week to bring in a crop. Fields rest in winter.',
     ],
     spot: (scan) => {
-      const plot = scan.town.fields().find((f) => f.faction === scan.town.controlFaction && f.tilled >= 1);
+      const plot = scan.town.fields().find((f) => f.faction === scan.town.controlFaction);
       return plot ? { at: centroid(plot.outline) } : null;
     },
     met: (town) => town.fieldAcres() > 0,
@@ -329,7 +329,7 @@ const moments: GuideMoment[] = [
     title: 'Hvergelmir',
     text: () => [
       'The deep spring in the north from which the rivers flow.',
-      'Everyone drinks water every day. A well draws it, and more beside a lake or river.',
+      'A staffed well supplies drinking water and water for crops and livestock. It draws more near a lake or river.',
     ],
     spot: (scan) => {
       const at = spring(scan.town);
@@ -343,7 +343,7 @@ const moments: GuideMoment[] = [
     title: 'Night falls',
     text: () => [
       'Residents keep working after dark and take a break when they are tired.',
-      'Resting under a roof restores energy faster. Raids come at night.',
+      'Resting under a roof restores energy faster. Open dungeons send raiders every night.',
     ],
     spot: (scan) => (scan.town.climate().night > 0.5 ? { at: null } : null),
     met: (town) => town.days >= 1,
@@ -373,7 +373,7 @@ const moments: GuideMoment[] = [
     title: 'Winter',
     text: () => [
       'Fields lie fallow and game is scarce, so the settlement lives on what it stored.',
-      'Raids come more often in winter. Keep everyone housed: the cold wears on anyone sleeping out.',
+      'Keep everyone housed. The cold wears on anyone sleeping out.',
     ],
     spot: (scan) => (scan.town.calendar().season === Season.Winter ? { at: null } : null),
     met: (town) => town.calendar().year > 1 || town.calendar().season === Season.Winter,
@@ -382,7 +382,7 @@ const moments: GuideMoment[] = [
     key: 'born',
     title: 'A newcomer from the altar',
     text: () => [
-      'Each newcomer starts as a settler. Give them a tool and a job to gain experience.',
+      'Each newcomer starts as a settler. Give them a tool for their first job.',
       'When the guild is ready, you can send a settler there to learn a fighting calling.',
     ],
     spot: (scan) => {
@@ -414,7 +414,7 @@ const moments: GuideMoment[] = [
     key: 'kill',
     title: 'The first kill',
     text: () => [
-      'A kill gives experience to the killer and to every ally fighting nearby, and many leave bones.',
+      'Defeating a monster gives experience to the killer and to allies fighting nearby. Many monsters leave bones.',
       'Levels improve endurance and unlock gear. Match a weapon to the resident’s strongest attribute for harder hits.',
     ],
     spot: (scan) => {
@@ -529,7 +529,7 @@ const moments: GuideMoment[] = [
     key: 'level',
     title: 'A new level',
     text: () => [
-      'Work and combat earn experience. Levels improve endurance and unlock gear. Every ten levels, a settler’s training strengthens their weapon attacks.',
+      'Defeating monsters and sealing dungeons earn experience. Levels improve endurance and unlock gear. Every ten levels, a settler’s training strengthens their weapon attacks.',
       line('Callings learn their second skill at level {0}.', secondSkillLevel),
     ],
     spot: (scan) => {

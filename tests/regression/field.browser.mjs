@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'vite';
 import { chromium } from '@playwright/test';
+import { checkPasture } from './pasture-browser.mjs';
 
 const output = 'artifacts/regression/field';
 const report = { errors: [], passed: false };
@@ -26,7 +27,7 @@ try {
     ],
   });
   await server.listen();
-  browser = await chromium.launch({ headless: true, args: ['--mute-audio'] });
+  browser = await chromium.launch({ headless: true, args: ['--mute-audio', '--use-angle=gl', '--enable-gpu', '--ignore-gpu-blocklist'] });
   deadline = setTimeout(() => void browser.close().catch(() => {}), 280000);
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
   const page = await context.newPage();
@@ -56,6 +57,9 @@ try {
       import('/packages/engine/src/town-models.ts'),
       import('/packages/engine/src/building-catalog.ts'),
     ]);
+    const { setGuidePreference } = await import('/apps/web/src/native/guide-preferences.ts');
+    setGuidePreference('cards', false);
+    setGuidePreference('focus', false);
     const tvg = await initializeWebCanvas('gl'),
       element = document.createElement('canvas');
     document.body.append(element);
@@ -74,6 +78,10 @@ try {
     town.nextId = 2;
     town.foundSettlement(0);
     town.stock().food = 50;
+    town.stock().water = 20;
+    // Keep this farm demonstration outside combat while the crop moves through its stages.
+    town.summonRaid = () => {};
+    town.titleSky = { year: town.yearFraction(), day: 0.48 };
     for (const p of town.folk) {
       p.job = farm.id;
       p.village = p.home = 0;
@@ -97,20 +105,23 @@ try {
       now: 0,
       frame(dt = 0.05) {
         this.now += dt;
+        game.camera.x = focus.x;
+        game.camera.y = focus.y;
         game.render(1280, 800, this.now, true, dt, this.now);
         canvas.update().render();
         game.takeCues();
       },
       run(until) {
-        for (let i = 0; i < 4000 && (town.fields()[0]?.tilled ?? 1) < until; ++i) town.advance(0.1);
+        for (let i = 0; i < 24000 && town.fields()[0].cropProgress < until; ++i) town.advance(0.1);
         for (let i = 0; i < 4; ++i) this.frame();
         return {
           tilled: town.fields()[0]?.tilled,
+          stage: Math.floor(town.fields()[0].cropProgress),
           workers: town.folk.map((p) => ({ activity: p.activity, field: p.workField, moving: p.path.length > 0 })),
         };
       },
     };
-    canvas.add(game.worldScene()).add(game.hudScene());
+    canvas.add(game.worldScene());
     for (let i = 0; i < 6; ++i) fieldProbe.frame();
   });
   const info = await page.evaluate(() => ({ planted: fieldProbe.planted, reason: fieldProbe.reason }));
@@ -122,6 +133,13 @@ try {
   state = await page.evaluate(() => fieldProbe.run(1));
   assert.equal(state.tilled, 1);
   await page.screenshot({ path: `${output}/tilled.png` });
+  for (const [stage, name] of [[2, 'watering'], [3, 'tending'], [4, 'harvesting']]) {
+    state = await page.evaluate(stage => fieldProbe.run(stage), stage);
+    assert.equal(state.stage, stage, JSON.stringify(state));
+    await page.screenshot({ path: `${output}/${name}.png` });
+  }
+  for (const touch of [false, true])
+    report[touch ? 'cowshed' : 'coop'] = await checkPasture(browser, page.url(), output, touch);
   assert.deepEqual(report.errors, []);
   report.passed = true;
 } catch (error) {

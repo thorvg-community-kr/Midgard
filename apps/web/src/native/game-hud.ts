@@ -1,7 +1,7 @@
-import { orderRanchHarvest, ranchWorker, type RanchHarvest } from '../../../../packages/engine/src/livestock';
-import { nestCapacity, penCapacity, readyForMeat, stockInPen } from '../../../../packages/engine/src/ranch-cycle';
+import { availableRanchHand, orderRanchHarvest, ranchWorker } from '../../../../packages/engine/src/livestock';
+import { livestockRecipe, stockInPen } from '../../../../packages/engine/src/ranch-cycle';
+import { pastureCapacity, produceCapacity } from '../../../../packages/engine/src/pasture-geometry';
 import { Activity, AnimalKind } from '../../../../packages/engine/src/person';
-import { animalSpec } from '../../../../packages/engine/src/wildlife';
 import {
   Rect,
   Align,
@@ -15,6 +15,8 @@ import {
   type Context,
 } from '../../../../packages/native-ui/src';
 import { Tool, Order, drawsArea, toolStructure } from '../../../../packages/engine/src/game-tools';
+import { servesField } from '../../../../packages/engine/src/farm-work';
+import { fieldStatus } from './field-status';
 import { noticeToast } from './notice-toast';
 import { toolInfo, buildMenuGroups, type BuildGroup } from './build-menu-tools';
 import { toolAvailable } from '../../../../packages/engine/src/settlement-progression';
@@ -130,7 +132,7 @@ export function hud(this: GameHudApp, width: number, height: number): void {
     rail = orderRail(this, width, height),
     right = rail && !rail.beside && this.dockBounds.y - 130 < rail.bounds.y + rail.bounds.h ? f32(rail.bounds.x - 8) : width - 12,
     line = new Rect(12, f32(this.dockBounds.y - 32), f32(right - 12), 22);
-  if (warning) strip(c, warning, line, t.inkDanger, 13);
+  if (warning) strip(c, warning, line, !this.status && drawsArea(this.tool) && this.current.preview.valid ? t.ink : t.inkDanger, 13);
   else if (this.pending !== Order.None)
     strip(
       c,
@@ -341,38 +343,35 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
       });
       y = f32(y + 32);
     }
-    if (building.kind === Structure.Ranch && building.built()) {
-      const stock = stockInPen(this.town, building.id), adults = stock.filter(a => a.ranchBornAt < 0);
-      const ready = readyForMeat(stock, this.town.clock());
-      textRow(`Breeding stalls ${adults.length} / ${penCapacity}`, t.text, 13, true);
-      const hens = adults.filter(a => a.animal === AnimalKind.Chicken).length;
-      textRow(`Chickens ${hens} · Eggs in nest ${building.eggs} / ${nestCapacity}`, building.eggs ? t.success : t.muted, 12);
-      for (const kind of [AnimalKind.Pig, AnimalKind.Cow]) {
-        const family = stock.filter(a => a.animal === kind), count = family.length;
-        const young = family.find(a => a.ranchBornAt >= 0);
-        const state = young ? (ready.includes(young) ? 'Ready for meat' : kind === AnimalKind.Pig ? 'Piglet growing' : 'Calf growing')
-          : count >= 2 ? 'Breeding' : count ? 'Needs a mate' : '';
-        const label = kind === AnimalKind.Pig ? `Pigs ${count}` : `Cows ${count}`;
-        textRow(state ? `${label} · ${state}` : label, young || count >= 2 ? t.success : t.muted, 12);
-      }
+    const pen = livestockRecipe(building.kind);
+    if (pen && building.built()) {
+      const count = stockInPen(this.town, building.id).length, hens = pen.species === AnimalKind.Chicken;
+      const capacity = pastureCapacity(building);
+      textRow(hens ? `Hens ${count} / ${capacity}` : `Cows ${count} / ${capacity}`, t.text, 13, true);
+      const village = this.town.settlementOf(building), stock = this.town.stock(village);
+      const dailyFeed = count * pen.feed, dailyWater = count * pen.water;
+      textRow(`Daily ration · ${dailyFeed} food, ${dailyWater} water`, t.muted, 12);
+      if (!building.workers) textRow('Assign a worker to bring animals here.', t.accent, 12);
+      else if (!count && (stock.food < pen.feed || stock.water < pen.water))
+        textRow('Store food and water so the keeper can bring an animal.', t.accent, 12);
+      else if (!count) textRow(hens ? 'The keeper looks for wild chickens.' : 'The keeper looks for wild cows.', t.muted, 12);
+      if (stock.food < dailyFeed || stock.water < dailyWater)
+        textRow('The stores need food and water to feed every animal.', t.accent, 12);
+      const storage = produceCapacity(building);
+      textRow(hens ? `Eggs in nest ${building.storedProduce} / ${storage}` : `Milk in pails ${building.storedProduce} / ${storage}`,
+        building.storedProduce ? t.success : t.muted, 12);
       const worker = ranchWorker(this.town, building);
-      if (worker) textRow(worker.task === Activity.GatheringEggs ? `${worker.name} is collecting eggs` : `${worker.name} is preparing meat`, t.accent, 12);
-      else if (building.eggs || ready.length) {
-        const hands = this.town.stationFolk(building).filter(p => !p.ordered && p.job < 0 && !p.craftItem &&
-          (p.task === Activity.Idle || p.task === Activity.Felling || p.task === Activity.Mining));
-        const village = this.town.settlementOf(building);
-        const room = this.town.capacity(village).food - this.town.stock(village).food;
-        const action = (task: RanchHarvest, label: string, key: string, fits: boolean) => {
-          const at = y, height = this.touchMode ? 44 : 28;
-          rows.push(() => button(c, key, new Rect(left, top + at, inner, height), label,
-            () => { hands.some(p => orderRanchHarvest(this.town, p, building, task)); },
-            ButtonStyle.Default, fits && hands.length > 0 && isPlayerBuilding(building)));
-          y += height + 4;
-        };
-        if (building.eggs) action(Activity.GatheringEggs, 'Collect eggs', 'ranch-collect-eggs', room >= 1);
-        const meatFits = ready.some(a => animalSpec(a.animal!).food <= room);
-        if (ready.length) action(Activity.PreparingMeat, 'Prepare meat', 'ranch-prepare-meat', meatFits);
-        if (room < 1 || (ready.length && !meatFits)) textRow('Make room in food storage.', t.muted, 12);
+      if (worker) textRow(hens ? `${worker.name} is collecting eggs` : `${worker.name} is collecting milk`, t.accent, 12);
+      else if (building.storedProduce) {
+        const hands = this.town.stationFolk(building).filter(p => availableRanchHand(this.town, p, building) ||
+          (!p.ordered && p.job < 0 && !p.craftItem && (p.task === Activity.Idle || p.task === Activity.Felling || p.task === Activity.Mining)));
+        const room = this.town.capacity(village).food - stock.food;
+        const at = y, height = this.touchMode ? 44 : 28;
+        rows.push(() => button(c, hens ? 'coop-collect-eggs' : 'cowshed-collect-milk', new Rect(left, top + at, inner, height),
+          hens ? 'Collect eggs' : 'Collect milk', () => { hands.some(p => orderRanchHarvest(this.town, p, building)); },
+          ButtonStyle.Default, room > 0 && hands.length > 0 && isPlayerBuilding(building)));
+        y += height + 4;
+        if (!room) textRow('Make room in food storage.', t.muted, 12);
         else if (!hands.length) textRow('Waiting for a free resident.', t.muted, 12);
       }
     }
@@ -416,13 +415,13 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
       });
       y = f32(y + (this.touchMode ? 50 : 32));
       const output = this.town.dailyOutput(building);
-      if (building.kind === Structure.Farm)
-        textRow(
-          `Fields tended ${this.town.tendedFieldAcres()} of ${this.town.fieldAcres()} acres`,
-          t.muted,
-          12,
-        );
-      else if (spec.product === Product.Wood) {
+      if (building.kind === Structure.Farm) {
+        const plots = this.town.fields().filter(field => servesField(building, field));
+        for (const field of plots)
+          textRow(`${fieldStatus(this.town, field)} · ${field.acres()} acres`, t.muted, 12);
+        if (!plots.length) textRow('Draw a field beside this farmhouse.', t.muted, 12);
+        else if (!building.workers) textRow('Assign a worker to start production.', t.muted, 12);
+      } else if (spec.product === Product.Wood) {
         let standing = 0;
         const map = this.town.map();
         for (let y = f32(Math.trunc(building.center.y) - 5); y <= f32(Math.trunc(building.center.y) + 5); y++)
@@ -710,7 +709,7 @@ export function commandCard(
     if (bounds.contains(this.mouse.x, this.mouse.y))
       detail =
         kind !== undefined
-          ? `${describe(structureSpec(kind).cost)} · ${tools[id].key}${drawsArea(id) ? ' · Drag an area' : ''}`
+          ? [describe(structureSpec(kind).cost), tools[id].key, drawsArea(id) ? 'Drag an area' : ''].filter(Boolean).join(' · ')
           : tools[id].hint;
   }
   c.text(
@@ -771,7 +770,7 @@ export function placementPanel(this: GameHudApp, panel: Rect): void {
         c,
         'placement-confirm',
         new Rect(panel.x + 116, y, panel.w - 180, 44),
-        'Plant',
+        this.tool === Tool.ChickenCoop || this.tool === Tool.Cowshed ? 'Build pasture' : 'Plant',
         () => this.finish(),
         ButtonStyle.Primary,
         this.outline.length >= 3 && this.current.preview.valid,

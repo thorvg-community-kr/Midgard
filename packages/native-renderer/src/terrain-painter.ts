@@ -1,4 +1,5 @@
-import { fieldRows } from '../../engine/src/farm-work';
+import { Season } from '../../engine/src/town-models';
+import { fieldRows, cropStage, CropStage } from '../../engine/src/farm-work';
 import { registerPick } from './world-pick-registry';
 import {
   add,
@@ -373,37 +374,58 @@ export function tintGround(tints: Tinted[], climate: Climate): void {
 export interface FieldTown {
   calendar(): { season: number };
   climate(): Climate;
-  tendedFieldAcres(): number;
-  fields(): readonly { id?: number; outline: Point[]; acres(): number; tilled?: number }[];
+  fields(): readonly { id?: number; outline: Point[]; tilled?: number; cropProgress?: number }[];
   buildings(): readonly { id?: number; built(): boolean; footprint(): { corners(): Point[] } }[];
 }
-function crop(season: number, tended: boolean): { ground: Rgb; furrow: Rgb } {
-  if (!tended && season !== 3) return { ground: [52, 58, 40], furrow: [64, 72, 46] };
-  const crops: { ground: Rgb; furrow: Rgb }[] = [
-    { ground: [78, 60, 42], furrow: [56, 42, 30] },
-    { ground: [62, 96, 50], furrow: [46, 74, 38] },
-    { ground: [166, 136, 62], furrow: [124, 100, 44] },
-    { ground: [106, 108, 114], furrow: [84, 86, 92] },
-  ];
-  return crops[season];
+const cropColors: Record<CropStage, { ground: Rgb; furrow: Rgb }> = {
+  [CropStage.Tilling]: { ground: [78, 60, 42], furrow: [56, 42, 30] },
+  [CropStage.Sowing]: { ground: [92, 69, 48], furrow: [61, 45, 31] },
+  [CropStage.Watering]: { ground: [69, 57, 43], furrow: [98, 110, 62] },
+  [CropStage.Tending]: { ground: [66, 81, 47], furrow: [103, 132, 61] },
+  [CropStage.Harvesting]: { ground: [117, 94, 51], furrow: [185, 153, 73] },
+};
+/** Seed marks, paired leaves and ripe ears share one stroke per plot. */
+function plantedRows(rows: ReturnType<typeof fieldRows>, outline: Point[], stage: CropStage, color: Rgb): ShapeNode {
+  const marks = new ShapeNode(), { along, across, center, reach } = rows;
+  const offsets = outline.map(p => sub(p, center));
+  const lengths = offsets.map(p => p.x * along.x + p.y * along.y);
+  const widths = offsets.map(p => p.x * across.x + p.y * across.y);
+  const start = Math.min(...lengths), end = Math.max(...lengths);
+  const first = Math.ceil((Math.min(...widths) + reach) * 2), last = Math.floor((Math.max(...widths) + reach) * 2);
+  const spacing = Math.max(1, Math.ceil(Math.sqrt((end - start) * (last - first) / 130)));
+  // In the isometric projection moving both map coordinates back raises the tip on screen.
+  const height = stage === CropStage.Harvesting ? 0.20 : 0.12;
+  for (let row = first; row <= last; row += spacing) {
+    const middle = add(center, scale(across, row * 0.5 - reach));
+    for (let s = start + (row % 2) * 0.24; s <= end; s += 0.58 * spacing) {
+      const foot = add(middle, scale(along, s));
+      if (stage === CropStage.Sowing || stage === CropStage.Watering) {
+        const tip = add(foot, scale(along, stage === CropStage.Sowing ? 0.035 : 0.075));
+        marks.moveTo(foot.x, foot.y).lineTo(tip.x, tip.y);
+      } else {
+        const x = foot.x, y = foot.y, h = height;
+        marks.moveTo(x, y).cubicTo(x - h * .44, y - h * .32, x - h * .84, y - h * .98, x - h * .72, y - h * 1.12);
+        marks.moveTo(x - h * .24, y - h * .2).cubicTo(x - h * .52, y - h * .22, x - h * .66, y - h * .32, x - h * .76, y - h * .44);
+        if (stage === CropStage.Harvesting)
+          marks.moveTo(x - h * .66, y - h * .83).lineTo(x - h * .62, y - h * .96);
+      }
+    }
+  }
+  return marks.strokeWidth(0.035).strokeCap('round').strokeFill(...color);
 }
 export function paintFields(iso: SceneNode, town: FieldTown): void {
-  const season = town.calendar().season,
-    snow = town.climate().snow;
-  let tended = town.tendedFieldAcres();
+  const winter = town.calendar().season === Season.Winter, snow = town.climate().snow;
   for (const field of town.fields()) {
-    const worked = tended >= Math.trunc(field.acres() / 2);
-    tended = Math.max(0, tended - field.acres());
-    const colors = crop(season, worked);
-    colors.ground = mix(colors.ground, [148, 156, 168], f(snow * f(0.85)));
-    colors.furrow = mix(colors.furrow, [128, 136, 148], f(snow * f(0.85)));
+    const stage = cropStage(field), colors = cropColors[stage],
+      ground = mix(winter ? [106, 108, 114] : colors.ground, [148, 156, 168], f(snow * f(0.85))),
+      furrow = mix(winter ? [84, 86, 92] : colors.furrow, [128, 136, 148], f(snow * f(0.85)));
     const outline = field.outline,
       tilled = field.tilled ?? 1,
       rows = fieldRows(outline),
       plot = new ShapeNode();
     appendOutline(plot, outline);
     if (tilled >= 1) {
-      fill(plot, opaque(colors.ground));
+      fill(plot, opaque(ground));
       plot.strokeWidth(f(0.06)).strokeJoin('round').strokeFill(46, 34, 26);
     } else {
       // A staked plot: the ground shows through until the hoe has been over it.
@@ -443,9 +465,20 @@ export function paintFields(iso: SceneNode, town: FieldTown): void {
         b = add(mid, scale(along, reach));
       furrows.moveTo(a.x, a.y).lineTo(b.x, b.y);
     }
-    if (tilled >= 1) furrows.strokeWidth(f(0.06)).strokeFill(...colors.furrow);
+    if (tilled >= 1) {
+      const width = !winter && stage >= CropStage.Tending ? 0.12 : 0.06;
+      furrows.strokeWidth(f(width)).strokeFill(...furrow);
+    }
     else furrows.strokeWidth(f(0.06)).strokeFill(56, 42, 30);
-    if (tilled > 0) iso.add(new SceneNode().add(furrows).clip(clip()));
+    if (tilled > 0) {
+      const planting = new SceneNode().add(furrows);
+      if (!winter && stage > CropStage.Tilling) {
+        const leaves: Rgb = stage === CropStage.Harvesting ? [223, 192, 105]
+          : stage === CropStage.Sowing ? [143, 109, 72] : [128, 153, 81];
+        planting.add(plantedRows(rows, outline, stage, mix(leaves, [148, 156, 168], snow * 0.85)));
+      }
+      iso.add(planting.clip(clip()));
+    }
   }
   for (const item of town.buildings()) {
     if (item.built()) continue;

@@ -5,7 +5,7 @@ import { Structure } from '../../packages/engine/src/building-catalog';
 import { AnimalKind, Calling, Role } from '../../packages/engine/src/person';
 import { DungeonKind } from '../../packages/engine/src/world-types';
 import { Saga, sagaState, sealFloors, sealProgress } from '../../packages/engine/src/gate-seals';
-import { RaidKind, raidDue, raidShape } from '../../packages/engine/src/raid-progression';
+import { RaidKind, raidShape } from '../../packages/engine/src/raid-progression';
 import { GoalBranch, buildingUnlock, currentGoal, settlementGoals } from '../../packages/engine/src/settlement-progression';
 import { TownState } from '../../packages/engine/src/town-state';
 
@@ -36,22 +36,7 @@ describe('saga end states', () => {
   });
 });
 
-describe('raid cadence and shapes', () => {
-  it('gives two quiet opening nights and never more than two quiet nights in a row', () => {
-    expect(raidDue(5, 0)).toBe(false);
-    expect(raidDue(5, 1)).toBe(false);
-    let quiet = 0,
-      raids = 0;
-    for (let day = 2; day < 200; ++day) {
-      quiet = raidDue(5, day) ? 0 : quiet + 1;
-      raids += raidDue(5, day) ? 1 : 0;
-      expect(quiet).toBeLessThanOrEqual(2);
-    }
-    expect(raids).toBeLessThan(198);
-    let winter = 0;
-    for (let day = 2; day < 200; ++day) winter += raidDue(5, day, true) ? 1 : 0;
-    expect(winter).toBeGreaterThan(raids);
-  });
+describe('raid shapes and fortified seats', () => {
   it('shapes hordes as many weak raiders and brutes as few strong ones', () => {
     // A wave answers the settlement's might: more might, more swarm and more leaders.
     const strong = raidShape(RaidKind.Pack, 24);

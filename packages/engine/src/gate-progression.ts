@@ -2,7 +2,7 @@ import { isSeat, Structure } from './building-catalog';
 import { isPlayerBuilding, isPlayerResident } from './faction';
 import { gateSealed, sealable } from './gate-seals';
 import { distance, point, type Point } from './geometry';
-import { raidGraceDays, RaidKind } from './raid-progression';
+import { RaidKind } from './raid-progression';
 import type { Building } from './town-models';
 import type { TownState } from './town-state';
 import type { Dungeon } from './world-types';
@@ -28,7 +28,7 @@ export function gateOrder(town: TownState): number[] {
 }
 export function updateGateOpenings(town: TownState): void {
   const sites = town.world.dungeons();
-  if (town.days < raidGraceDays || !sites.some((site, i) => sealable(site) && !town.opened(i) && !gateSealed(town, i))) return;
+  if (!sites.some((site, i) => sealable(site) && !town.opened(i) && !gateSealed(town, i))) return;
   const owned = town.placed.filter(b => isPlayerBuilding(b) && b.built());
   if (!owned.some(b => isSeat(b.kind))) return;
   const residents = town.folk.filter(isPlayerResident), gates = gateOrder(town);
@@ -71,9 +71,6 @@ export function inRaidedVillage(town: TownState, b: Building, seat: Building | n
   if (!seat || !isPlayerBuilding(b)) return false;
   if (isSeat(b.kind)) return b === seat;
   return (b.village >= 0 ? b.village : nearestRaidSeat(town, b.center)?.id) === seat.id;
-}
-export function firstRaidDue(town: TownState): boolean {
-  return town.open.some((state, gate) => !!(state & awaitingRaid) && gateActive(town, gate));
 }
 /** Give new gates their first turn, then rotate the whole roster using the saved raid count. */
 export function raidSources(town: TownState, kind: RaidKind): number[] {

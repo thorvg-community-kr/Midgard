@@ -4,7 +4,9 @@ import type { AbilityId } from './combat-events';
 /** A skill whose effect lands a moment after the cast. */
 export interface PendingSkill {
   by: number;
-  skill: AbilityId;
+  skill: Extract<AbilityId, 'whirl' | 'volley' | 'burst' | 'frost'>;
+  /** Creature selected when a single-target skill was cast. */
+  mark?: number;
   at: Point;
   lands: number;
   damage: number;
@@ -25,6 +27,8 @@ export interface FlowField {
 }
 /** Short-lived fight bookkeeping; never saved, safely empty after a load. */
 export class CombatState {
+  /** Last enemy contact involving the player's settlement. */
+  lastEngagedAt = -Infinity;
   /** What struck each downed resident down, for their record. */
   downedBy = new Map<number, string>();
   /** Resident who dealt a creature its killing blow, until the kill is counted. */

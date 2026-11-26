@@ -34,7 +34,7 @@ export function challenge(seed: number): Piece[] {
   return [...inTier(Tier.Ground, shardRing(seed, 12, 7, 34, tone.ochre, tone.rust)), ...inTier(Tier.Overhead, horns)];
 }
 
-/** A full turn of the blade round the warrior at the whirl's true reach, after a short gathering sketch.
+/** A tight turn of the blade round the warrior, after a short gathering sketch.
  * `delay` is the skill's wind-up; the anchor is the warrior's feet. */
 export function whirl(seed: number, rx: number, ry: number, delay: number): Piece[] {
   const hip = -6,
@@ -100,15 +100,15 @@ export function whirl(seed: number, rx: number, ry: number, delay: number): Piec
   return out;
 }
 
-/** Arrows falling into the volley's circle (the anchor), each kicking up dust where it lands. */
-export function volleyRain(seed: number, rx: number, ry: number): Piece[] {
+/** A tight flight of arrows converges on the struck creature. */
+export function volleyRain(seed: number): Piece[] {
   const out: Piece[] = [],
-    count = 9;
+    count = 3;
   for (let i = 0; i < count; i++) {
     const reach = Math.sqrt(jitter(seed, i)) * 0.85,
       a = jitter(seed, i + 20) * Math.PI * 2,
-      x = Math.cos(a) * rx * reach,
-      y = Math.sin(a) * ry * reach,
+      x = Math.cos(a) * 5 * reach,
+      y = Math.sin(a) * 2 * reach,
       angle = Math.PI / 2 + (jitter(seed, i + 40) - 0.5) * 0.5,
       fall = 52,
       flight = {

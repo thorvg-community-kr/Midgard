@@ -42,8 +42,8 @@ export interface TrainingTown extends TownState {
   trainingReason(personId: number, guildId: number, calling: Calling): string;
 }
 const professions: readonly { calling: Calling; description: string }[] = [
-  { calling: Calling.Warrior, description: 'Draws foes away from allies and sweeps through nearby enemies.' },
-  { calling: Calling.Ranger, description: 'Interrupts heavy blows and rains arrows on groups.' },
+  { calling: Calling.Warrior, description: 'Draws foes away from allies and strikes one enemy with a heavy blow.' },
+  { calling: Calling.Ranger, description: 'Interrupts heavy blows and concentrates arrows on one enemy.' },
   { calling: Calling.Mage, description: 'Strikes groups with runes and slows them with frost.' },
   { calling: Calling.Cleric, description: 'Heals the wounded and revives fallen allies.' },
   { calling: Calling.Bard, description: 'Songs rally allies and weaken nearby foes.' },

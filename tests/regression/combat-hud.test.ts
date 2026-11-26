@@ -266,7 +266,7 @@ describe('skills in the player hands', () => {
       warrior.level = 4;
       press(game, 'w');
       expect(use).toHaveBeenLastCalledWith([warrior.id], 1, undefined);
-      expect(app.status).toBe('Whirl: no monster in reach');
+      expect(app.status).toBe('Whirl: no enemy in reach');
     } finally {
       ui.dispose();
     }

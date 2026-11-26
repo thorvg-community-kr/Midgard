@@ -1,5 +1,4 @@
-// Skills that hold ground for a while, each at its true radius: the volley's mark until the arrows fall, the
-// frost ring's standing crystals ("slow here"), the hallowed circle with its slow motes, and the dirge's
+// Skills that hold ground for a while, each at its true radius: the frost ring's standing crystals ("slow here"), the hallowed circle with its slow motes, and the dirge's
 // drooping mark over each foe it holds.
 import { distance, project, unproject, type Point } from '../../engine/src/geometry';
 import { boxAt, DepthSlot, type Extent } from './combat-depth';
@@ -10,7 +9,6 @@ import { SceneNode, ShapeNode, type Rgb } from './paint';
 import {
   appendChevron,
   appendLeaf,
-  appendTaperArc,
   combatLayers,
   cuesOf,
   ease,
@@ -27,7 +25,6 @@ import { monsterHeight } from './monster-rank-look';
 import type { WorldRendererState } from './world-renderer-state';
 
 export enum FieldKind {
-  Volley,
   Frost,
   Sanctuary,
   Dirge,
@@ -96,39 +93,6 @@ function groundLeaf(shape: ShapeNode, x: number, y: number, angle: number, lengt
   return shape.close();
 }
 const scaled = (node: SceneNode | ShapeNode, k: number, y = 0) => node.transform([k, 0, 0, 0, k, y, 0, 0, 1]);
-
-function volleyMark(rx: number, ry: number, seed: number): Pick<Field, 'node' | 'pose'> {
-  const node = new SceneNode(),
-    fill = disc(rx, ry, tone.olive, 70),
-    rim = flat(tone.brown),
-    ticks = flat(tone.ochre),
-    closing = new SceneNode();
-  for (let i = 0; i < 5; i++) {
-    const a0 = (i / 5) * Math.PI * 2 + jitter(seed, i) * 0.2;
-    appendTaperArc(rim, rx, ry, a0, a0 + (Math.PI * 2) / 5 - 0.3, 3.2, 0.45, 0.45);
-  }
-  // Ticks point inward: the arrows close on the middle.
-  for (let i = 0; i < 10; i++) {
-    const a = (i / 10) * Math.PI * 2 + 0.3,
-      side = 0.06;
-    ticks
-      .moveTo(Math.cos(a - side) * rx * 1.04, Math.sin(a - side) * ry * 1.04)
-      .lineTo(Math.cos(a) * rx * 0.84, Math.sin(a) * ry * 0.84)
-      .lineTo(Math.cos(a + side) * rx * 1.04, Math.sin(a + side) * ry * 1.04)
-      .close();
-  }
-  closing.add(rim).add(ticks);
-  node.add(disc(rx, ry, tone.olive, 45)).add(fill).add(closing);
-  const delay = Math.max(0.1, skillSpec('volley').delay);
-  return {
-    node,
-    pose: (age) => {
-      const p = ease.smooth(unit(age / delay));
-      scaled(fill, Math.max(0.01, p));
-      scaled(closing, 1 - 0.06 * p);
-    },
-  };
-}
 
 /** A standing bit of a field: its node sorted with the world at a ground point offset from the centre. */
 export interface Standing {
@@ -331,7 +295,7 @@ function retire(s: WorldRendererState, field: Field): void {
 }
 function open(s: WorldRendererState, state: FieldState, town: Town, event: CombatEvent): void {
   const skill = skillOfCue(town, event);
-  if (skill !== 'volley' && skill !== 'frost' && skill !== 'sanctuary' && skill !== 'dirge') return;
+  if (skill !== 'frost' && skill !== 'sanctuary' && skill !== 'dirge') return;
   const spec = skillSpec(skill),
     radius = event.radius > 0 ? event.radius : spec.radius,
     { rx, ry } = groundRadii(radius),
@@ -342,10 +306,6 @@ function open(s: WorldRendererState, state: FieldState, town: Town, event: Comba
   const base = { center: { ...event.position }, radius, marks: [], standing: [] },
     key = `field:${event.serial}`;
   switch (skill) {
-    case 'volley':
-      if (spec.delay <= 0) return;
-      field = { kind: FieldKind.Volley, at: event.at, until: lands, ...base, ...volleyMark(rx, ry, seed) };
-      break;
     case 'frost':
       field = { kind: FieldKind.Frost, at: lands, until: lands + hold, ...base, ...frostRing(s, rx, ry, seed, key) };
       break;

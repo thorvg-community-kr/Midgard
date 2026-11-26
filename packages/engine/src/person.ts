@@ -8,11 +8,11 @@ import type { StrikeKind } from './skill-catalog';
 export enum Role { Resident, Guest }
 export enum Calling { Settler, Traveller, Warrior, Ranger, Mage, Cleric, Bard }
 export enum Race { Human, God, Giant }
-export enum Activity { Idle, Moving, Holding, Building, Roadwork, Working, Eating, Sleeping, Relaxing, Exploring, Brooding, Arriving, Leaving, Guarding, Fighting, Expedition, Praying, Shopping, Hauling, Felling, Collecting, Mining, Treating, FetchingMaterials, DeliveringMaterials, WaitingMaterials, Drinking, Training, Crafting, /** Struck down and bleeding out; lies still until tended or dead. */ Downed, /** Kneeling by a downed resident (`target` is their id). */ Tending, Herding, GatheringEggs, PreparingMeat }
+export enum Activity { Idle, Moving, Holding, Building, Roadwork, Working, Eating, Sleeping, Relaxing, Exploring, Brooding, Arriving, Leaving, Guarding, Fighting, Expedition, Praying, Shopping, Hauling, Felling, Collecting, Mining, Treating, FetchingMaterials, DeliveringMaterials, WaitingMaterials, Drinking, Training, Crafting, /** Struck down and bleeding out; lies still until tended or dead. */ Downed, /** Kneeling by a downed resident (`target` is their id). */ Tending, Herding, GatheringEggs, Milking }
 export enum AnimalKind { Cow, Pig, Chicken, Wolf, Dog, Cat, Count }
 export const callingName = (calling: Calling): string => ['Settler', 'Traveller', 'Warrior', 'Ranger', 'Mage', 'Cleric', 'Bard'][calling] || '';
 export const raceName = (race: Race): string => ['Human', 'God', 'Giant'][race] || '';
-export const activityName = (activity: Activity): string => ['Idle', 'Moving on orders', 'Holding position', 'Building', 'Working on a road', 'Working', 'Eating', 'Resting', 'Relaxing at the tavern', 'Delving the dungeon', 'Brooding', 'Arriving', 'Leaving', 'On watch', 'Fighting', 'On an expedition', 'Praying', 'Buying gear', 'Carrying goods', 'Felling a tree', 'Collecting resources', 'Mining stone', 'Receiving treatment', 'Fetching supplies', 'Delivering materials', 'Waiting for materials', 'Drinking water', 'Training at the guild', 'Crafting equipment', 'Downed', 'Tending the fallen', 'Leading livestock', 'Collecting eggs', 'Preparing meat'][activity] || '';
+export const activityName = (activity: Activity): string => ['Idle', 'Moving on orders', 'Holding position', 'Building', 'Working on a road', 'Working', 'Eating', 'Resting', 'Relaxing at the tavern', 'Delving the dungeon', 'Brooding', 'Arriving', 'Leaving', 'On watch', 'Fighting', 'On an expedition', 'Praying', 'Buying gear', 'Carrying goods', 'Felling a tree', 'Collecting resources', 'Mining stone', 'Receiving treatment', 'Fetching supplies', 'Delivering materials', 'Waiting for materials', 'Drinking water', 'Training at the guild', 'Crafting equipment', 'Downed', 'Tending the fallen', 'Leading livestock', 'Collecting eggs', 'Collecting milk'][activity] || '';
 export class Monster {
   level = 1;
   health = 3; strength = 1; raider = false; angry = false; ready = 0; home = point(); prey = -1; race: Race | null = null; insideLair = false; provokedBy = -1; animal: AnimalKind | null = null;
@@ -20,7 +20,7 @@ export class Monster {
   rank = MonsterRank.Grunt;
   /** Full health, or zero when an older save has no record of it. */
   vigor = 0;
-  /** Clock time a telegraphed area blow lands, or -1. */
+  /** Clock time a telegraphed guardian slam lands, or -1. */
   windupUntil = -1;
   /** Clock time of its last bite or spit, for presentation; not saved. */
   swingAt = -1;
@@ -32,12 +32,10 @@ export class Monster {
   brood = -1;
   /** Ranch this animal belongs to. */
   pen = -1;
-  /** Birth time of a ranch-raised calf or piglet. Captured breeding stock has no birth time. */
-  ranchBornAt = -1;
   constructor(public id: number, public lair: number, public position: Point, public path: Point[] = []) {}
   giant(): boolean { return this.race === Race.Giant; }
 }
-export interface Hit { serial: bigint; from: Point; to: Point; damage: number; onPerson: boolean; ranged: boolean; at: number; person: number; attacker?: number; /** A blow for extra damage. */ crit?: boolean; /** Turned aside by a shield; `damage` is 0. */ blocked?: boolean; /** How the blow landed; absent means `StrikeKind.Single`. */ strike?: StrikeKind; /** False for the enemies a cleave, pierce or splash caught besides its target; absent means true. */ primary?: boolean; }
+export interface Hit { serial: bigint; from: Point; to: Point; damage: number; onPerson: boolean; ranged: boolean; at: number; person: number; attacker?: number; /** A blow for extra damage. */ crit?: boolean; /** Turned aside by a shield; `damage` is 0. */ blocked?: boolean; /** How the blow landed; absent means `StrikeKind.Single`. */ strike?: StrikeKind; /** False for enemies caught by a staff bolt beside its target; absent means true. */ primary?: boolean; }
 export interface Expedition { dungeon: number; members: number[]; /** Floor of the world beyond the gate the party will enter. */ floor: number; }
 export class Person {
   static readonly maximumLevel = 100;
@@ -136,11 +134,6 @@ export class Person {
 export function experienceForLevel(level: number): number {
   const n = level - 1;
   return level >= Person.maximumLevel ? 0 : 40 + 30 * n + 3 * n * n;
-}
-/** Experience for three seconds of productive work. Apprentices practice what the settlement has already mastered. */
-export function workPracticeExperience(level: number, provenLevel: number): number {
-  const apprentice = level < provenLevel;
-  return Math.max(1, Math.round(experienceForLevel(apprentice ? provenLevel : level) / (apprentice ? 10 : 80)));
 }
 export function experienceForLevels(start: number, count: number): number {
   let total = 0;

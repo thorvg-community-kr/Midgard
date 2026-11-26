@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { Town } from '../../packages/engine/src/town';
 import { WorldMap } from '../../packages/engine/src/world-map';
 import { makeTile, Terrain, Layer, DungeonKind } from '../../packages/engine/src/world-types';
-import { Person, Role, Calling, Race, Activity, Monster, experienceForLevel, experienceForLevels, workPracticeExperience } from '../../packages/engine/src/person';
+import { Person, Role, Calling, Race, Activity, Monster, AnimalKind, experienceForLevel, experienceForLevels } from '../../packages/engine/src/person';
 import { Building } from '../../packages/engine/src/town-models';
+import { MonsterRank } from '../../packages/engine/src/combat-events';
 import { Product, Resources, Structure } from '../../packages/engine/src/building-catalog';
 import { point, distance } from '../../packages/engine/src/geometry';
 import {
@@ -111,46 +112,82 @@ describe('owned equipment, personal inventory and crafting', () => {
     expect(100 - first - foe.health).toBe(first);
     expect(town.power(person)).toBe(first);
   });
-  it('earns experience at a workstation, keeps that experience on load, and trains late recruits from settled knowledge', () => {
-    const makeTool = (sealed: number) => {
-      const { town, person, bench } = fixture();
-      town.world.sites = [point(18, 18), point(26, 26)].map(origin => ({
-        kind: DungeonKind.Cave, origin, discovered: true, name: 'Old cave',
-      }));
-      town.open = [1, 1];
-      town.depth = [0, 0];
-      if (sealed >= 0) town.depth[sealed] = 3;
-      person.level = 2;
-      advance(town, 6);
-      expect(person.experience).toBe(0);
-      expect(town.orderCraft(person.id, bench.id, 'wooden-axe')).toBe(true);
-      for (let i = 0; i < 1200 && !person.inventory.some(s => s?.item === 'wooden-axe'); i++) town.advance(.05);
-      expect(person.inventory.some(s => s?.item === 'wooden-axe')).toBe(true);
-      const loaded = decodeTown(encodeTown(town), map => new Town(map, 32, false, true))!;
-      expect(loaded.person(person.id)?.experience).toBe(person.experience);
-      return experienceForLevels(2, person.level - 2) + person.experience;
-    };
-    const early = makeTool(-1), firstGate = makeTool(0), fartherGate = makeTool(1);
-    expect(early).toBeGreaterThan(0);
-    expect(firstGate).toBeGreaterThan(early);
-    expect(fartherGate).toBeGreaterThan(firstGate);
+  it.each([false, true])('crafts a tool without earning level experience, including after a dungeon seal (%s)', sealed => {
+    const { town, person, bench } = fixture();
+    town.world.sites = [{ kind: DungeonKind.Cave, origin: point(26, 26), discovered: true, name: 'Old cave' }];
+    town.open = Uint8Array.of(1);
+    town.depth = [sealed ? 3 : 0];
+    person.level = 2;
+    person.experience = person.experienceToNextLevel() - 1;
+    const before = { level: person.level, experience: person.experience };
+    expect(town.orderCraft(person.id, bench.id, 'wooden-axe')).toBe(true);
+    for (let i = 0; i < 1200 && !person.inventory.some(s => s?.item === 'wooden-axe'); i++) town.advance(.05);
+    expect(person.inventory.some(s => s?.item === 'wooden-axe')).toBe(true);
+    expect(person).toMatchObject(before);
+    expect(decodeTown(encodeTown(town), map => new Town(map, 32, false, true)).person(person.id)).toMatchObject(before);
   });
-  it('trains a late recruit to a proven tier quickly and gives veterans the normal pace', () => {
-    const productiveMinutes = (start: number, target: number, proven: number) => {
-      const { person } = fixture();
-      person.level = start;
-      let beats = 0;
-      while (person.level < target && beats < 5000) {
-        person.gainExperience(workPracticeExperience(person.level, proven));
-        ++beats;
-      }
-      expect(person.level).toBe(target);
-      return beats * 3 / 60;
+  it('earns combat experience with nearby fighting allies, excluding food hunts and idle bystanders', () => {
+    const { town, person } = fixture();
+    town.world.sites = [{ kind: DungeonKind.Cave, origin: point(26, 26), discovered: true, name: 'Old cave' }];
+    const companion = (activity: Activity, faction: number, at = person.position) => {
+      const settler = town.makePerson(Role.Resident, Calling.Warrior, at);
+      settler.activity = activity;
+      settler.faction = faction;
+      town.folk.push(settler);
+      return settler;
     };
-    expect(productiveMinutes(35, 70, 70)).toBeLessThan(12);
-    expect(productiveMinutes(35, 80, 70)).toBeLessThan(52);
-    expect(productiveMinutes(70, 80, 70)).toBe(productiveMinutes(70, 80, 0));
-    expect(productiveMinutes(5, 10, 0)).toBeGreaterThan(18);
+    const ally = companion(Activity.Fighting, person.faction), worker = companion(Activity.Working, person.faction),
+      stranger = companion(Activity.Fighting, person.faction + 1), distant = companion(Activity.Fighting, person.faction, point(2, 2));
+    const prey = new Monster(0, -1, person.position);
+    prey.animal = AnimalKind.Cow;
+    expect(town.hurtCreature(prey, prey.health, person)).toBe(true);
+    expect(town.folk.every(p => p.experience === 0)).toBe(true);
+    const chicken = new Monster(2, -1, point(14, 14));
+    chicken.animal = AnimalKind.Chicken;
+    town.animals = [chicken];
+    const hunter = companion(Activity.Idle, person.faction), orderedHunter = companion(Activity.Idle, person.faction);
+    expect(town.huntFood(hunter)).toBe(true);
+    expect(town.orderAttack([orderedHunter.id], chicken.id)).toBe(true);
+    expect(hunter).toMatchObject({ activity: Activity.Fighting, foe: chicken.id, hunting: true });
+    expect(orderedHunter).toMatchObject({ activity: Activity.Fighting, foe: chicken.id, hunting: false });
+    const raider = new Monster(1, 0, person.position);
+    ally.foe = raider.id;
+    raider.raider = true;
+    raider.vigor = raider.health = 1;
+    expect(town.hurtCreature(raider, raider.health, person)).toBe(true);
+    expect(town.hurtCreature(raider, 1, person)).toBe(false);
+    expect([person, ally, worker, stranger, distant, hunter, orderedHunter].map(p => p.experience)).toEqual([1, 1, 0, 0, 0, 0, 0]);
+  });
+  it('trains veterans in late raids while each scout still teaches a new recruit only a little', () => {
+    const { town, person: veteran } = fixture();
+    town.world.sites = Array.from({ length: 8 }, (_, i) =>
+      ({ kind: DungeonKind.Cave, origin: point(4 + i * 3, 4), discovered: true, name: 'Old cave' }));
+    veteran.level = 75;
+    const recruit = town.makePerson(Role.Resident, Calling.Warrior, veteran.position);
+    recruit.activity = Activity.Fighting;
+    town.folk.push(recruit);
+    const killRaider = (id: number, level: number) => {
+      const scout = new Monster(id, 7, veteran.position);
+      scout.raider = true;
+      scout.rank = MonsterRank.Swarmer;
+      scout.level = level;
+      scout.vigor = scout.health = 1;
+      town.hurtCreature(scout, scout.health, veteran);
+    };
+    killRaider(0, 16);
+    const early = veteran.experience;
+    expect(early).toBeGreaterThan(0);
+    recruit.experience = 0;
+    town.depth = [3, 3, 3, 3, 3, 3, 3, 0];
+    killRaider(1, 16);
+    const late = veteran.experience - early;
+    expect(late).toBeGreaterThan(10 * early);
+    expect(late).toBeLessThan(veteran.experienceToNextLevel() / 100);
+    expect(recruit.level).toBe(1);
+    expect(recruit.experience).toBeGreaterThan(0);
+    expect(recruit.experience).toBeLessThan(recruit.experienceToNextLevel() / 10);
+    killRaider(2, 1);
+    expect(veteran.experience).toBe(early + late + 1);
   });
   it('rewards a trained settler through the final dungeon tier and saves the higher level', () => {
     const { town, person } = fixture();
@@ -268,6 +305,9 @@ describe('owned equipment, personal inventory and crafting', () => {
         expect(town.unequipItem(0, 'tool1')).toBe(true);
         expect(person.until - town.clock()).toBeCloseTo(left, 5);
       }
+      advance(town, left + 1);
+      expect(tool === 'axe' ? map.tiles[cell].trees === 0 : map.tiles[cell].quarried).toBe(true);
+      expect(person).toMatchObject({ level: 1, experience: 0 });
       return left;
     };
     const bare = remaining(false, false),

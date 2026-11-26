@@ -465,20 +465,23 @@ describe('build menu unlocks', () => {
       // A group with nothing to build is not offered.
       page(ui, '');
       expect(ui.control('global/card-group-Housing')).toBeDefined();
+      expect(ui.words()).toContain('Housing');
       expect(ui.control('global/card-group-Food & materials')).toBeDefined();
       page(ui, 'Food & materials');
-      expect(ui.control('global/card-pick-Ranch')?.[3]).toBe(true);
+      for (const label of ['Chicken coop', 'Cowshed']) expect(ui.control('global/card-pick-' + label)?.[3]).toBe(true);
       expect(ui.words()).not.toContain('Locked');
       // A group keeps its page number while others open around it.
       const before = buildGroups(town).findIndex((g) => g.name === 'Faith & arcane');
       settled(town);
-      expect(openGroups(town).map(({ group }) => group.name)).toEqual(['Roads', 'Housing', 'Food & materials', 'Faith & arcane']);
+      expect(openGroups(town).map(({ group }) => group.name)).toEqual(['Roads', 'Housing', 'Food & materials', 'Water & storage', 'Faith & arcane']);
       expect(openGroups(town).find(({ group }) => group.name === 'Faith & arcane')!.page).toBe(before + 1);
       // The list of groups shows only those with something to build, each by name while there is room.
       page(ui, '');
       expect(ui.control('global/card-group-Faith & arcane')).toBeDefined();
       expect(ui.control('global/card-group-Arms & defence')).toBeUndefined();
-      expect(ui.words()).toContain('Housing');
+      expect(ui.control('global/card-group-Water & storage')).toBeDefined();
+      page(ui, 'Water & storage');
+      expect(ui.control('global/card-pick-Well')?.[3]).toBe(true);
       page(ui, 'Faith & arcane');
       expect(ui.control('global/card-pick-Altar')?.[3]).toBe(true);
       expect(ui.control('global/card-pick-Chapel')).toBeUndefined();
@@ -511,10 +514,10 @@ describe('build menu unlocks', () => {
       camp.progress = 1;
       trackUnlocks(ui.app);
       // Finishing camp opens the early food option alongside the workbench.
-      expect(waiting()).toEqual([Tool.Workbench, Tool.Ranch]);
+      expect(waiting()).toEqual([Tool.Workbench, Tool.ChickenCoop, Tool.Cowshed]);
       expect(town.notices).toEqual([]);
       trackUnlocks(ui.app);
-      expect(waiting()).toEqual([Tool.Workbench, Tool.Ranch]);
+      expect(waiting()).toEqual([Tool.Workbench, Tool.ChickenCoop, Tool.Cowshed]);
       const housing = buildGroups(town).find((g) => g.name === 'Housing')!;
       expect(freshGroup(ui.app, housing.tools)).toBe(true);
       page(ui, 'Housing');

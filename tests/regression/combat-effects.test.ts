@@ -24,7 +24,6 @@ import { MarkKind, markProgress, telegraphsOf } from '../../packages/native-rend
 import { monsterHeight, rankScale } from '../../packages/native-renderer/src/monster-rank-look';
 import { monsterKind } from '../../packages/native-renderer/src/monster-figures';
 import { FieldKind, skillFieldsOf } from '../../packages/native-renderer/src/skill-fields';
-import { groundRadii } from '../../packages/native-renderer/src/combat-paint';
 import { maxEffects } from '../../packages/native-renderer/src/combat-effects';
 import { skillSpec, StrikeKind } from '../../packages/engine/src/skill-catalog';
 import type { AbilityId } from '../../packages/engine/src/combat-events';
@@ -613,7 +612,6 @@ describe('skills', () => {
         EffectKind.Challenge,
         EffectKind.Whirl,
         EffectKind.Aim,
-        EffectKind.Volley,
         EffectKind.Cast,
         EffectKind.Frost,
         EffectKind.Sanctuary,
@@ -623,21 +621,14 @@ describe('skills', () => {
     );
     expect(telegraphsOf(s).marks.map((m) => m.kind)).toEqual([MarkKind.Rune]);
     const fields = () => skillFieldsOf(s);
-    expect(fields().map((f) => f.kind)).toEqual([FieldKind.Volley, FieldKind.Frost, FieldKind.Sanctuary, FieldKind.Dirge]);
+    expect(fields().map((f) => f.kind)).toEqual([FieldKind.Frost, FieldKind.Sanctuary, FieldKind.Dirge]);
     // The dirge marks every foe in reach but not the den.
-    expect(fields()[3].marks.map((m) => m.creature).sort()).toEqual(foes.map((f) => f.id).sort());
-    // The volley's mark spans its true radius.
-    const volley = fields()[0],
-      { rx } = groundRadii(skillSpec('volley').radius),
-      xs = (volley.node.children[2] as SceneNode).children.flatMap((n) =>
-        (n as { commands: unknown[][] }).commands.filter((c) => c[0] === 'L').map((c) => Math.abs(c[1] as number)),
-      );
-    expect(Math.max(...xs)).toBeGreaterThan(rx * 0.95);
-    expect(Math.max(...xs)).toBeLessThan(rx * 1.15);
-    // The volley's mark gives way to falling arrows; frost and sanctuary stay for their durations.
-    advance(town, skillSpec('volley').delay + 0.05);
+    expect(fields()[2].marks.map((m) => m.creature).sort()).toEqual(foes.map((f) => f.id).sort());
+    // The arrows appear on their single victim at impact, even when it has moved.
+    advance(town, skillSpec('volley').delay);
+    swingBlow(town, ranger.position, foes[0].position, 12, ranger.id, StrikeKind.Single, true, { ranged: true });
     frame(s, town);
-    expect(fields().map((f) => f.kind)).not.toContain(FieldKind.Volley);
+    expect(kinds(s)).toContain(EffectKind.Volley);
     advance(town, 3);
     frame(s, town);
     expect(fields().map((f) => f.kind)).toEqual([FieldKind.Frost, FieldKind.Sanctuary, FieldKind.Dirge]);
@@ -918,7 +909,6 @@ describe('draw order', () => {
       [EffectKind.Challenge]: [Tier.Ground, Tier.Overhead],
       [EffectKind.Whirl]: [Tier.Body, Tier.Standing],
       [EffectKind.Aim]: [Tier.Overhead],
-      [EffectKind.Volley]: [Tier.Standing],
       [EffectKind.Cast]: [Tier.Body],
       [EffectKind.Frost]: [Tier.Ground],
       [EffectKind.Sanctuary]: [Tier.Ground],
@@ -928,7 +918,11 @@ describe('draw order', () => {
     });
     // The whirl stands in four quarters round the warrior; each arrow of the volley where it lands.
     expect(seen.get(EffectKind.Whirl)!.parts.filter((p) => p.tier === Tier.Standing)).toHaveLength(4);
-    expect(seen.get(EffectKind.Volley)!.parts.length).toBeGreaterThanOrEqual(9);
+    advance(town, skillSpec('volley').delay);
+    swingBlow(town, hero.position, foe.position, 5, hero.id, StrikeKind.Single, true, { ranged: true });
+    frame(s, town);
+    check({ [EffectKind.Volley]: [Tier.Standing] });
+    expect(seen.get(EffectKind.Volley)!.parts.length).toBe(4);
     // Skill areas: discs on the ground, crystals and petals standing, the dirge's marks overhead.
     for (const field of skillFieldsOf(s)) {
       expect(s.combatGround.children).toContain(field.node);

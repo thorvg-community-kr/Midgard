@@ -6,7 +6,6 @@ import { Activity, Calling, Person, Role, Monster } from './person';
 import { Product, Resources, Structure, structureSpec, isHome } from './building-catalog';
 import { Point, point, add, rotated, distance, segmentDistance, sub, scale, normalized } from './geometry';
 import { combatItem } from './equipment';
-import { StrikeKind, strikeOf } from './skill-catalog';
 import { f32 as f } from './numeric';
 import { treePosition } from './world-map';
 import * as mining from './mining';
@@ -16,7 +15,7 @@ import { inArea } from './realm-layout';
 import { prepareFarmWork } from './farm-work';
 import { approachBasalt, roadLayReach, roadWorkSpot, buildingWorkSpot, waitsForFront } from './person-navigation';
 import type { Town } from './town';
-import { herdLeader, isRanchHarvest, leadLivestock, livestockKind, localRanches } from './livestock';
+import { herdLeader, isRanchHarvest, leadLivestock, livestockKind } from './livestock';
 import { beyondOrders, canControl, sameFaction } from './faction';
 import { clearAutomaticConstruction } from './automatic-work';
 import { healthCap } from './resident-wounds';
@@ -152,11 +151,10 @@ export function setAuto(this: OrderTown, id: number, enabled: boolean): void {
 }
 /** Formation rows: blades, maces and spears in front, bards and clerics behind them, bows and staves at the back. */
 function formationRow(p: Person): number {
-  const shape = combatItem(p)?.visual,
-    kind = strikeOf(shape).kind;
+  const shape = combatItem(p)?.visual;
   if (shape === 'bow' || shape === 'staff') return 2;
   if (p.calling === Calling.Cleric || p.calling === Calling.Bard) return 1;
-  if (kind !== StrikeKind.Single || p.calling === Calling.Warrior) return 0;
+  if (shape === 'sword' || shape === 'spear' || shape === 'mace' || p.calling === Calling.Warrior) return 0;
   return p.calling === Calling.Ranger || p.calling === Calling.Mage ? 2 : 1;
 }
 const formationSpacing = 0.7;
@@ -241,10 +239,7 @@ export function orderAttack(this: OrderTown, ids: number[], monster: number): bo
   const town = this as Town;
   if (target.pen >= 0 || (livestockKind(target.animal) && herdLeader(town, target))) return false;
   const group = this.folk.filter(p => canControl(p, this.controlFaction) && ids.includes(p.id));
-  if (livestockKind(target.animal)) {
-    const handlers = group.filter(p => localRanches(town, p).length);
-    if (handlers.length) return handlers.some(p => leadLivestock(town, p, target));
-  }
+  if (livestockKind(target.animal) && group.some(p => leadLivestock(town, p, target))) return true;
   let any = false;
   for (const p of group) {
     this.setOrder(p, Activity.Fighting, monster);

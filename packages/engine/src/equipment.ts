@@ -27,7 +27,7 @@ export type WorkKind =
   | 'crafting'
   /** Laying and mending roads, breaking in a new field. */
   | 'digging'
-  /** Tending a field's standing crop in summer and autumn. */
+  /** Harvesting a field of ripe crops. */
   | 'reaping';
 /** Shapes drawn in the hand. */
 export type HeldVisual =
@@ -226,7 +226,7 @@ const stoneTool = (
 });
 const shovelText =
     'Digs: lays and mends roads and breaks in new fields.',
-  sickleText = "Cuts the standing crop: a farmhand's field work in summer and autumn.",
+  sickleText = "Helps a farmer harvest ripe crops.",
   spearText = 'A long thrusting weapon: its point runs on through one enemy behind its target.';
 const smithText = [
   '',

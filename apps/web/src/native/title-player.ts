@@ -69,13 +69,15 @@ export class TitlePlayer {
     const plan = planSettlement(ctx);
     this.goal = plan.goal;
     this.shortfall = plan.shortfall;
+    // Once the founding workshops stand, arm free fighters before sending them out to extend the streets.
+    if (foundingQuest < 0) this.gearShort = equipFree(ctx, this.gearShort);
     planRoads(ctx);
     staffSites(ctx);
     this.altar = callResidents(ctx);
     if (town.stock().food < town.population() * 2) hunt(ctx);
     if (town.stock().food < town.population()) hunt(ctx);
     staffJobs(ctx);
-    this.gearShort = equipFree(ctx, this.gearShort);
+    if (foundingQuest >= 0) this.gearShort = equipFree(ctx, this.gearShort);
     gatherShortfall(ctx, plan.shortfall.wood + this.gearShort.wood, plan.shortfall.stone + this.gearShort.stone,
       settlementGoals()[foundingQuest]?.kind === GoalKind.Station);
   }

@@ -615,7 +615,7 @@ export function realmKill(this: RealmTown, beast: Monster): void {
   };
   ++this.changes;
 }
-/** The guardian's telegraphed slam lands on everyone still standing in its circle. */
+/** The guardian's heavy blow lands on one fighter still within its marked reach. */
 function slam(town: RealmTown, beast: Monster, party: Person[], enraged: boolean): void {
   const breed = breedOf(town.world.dungeons()[beast.lair].kind),
     might = beast.strength;
@@ -624,13 +624,10 @@ function slam(town: RealmTown, beast: Monster, party: Person[], enraged: boolean
   const center = town.combatState.slamCenter.get(beast.id) ?? { ...beast.position };
   town.combatState.slamCenter.delete(beast.id);
   if (enraged) beast.strength = f(might * realmRules.enrage);
-  let hit = false;
-  for (const p of party)
-    if (!p.inside && p.health > 0 && p.downedAt < 0 && distance(p.position, center) <= rankRules.slamRadius) {
-      hit = true;
-      monsterBite(town, beast, p, breed, rankRules.slamPower, true);
-    }
-  if (town.firstExpedition.slam === FirstSlam.Winding) town.firstExpedition.slam = hit ? FirstSlam.Hit : FirstSlam.Evaded;
+  const victim = choosePrey(beast, party.filter(p =>
+    !p.inside && p.health > 0 && p.downedAt < 0 && distance(p.position, center) <= rankRules.slamRadius));
+  if (victim) monsterBite(town, beast, victim, breed, rankRules.slamPower, true);
+  if (town.firstExpedition.slam === FirstSlam.Winding) town.firstExpedition.slam = victim ? FirstSlam.Hit : FirstSlam.Evaded;
   beast.strength = might;
   beast.ready = town.time + breed.pause;
   town.emit(CombatCue.Slam, center, { creature: beast.id, radius: rankRules.slamRadius });

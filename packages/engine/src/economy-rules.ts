@@ -21,7 +21,8 @@ export const economyRules = {
   /** Tiles revealed around a gate found by farsight. */
   farsightRadius: 3,
   /** Residents eat one food in about this many days (see `forecast`). */
-  daysPerMeal: 7.5,
+  daysPerMeal: 3.75,
+  daysPerDrink: 3.75,
 };
 /** Goods a market buys and sells, in the order the HUD lists them. */
 export const tradedProducts = [Product.Wood, Product.Stone, Product.Food, Product.Planks, Product.CutStone] as const;

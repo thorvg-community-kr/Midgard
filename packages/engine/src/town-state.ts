@@ -17,6 +17,7 @@ import type { RealmReward } from './town-realm';
 import type { ExpeditionRecord, ExpeditionResult } from './expedition-record';
 import { Chronicle, type CombatCue, type CombatEvent, type Fallen } from './combat-events';
 import { CombatState } from './combat-state';
+import { belongsToFaction } from './faction';
 import { FirstSlam } from './expedition-record';
 import { ThorVisit } from './thor-visit';
 export class TownState {
@@ -71,6 +72,15 @@ export class TownState {
   /** The player has acted: residents may go about their work. Other factions' doings do not count. */
   commanded(): void { if (this.controlFaction === 0) this.awaiting = false; }
   combatEvents(): readonly CombatEvent[] { return this.events; }
+  /** A resident or building of the player's settlement has made contact with an enemy. */
+  engage(participant: Pick<Person, 'faction'>): void {
+    if (belongsToFaction(participant)) this.combatState.lastEngagedAt = this.time;
+  }
+  inCombat(): boolean {
+    // A fight stays active between blows, including the wind-up of a guardian's slam.
+    const elapsed = this.time - this.combatState.lastEngagedAt;
+    return elapsed >= 0 && elapsed < 3;
+  }
   /** Records a combat cue for presentation. Unset fields default to none. */
   emit(cue: CombatCue, position: Point, fields: Partial<Omit<CombatEvent, 'serial' | 'cue' | 'at' | 'position'>> = {}): void {
     if (this.events.length >= 256) this.events.shift();

@@ -1,11 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Town } from '../../packages/engine/src/town';
 import { WorldMap } from '../../packages/engine/src/world-map';
-import { Layer, Terrain, makeTile } from '../../packages/engine/src/world-types';
-import { Activity, Person, Role, Calling, Race } from '../../packages/engine/src/person';
+import { Layer, Region, Terrain, makeTile } from '../../packages/engine/src/world-types';
+import { Activity, AnimalKind, Monster, Person, Role, Calling, Race } from '../../packages/engine/src/person';
 import { Building } from '../../packages/engine/src/town-models';
 import { Resources, Structure } from '../../packages/engine/src/building-catalog';
 import { area, centroid, contains, distance, overlaps, point } from '../../packages/engine/src/geometry';
+import { pastureCapacity, produceCapacity } from '../../packages/engine/src/pasture-geometry';
+import { pastureGate } from '../../packages/engine/src/pasture-roaming';
+import { encodeTown, encodeTownPayload, decodeTown } from '../../packages/engine/src/save-game';
 import { sharpAnchor } from '../../packages/engine/src/road-network';
 
 /** Open grass around a finished camp at (12, 12), with one resident and no farm. */
@@ -123,5 +126,103 @@ describe('laying out a farm from one drawn area', () => {
     expect(town.layFarm(taken)).toBe(false);
     expect(farms(town)).toHaveLength(0);
     expect(town.fields()).toHaveLength(0);
+  });
+});
+
+describe('drawing a livestock pasture', () => {
+  it.each([Structure.ChickenCoop, Structure.Cowshed])('uses the grazable area to size structure %i and keeps its gate reachable', (kind) => {
+    const { town } = fixture();
+    const small = rectangle(17, 16, 22, 20), large = rectangle(17, 16, 25, 22);
+    const first = town.pastureLayout(kind, small), second = town.pastureLayout(kind, large);
+    expect(first.check.reason).toBe('');
+    expect(second.check.reason).toBe('');
+    expect(first.capacity).toBe(Math.floor(area(first.pasture) / (kind === Structure.Cowshed ? 4 : 2)));
+    expect(second.capacity).toBeGreaterThan(first.capacity);
+    expect(town.layPasture(kind, large)).toBe(true);
+    const shelter = town.buildings().at(-1)!;
+    expect(shelter.pasture).toEqual(second.pasture);
+    expect(pastureCapacity(shelter)).toBe(second.capacity);
+    expect(overlaps(shelter.pasture, shelter.footprint().corners())).toBe(false);
+    town.completeConstruction();
+    town.tick(0);
+    const gate = pastureGate(shelter);
+    expect(contains(shelter.pasture, gate)).toBe(true);
+    expect(town.grid.path(town.camp()!.door(), gate).length).toBeGreaterThan(0);
+    shelter.storedProduce = produceCapacity(shelter);
+    expect(shelter.storedProduce).toBeGreaterThan(kind === Structure.Cowshed ? 20 : 12);
+    expect(new DataView(encodeTownPayload(town).buffer).getUint32(0, true)).toBe(30);
+    const saved = decodeTown(encodeTown(town), map => new Town(map, map.width(), false, true));
+    const restored = saved.building(shelter.id)!;
+    expect(restored.pasture).toEqual(shelter.pasture);
+    expect(restored.storedProduce).toBe(shelter.storedProduce);
+    expect(pastureCapacity(restored)).toBe(second.capacity);
+    expect(saved.fields()).toHaveLength(0);
+  });
+  it('reuses the routes to a previewed shelter and gate until the walking grid changes', () => {
+    const { town } = fixture(), draw = rectangle(18, 16, 24, 21), kind = Structure.Cowshed;
+    const route = vi.spyOn(town.grid, 'path');
+    expect(town.pastureLayout(kind, draw).check.ok).toBe(true);
+    expect(route).toHaveBeenCalledTimes(2);
+    for (let i = 0; i < 3; ++i) expect(town.pastureLayout(kind, draw).check.ok).toBe(true);
+    expect(route).toHaveBeenCalledTimes(2);
+    town.grid.rebuild(town.world, town.network, town.placed.map(b => b.footprint()));
+    expect(town.pastureLayout(kind, draw).check.ok).toBe(true);
+    expect(route).toHaveBeenCalledTimes(4);
+  });
+  it('keeps the original stalls in point-placed pens and writes the earlier format', () => {
+    const { town } = fixture();
+    for (const [kind, x, capacity] of [[Structure.ChickenCoop, 18, 5], [Structure.Cowshed, 24, 2]] as const) {
+      expect(town.place(kind, point(x, 15), 0)).toBe(true);
+      expect(pastureCapacity(town.placed.at(-1)!)).toBe(capacity);
+    }
+    expect(new DataView(encodeTownPayload(town).buffer).getUint32(0, true)).toBe(29);
+    const saved = decodeTown(encodeTown(town), map => new Town(map, map.width(), false, true));
+    expect(saved.placed.slice(-2).map(pastureCapacity)).toEqual([5, 2]);
+  });
+  it('moves the grass and its occupants with the shed when editing the village', () => {
+    const { town } = fixture(), kind = Structure.Cowshed;
+    expect(town.layPasture(kind, rectangle(18, 16, 26, 21))).toBe(true);
+    const shed = town.placed.at(-1)!, cow = new Monster(town.nextMonster++, -1, point(23, 18));
+    cow.animal = AnimalKind.Cow;
+    cow.pen = shed.id;
+    cow.home = { ...cow.position };
+    town.animals.push(cow);
+    const capacity = pastureCapacity(shed);
+    expect(town.editBuilding(shed.id, point(30, 26), Math.PI / 2, shed.progress, shed.health)).toBe(true);
+    expect(contains(shed.pasture, cow.position)).toBe(true);
+    expect(cow.home).toEqual(cow.position);
+    expect(pastureCapacity(shed)).toBe(capacity);
+  });
+  it('restores a cow taken over a regional border, including after its pen has been removed', () => {
+    const { town } = fixture();
+    const north = town.world.regionCenter(Region.North), cow = new Monster(town.nextMonster++, -1, north);
+    expect(town.world.regionAt(north)).toBe(Region.North);
+    cow.animal = AnimalKind.Cow;
+    cow.home = { ...north };
+    town.animals.push(cow);
+    const saved = decodeTown(encodeTown(town), map => new Town(map, map.width(), false, true));
+    expect(saved.creature(cow.id)?.position).toEqual(north);
+  });
+  it('reserves a drawn enclosure immediately and releases the ground when the shelter is removed', () => {
+    const { town } = fixture(), draw = rectangle(17, 15, 23, 21);
+    expect(town.layPasture(Structure.ChickenCoop, draw)).toBe(true);
+    const shed = town.placed.at(-1)!;
+    const at = point(21, 18), crossing = [sharpAnchor(point(21, 13)), sharpAnchor(at)];
+    expect(town.buildingAt(at)).toBe(-1);
+    expect(town.buildingAt(at, true)).toBe(shed.id);
+    expect(town.canPlace(Structure.Tent, at, 0).reason).toBe('Pasture in the way');
+    expect(town.canBuildRoad(crossing).reason).toBe('Pasture in the way');
+    expect(town.canPlantField(rectangle(20, 18, 22, 20)).reason).toBe('Pasture in the way');
+    expect(town.layPasture(Structure.Cowshed, rectangle(20, 18, 26, 24))).toBe(false);
+    expect(town.placed).toHaveLength(2);
+    town.raze(shed.id);
+    expect(town.canPlace(Structure.Tent, at, 0).ok).toBe(true);
+  });
+  it('rejects too little ground, oversize and crossing outlines without reserving space', () => {
+    const { town } = fixture(), kind = Structure.Cowshed;
+    expect(town.pastureLayout(kind, rectangle(17, 15, 20, 18)).check.reason).toBe('Too small for a shelter and pasture');
+    expect(town.pastureLayout(kind, rectangle(17, 15, 31, 25)).check.reason).toBe('At most 96 acres per pasture');
+    expect(town.layPasture(kind, [point(17,15), point(23,21), point(23,15), point(17,21)])).toBe(false);
+    expect(town.placed).toHaveLength(1);
   });
 });

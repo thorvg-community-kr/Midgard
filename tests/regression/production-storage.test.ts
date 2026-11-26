@@ -195,6 +195,7 @@ describe('processing and dedicated stores', () => {
       activity: Activity[p.activity],
       task: Activity[p.task],
     }).toMatchObject({ stock: { planks: 1 }, gathered: true, delivered: true, job: mill.id });
+    expect(p).toMatchObject({ level: 1, experience: 0 });
   });
   it('saves refined stock, production progress and new needs without losing old IDs', () => {
     const town = fixture(),

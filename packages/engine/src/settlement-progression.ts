@@ -284,6 +284,9 @@ function questReached(town: Town, index: number): boolean {
 const staked = (town: Town, kind: Structure): boolean =>
   town.buildings().some((b) => b.kind === kind && belongsToFaction(b, town.controlFaction));
 function introduction(town: Town, kind: Structure): UnlockRequirement | null {
+  if (kind === Structure.Well && [Structure.Farm, Structure.ChickenCoop, Structure.Cowshed].some(
+    producer => completedFacility(town, producer),
+  )) return null;
   const index = introductions.get(kind) ?? -1;
   if (index < 0 || questReached(town, index) || completedFacility(town, kind) || staked(town, kind)) return null;
   return { text: `Reach the quest "${goals[index].title}"`, done: false };

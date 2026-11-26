@@ -12,6 +12,7 @@ import { canHarvest, harvestProduct, minedProduct, supplies } from './harvest-ma
 import { inArea } from './realm-layout';
 import { acceptsCargo, processingRecipe } from './town-production';
 import { stowCargo } from './carried-resources';
+import { clearingField } from './farm-work';
 import { resourceAmount } from './construction-materials';
 export interface HarvestTown extends TownState {
   settlementAt(p: Point): number;
@@ -140,7 +141,7 @@ export function harvest(this: HarvestTown, p: Person, cell: number, kind: Produc
     stone = minedProduct(kind),
     foundation = !stone && this.storageFoundation(p),
     construction = p.task === Activity.Building || p.task === Activity.Roadwork,
-    clearing = !stone && construction,
+    clearing = !stone && (construction || clearingField(this, p, cell)),
     product = clearing ? Product.Wood : harvestProduct(this.world, x, y, stone),
     stockpile =
       foundation &&

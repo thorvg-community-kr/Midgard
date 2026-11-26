@@ -1,5 +1,6 @@
-import { attackDungeon, dungeonAttackProblem, targetedDungeon } from './dungeon-siege';
-import { belongsToFaction, canControl } from './faction';
+import { attackDungeon, dungeonAttackProblem, dungeonLevelsPerTier, targetedDungeon } from './dungeon-siege';
+import { belongsToFaction, canControl, sameFaction } from './faction';
+import { sealProgress } from './gate-seals';
 // Native town_monsters.cpp combat, raids, expeditions and damage. Native RNG order is retained.
 import { TownState } from './town-state';
 import { Person, Monster, Expedition, Role, Calling, Activity, adventurer, experienceForLevel } from './person';
@@ -10,10 +11,10 @@ import { WorldMap } from './world-map';
 import { Point, point, add, sub, scale, normalized, rotated, distance } from './geometry';
 import { f32 as f, lround } from './numeric';
 import { CampEconomy } from './camp-economy';
-import { animalSpec } from './wildlife';
+import { animalSpec, huntsWildlife } from './wildlife';
 import { spreadFighter } from './person-navigation';
 import { planRaiderApproach } from './monster-navigation';
-import { campTier, dungeonThreat, raidKind, raidMight, raidMonsterLevel, raidMuster, raidShape, RaidKind, siegeMonsterLevel } from './raid-progression';
+import { campTier, dungeonThreat, raidKind, raidMight, raidMonsterLevel, raidMuster, raidRoom, raidShape, RaidKind, siegeMonsterLevel } from './raid-progression';
 import { gateActive, gateCenter, inRaidedVillage, raidSeat, raidSources, updateGateOpenings } from './gate-progression';
 import { attackDamage, attackReach, armorProtection, combatItem, equippedItem, raisedShield } from './equipment';
 import { songOf, wardOf } from './calling-auras';
@@ -127,8 +128,7 @@ export function summonRaid(this: CombatTown, kind = raidKind(this.world.seed(), 
     });
   if (!sources.length) return;
   if (kind === RaidKind.Pincer && sources.length < 2) kind = RaidKind.Pack;
-  const prowling = this.beasts.filter((m) => m.raider).length,
-    level = raidMonsterLevel(this.days, this.raidCount),
+  const level = raidMonsterLevel(this.days, this.raidCount),
     pressure = dungeonThreat(this.days, lairOf(sources[0].site), this.placed, level),
     shape = raidShape(kind, raidMight(settlementMight(this), this.raidCount ? pressure.week : 0)),
     // Leaders first, then the few brutes, then the swarm: a full settlement loses swarmers first.
@@ -136,7 +136,7 @@ export function summonRaid(this: CombatTown, kind = raidKind(this.world.seed(), 
       ...Array<MonsterRank>(shape.count).fill(kind === RaidKind.Brutes ? MonsterRank.Brute : MonsterRank.Grunt),
       ...Array<MonsterRank>(shape.brutes).fill(MonsterRank.Brute),
       ...Array<MonsterRank>(shape.swarm).fill(MonsterRank.Swarmer),
-    ].slice(0, Math.max(0, TownState.maxRaiders - prowling));
+    ].slice(0, raidRoom(this));
   if (!ranks.length) return;
   ranks.forEach((rank, i) => {
     const source = sources[i % sources.length],
@@ -192,15 +192,15 @@ export function monsterBite(
   prey: Person,
   breed: Breed,
   power = 1,
-  area = false,
+  slam = false,
   ranged = false,
 ): void {
   const slowed = slowedBy(town, beast);
+  town.engage(prey);
   beast.ready = town.time + (breed.pause * rankPause(beast)) / slowed;
   beast.swingAt = town.time;
-  // A slam hits everyone around the guardian together, with no turn toward the last victim.
-  beast.swingHeading = area ? point() : sub(prey.position, beast.position);
-  const shield = area ? null : raisedShield(prey);
+  beast.swingHeading = sub(prey.position, beast.position);
+  const shield = slam ? null : raisedShield(prey);
   if (shield && town.roll() < shield.block) {
     town.blows.push({
       serial: town.nextBlow++,
@@ -221,7 +221,7 @@ export function monsterBite(
   const seat = prey.role === Role.Resident ? town.camp(town.settlementOf(prey)) : null,
     warded = town.time < town.wardUntil && !!seat && distance(seat.center, prey.position) <= wardRite.reach,
     challenged = prey.calling === Calling.Warrior && prey.abilityUntil > town.time,
-    soak = area ? 1 - armorProtection(prey) / 2 : 1 - armorProtection(prey),
+    soak = slam ? 1 - armorProtection(prey) / 2 : 1 - armorProtection(prey),
     disheartened = (town.combatState.dirged.get(beast.id) ?? -1) > town.time,
     bite = f(
       breed.bite * beast.strength * power * soak * wardOf(town.folk, prey) *
@@ -284,35 +284,37 @@ export function blowAgainst(this: TownState, foe: Monster, damage: number): numb
   if (foe.animal !== null || this.realmGate < 0 || !inArea(this.realmArea, foe.home)) return damage;
   return f(Math.max(damage * 0.2, damage - rankRules.hide));
 }
-/** Damages a creature; the resident who lands the killing blow earns the kill and its experience. */
+/** The killer and their nearby fighting allies learn from a defeated monster. */
 export function hurtCreature(this: CombatTown, foe: Monster, damage: number, by: Person | null): boolean {
   if (foe.health <= 0) return false;
+  if (by && foe.animal === null) this.engage(by);
   if (foe.rank === MonsterRank.Den) this.combatState.struckAt.set(foe.id, this.time);
   foe.health = f(foe.health - damage);
   if (foe.health > 0) return false;
   if (!by) return true;
   this.combatState.slayers.set(foe.id, by.id);
-  if (foe.animal === null) {
-    const remains = new Resources();
-    // A swarm leaves scraps: one bone for every few small ones.
-    remains.bones = foe.giant() ? 6 : rankWorth(foe) >= 1 ? 2 : foe.id % 3 === 0 ? 1 : 0;
-    if (foe.rank === MonsterRank.Brute || foe.giant()) remains.hides = 1;
-    if (this.realmGate >= 0 && inArea(this.realmArea, foe.home)) this.realmLoot.add(remains);
-    else if (!remains.empty()) this.store(remains, this.settlementOf(by));
+  if (foe.animal !== null) return true;
+  const weight = rankWorth(foe), remains = new Resources();
+  // A swarm leaves scraps: one bone for every few small ones.
+  remains.bones = foe.giant() ? 6 : weight >= 1 ? 2 : foe.id % 3 === 0 ? 1 : 0;
+  if (foe.rank === MonsterRank.Brute || foe.giant()) remains.hides = 1;
+  if (this.realmGate >= 0 && inArea(this.realmArea, foe.home)) this.realmLoot.add(remains);
+  else if (!remains.empty()) this.store(remains, this.settlementOf(by));
+  const ordinary = foe.raider && foe.vigor > 0 ? Math.max(1, Math.round(raidRewardHealth(foe) * 1.33)) :
+    lround(f(breedOf(this.world.dungeons()[foe.lair].kind).health * weight));
+  // Nightly raids keep training the army between dungeon tiers. Opening scouts always teach the base amount.
+  const lesson = foe.raider && foe.level > 1 ? foe.level + sealProgress(this).sealed * dungeonLevelsPerTier : foe.level;
+  for (const ally of this.folk) {
+    if (!sameFaction(ally, by) || ally.health <= 0) continue;
+    if (ally.id !== by.id) {
+      if (ally.inside || ally.activity !== Activity.Fighting || distance(ally.position, foe.position) > 6) continue;
+      if (ally.foe !== foe.id && huntsWildlife(ally, this.animals)) continue;
+    }
+    // A junior in a late battle can learn up to one dungeon tier ahead of their own level.
+    const level = Math.min(lesson, ally.level + dungeonLevelsPerTier, Person.maximumLevel - 1);
+    const points = level > 1 ? Math.max(ordinary, Math.round(experienceForLevel(level) * weight / 40)) : ordinary;
+    this.rewardExperience(ally, points);
   }
-  const health =
-      foe.animal !== null ? animalSpec(foe.animal).health : breedOf(this.world.dungeons()[foe.lair].kind).health,
-    ordinary = foe.raider && foe.vigor > 0 ? Math.max(1, Math.round(raidRewardHealth(foe) * 1.33)) :
-      lround(f(health * (foe.animal !== null ? 2 : rankWorth(foe)))),
-    points = foe.animal === null && foe.level > 1 ? Math.max(ordinary,
-      Math.round(experienceForLevel(Math.min(foe.level, Person.maximumLevel - 1)) * rankWorth(foe) / 40)) : ordinary;
-  for (const ally of this.folk)
-    if (
-      ally.health > 0 &&
-      (ally.id === by.id ||
-        (!ally.inside && ally.activity === Activity.Fighting && distance(ally.position, foe.position) <= 6))
-    )
-      this.rewardExperience(ally, points);
   return true;
 }
 /** Counts a dead creature once, for the killer, the chronicle and the presentation. */
@@ -334,22 +336,13 @@ export function breakWindup(this: TownState, beast: Monster): void {
   beast.windupUntil = -1;
   this.combatState.slamAt.set(beast.id, this.time + rankRules.slamBroken);
 }
-/** Enemies a shaped blow also catches besides its target, nearest first. */
-function caughtBy(town: CombatTown, p: Person, foe: Monster, spec: ReturnType<typeof strikeOf>): Monster[] {
-  if (spec.most <= 1 || spec.reach <= 0) return [];
-  const along = sub(foe.position, p.position),
-    span = Math.max(f(0.001), distance(foe.position, p.position)),
-    out: { beast: Monster; gap: number }[] = [];
+/** Enemies caught by a staff bolt around its target, nearest first. */
+function splashTargets(town: CombatTown, foe: Monster, spec: ReturnType<typeof strikeOf>): Monster[] {
+  const out: { beast: Monster; gap: number }[] = [];
   for (const m of town.beasts) {
     if (m === foe || m.health <= 0 || m.insideLair || (m.giant() && !m.angry)) continue;
     const gap = distance(m.position, foe.position);
-    if (gap > spec.reach + (spec.kind === StrikeKind.Pierce ? 0.5 : 0)) continue;
-    if (spec.kind === StrikeKind.Pierce) {
-      // Behind the target, close to the line of flight.
-      const ahead = ((m.position.x - foe.position.x) * along.x + (m.position.y - foe.position.y) * along.y) / span,
-        aside = Math.abs((m.position.x - foe.position.x) * along.y - (m.position.y - foe.position.y) * along.x) / span;
-      if (ahead <= 0 || ahead > spec.reach || aside > 0.55) continue;
-    } else if (spec.kind === StrikeKind.Cleave && distance(m.position, p.position) > reachOf(p) + 0.6) continue;
+    if (gap > spec.reach) continue;
     out.push({ beast: m, gap });
   }
   return out
@@ -365,7 +358,7 @@ export function strike(this: CombatTown, p: Person, foe: Monster): void {
     blow = this.blowAgainst(foe, f(this.blowStrength(p) * (crit ? combatRules.critDamage : 1))),
     spec = strikeOf(combatItem(p)?.visual),
     ranged = shoots(p),
-    others = caughtBy(this, p, foe, spec);
+    others = spec.kind === StrikeKind.Splash ? splashTargets(this, foe, spec) : [];
   p.swingAt = this.time;
   this.hurtCreature(foe, blow, p);
   if (spec.stagger > 0 && foe.health > 0) foe.ready = Math.max(foe.ready, this.time) + spec.stagger;
@@ -376,7 +369,7 @@ export function strike(this: CombatTown, p: Person, foe: Monster): void {
     if (other.giant()) other.provokedBy = p.id;
     this.blows.push({
       serial: this.nextBlow++,
-      from: { ...(spec.kind === StrikeKind.Pierce ? foe.position : p.position) },
+      from: { ...p.position },
       to: { ...other.position },
       damage: lround(f(share * 10)),
       onPerson: false,
@@ -511,6 +504,7 @@ export function fight(this: CombatTown, p: Person, dt: number): void {
   if (this.time < p.ready) return;
   if (foe) this.strike(p,foe);
   else {
+    this.engage(p);
     const damage = f(this.blowStrength(p) * .1 * (1 - armorProtection(person!)) / person!.vitalityMultiplier());
     person!.health = f(person!.health - damage);
     p.ready = this.time + 1;
@@ -565,6 +559,7 @@ export function wreck(this: CombatTown, beast: Monster, dt: number): void {
   for (const item of nearby) {
     if (!item.footprint().contains(beast.position, f(0.7))) continue;
     if (beast.raider && !inRaidedVillage(this, item, seat)) continue;
+    this.engage(item);
     const blow = f(breed.bite * beast.strength * f(0.25) * (boon(this, Boon.Bulwark) ? boonRules.bulwarkBuildingDamage : 1));
     beast.ready = this.time + breed.pause;
     beast.swingAt = this.time;

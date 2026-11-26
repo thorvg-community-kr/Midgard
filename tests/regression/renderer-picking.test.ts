@@ -438,7 +438,6 @@ it('can select an actual construction stake before the first building wall appea
     paintFields(v.s.farmland, {
       calendar: () => ({ season: 0 }),
       climate: () => ({ snow: 0 }) as any,
-      tendedFieldAcres: () => 0,
       fields: () => [],
       buildings: () => [{ id: 1, built: () => false, footprint: () => footprint }],
     });

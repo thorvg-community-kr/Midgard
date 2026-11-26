@@ -284,13 +284,29 @@ describe('sieges in Midgard', () => {
     expect(saved.chronicle.guardiansSlain).toBe(survivor === 'guardian' ? 0 : 1);
   });
   it('seals and pays exactly once on the last kill, even when the deadline falls on that tick', () => {
-    const { town, members } = breach(), brood = emerge(town);
+    const { town, members, mouth } = breach(), brood = emerge(town);
+    const bystander = (activity: Activity) => {
+      const p = town.makePerson(Role.Resident, Calling.Settler, mouth);
+      p.activity = activity;
+      town.folk.push(p);
+      return p;
+    };
+    const logger = bystander(Activity.Felling), hunter = bystander(Activity.Fighting), idle = bystander(Activity.Idle);
+    const medic = bystander(Activity.Tending), bard = bystander(Activity.Holding);
+    bard.calling = Calling.Bard;
+    hunter.hunting = true;
+    medic.target = members[1].id;
     for (const defender of brood) defender.health = 0;
     town.time = town.sieges[0]!.reviveAt;
+    members[0].level = 1;
+    members[0].experience = 0;
     members[1].level = 10;
     town.strikeDown(members[1], 'Killed by monsters');
     town.stir(0);
     expect(members[1]).toMatchObject({ level: 15, health: 0, activity: Activity.Downed });
+    expect(members[0]).toMatchObject({ level: 6, experience: 0 });
+    for (const p of [medic, bard]) expect(p).toMatchObject({ level: 6, experience: 0 });
+    for (const p of [logger, hunter, idle]) expect(p).toMatchObject({ level: 1, experience: 0 });
     expect(gateSealed(town, 0)).toBe(true);
     expect(gateSealed(town, 1)).toBe(false);
     expect(town.chronicle.guardiansSlain).toBe(1);
@@ -313,15 +329,21 @@ describe('sieges in Midgard', () => {
     town.combatState.slamAt.set(boss.id, town.time);
     town.stir(0);
     expect(town.events.some(e => e.cue === CombatCue.Telegraph && e.creature === boss.id)).toBe(true);
+    const evaded = resume(town);
+    for (const p of evaded.folk) p.position = add(boss.position, point(4, 0));
+    evaded.time = boss.windupUntil;
+    evaded.stir(0);
+    expect(evaded.folk.every(p => p.health === 1)).toBe(true);
     const saved = resume(town), loaded = saved.beasts.find(m => m.id === boss.id)!;
     expect(saved.events.find(e => e.cue === CombatCue.Telegraph)?.creature).toBe(boss.id);
-    saved.person(walker.id)!.position = add(bait.position, point(4, 0));
+    // Both fighters stay in reach; only the closest takes the heavy strike.
     saved.time = loaded.windupUntil;
     saved.stir(0);
     expect(saved.person(bait.id)!.health).toBeLessThan(1);
     expect(saved.person(walker.id)!.health).toBe(1);
     // A surviving party can use the recovery to move out before the guardian gives chase.
     saved.person(bait.id)!.inside = true;
+    saved.person(walker.id)!.position = add(bait.position, point(4, 0));
     const impact = { ...loaded.position };
     saved.time += siegeRules.slamRecovery / 2;
     saved.stir(0.2);
@@ -333,6 +355,23 @@ describe('sieges in Midgard', () => {
     walker.foe = boss.id;
     expect(town.useAbility([walker.id])).toBe(1);
     expect(boss.windupUntil).toBe(-1);
+  });
+  it('restores battle speed during a saved guardian wind-up only when the guardian is engaging the player', () => {
+    const { town, members } = breach(), boss = emerge(town)[0];
+    for (const m of town.beasts) if (m !== boss) m.health = 0;
+    const [target, companion] = members;
+    target.position = { ...boss.position };
+    companion.position = add(boss.position, point(10, 0));
+    town.combatState.slamAt.set(boss.id, town.time);
+    town.stir(0);
+    expect(boss.windupUntil).toBeGreaterThan(town.time);
+    expect(resume(town).inCombat()).toBe(true);
+
+    target.faction = 1;
+    target.village = -1;
+    const neutralFight = resume(town);
+    expect(neutralFight.events.some(e => e.cue === CombatCue.Telegraph && e.creature === boss.id)).toBe(true);
+    expect(neutralFight.inCombat()).toBe(false);
   });
   it('recovers an old island, its wounded party and earned hoard while keeping an existing seal', () => {
     const { town, members, ids, mouth } = settlement();

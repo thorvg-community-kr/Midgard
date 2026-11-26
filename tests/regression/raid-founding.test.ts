@@ -30,7 +30,7 @@ import { isPlayerBuilding } from '../../packages/engine/src/faction';
 
 // A scripted player follows the founding quests of a real new game: designed seed 5, the full map and two founders.
 // It only uses what the quest panel offers a player: place, build, gather, craft, plant, pray and hunt.
-// Raids and roaming monsters are switched off here: their numbers belong to the combat pass and are tested there.
+// Nightly raids stay on so the two founders must defend the camp as they build.
 function controls(town: Town): GameCommandApp {
   const app = {
     town,
@@ -70,7 +70,7 @@ function play(): Run {
   const town = new Town(5),
     app = controls(town),
     width = town.map().width();
-  // Roaming monsters are left out as in the founding chain: this is about the raids.
+  // Only dungeon raiders and the wildlife needed for the founding quests take part.
   town.releaseMonster = () => {};
   const run: Run = { done: new Map(), shown: [], firstNewcomer: -1, town, waves: [], downed: 0 };
   const day = () => town.clock() / 300;
@@ -305,7 +305,7 @@ describe('raids against a real new game', () => {
         `day ${w.day.toFixed(2)}: ${w.size} (${w.grunts} grunts, ${w.brutes} brutes, ${w.swarm} swarmers) against ${w.residents}`)].join('\n'),
     );
     expect(town.clock() / 300).toBeGreaterThanOrEqual(6);
-    expect(run.waves.length).toBeGreaterThanOrEqual(3);
+    expect(run.waves.map(w => Math.floor(w.day))).toEqual([0, 1, 2, 3, 4, 5]);
     // The last wave may still be out when the sixth day ends.
     expect(town.chronicle.raidsRepelled).toBeGreaterThanOrEqual(run.waves.length - 1);
     expect(town.fallen).toHaveLength(0);
@@ -315,7 +315,7 @@ describe('raids against a real new game', () => {
     expect(run.waves[0].grunts).toBeLessThanOrEqual(1);
     expect(run.waves[0].size).toBeGreaterThanOrEqual(10);
     expect(run.waves[0].size).toBeLessThanOrEqual(14);
-    // Waves follow what the settlement has, not the calendar alone.
-    for (const w of run.waves) expect(w.size).toBeLessThanOrEqual(3 * w.residents + 3);
+    // The two founders can face a full scouting pack before the altar brings reinforcements.
+    for (const w of run.waves) expect(w.size).toBeLessThanOrEqual(Math.max(14, 3 * w.residents + 3));
   });
 });

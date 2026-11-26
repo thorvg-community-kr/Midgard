@@ -7,7 +7,7 @@ import { coverDeposits } from './mining';
 import { preparePassage } from './realm-layout';
 import { migrateSiegeStrength, targetedDungeon, type DungeonSiege } from './dungeon-siege';
 import { gateSealed, sealable } from './gate-seals';
-import { applyMonsterBalance, rankRules } from './monster-ranks';
+import { applyMonsterBalance, choosePrey, rankRules } from './monster-ranks';
 import {
   SaveArchive,
   sealSave,
@@ -30,8 +30,9 @@ import {
   type Codec,
 } from './save-archive';
 import { TownState } from './town-state';
-import { nestCapacity } from './ranch-cycle';
-import { isRanchHarvest } from './livestock';
+import { livestockRecipe, stockInPen } from './ranch-cycle';
+import { pastureRules, produceCapacity } from './pasture-geometry';
+import { finishRanchOrder, isRanchHarvest, livestockKind } from './livestock';
 import { WorldMap } from './world-map';
 import {
   Layer,
@@ -62,7 +63,7 @@ import {
   type TreeWorkEvent,
 } from './person';
 import { CampEconomy, Ledger } from './camp-economy';
-import { point } from './geometry';
+import { area, distance, point, selfIntersects } from './geometry';
 import { defaultAppearance } from './person-look';
 import { NeutralSettlement } from './neutral-state';
 import { backpackSize, equipmentSlots, itemSpec, validInventory, type ItemStack } from './equipment';
@@ -319,10 +320,10 @@ const monsterCodec: Codec<Monster> = {
 };
 function livestockFields(a: SaveArchive, animal: Monster): void {
   if (a.formatVersion >= 23) a.fields(animal, { pen: i32 });
-  if (a.formatVersion >= 24 && animal.pen >= 0 && (animal.animal === AnimalKind.Cow || animal.animal === AnimalKind.Pig)) {
-    a.fields(animal, { ranchBornAt: f64 });
-    if (!Number.isFinite(animal.ranchBornAt) || (animal.ranchBornAt < 0 && animal.ranchBornAt !== -1))
-      throw new Error('Invalid livestock birth time');
+  if (a.reading && a.formatVersion >= 24 && a.formatVersion < 29 && animal.pen >= 0 &&
+      (animal.animal === AnimalKind.Cow || animal.animal === AnimalKind.Pig)) {
+    const born = f64.read(a);
+    if (!Number.isFinite(born) || (born < 0 && born !== -1)) throw new Error('Invalid livestock birth time');
   }
 }
 const wildlifeCodec: Codec<Monster[]> = {
@@ -597,7 +598,7 @@ function townFields(a: SaveArchive, v: SaveTown): void {
     sky: skyCodec,
   });
   for (const b of v.placed)
-    if (b.kind >= Structure.Count && !(mayContainWalls && retiredWallCosts.has(b.kind)))
+    if (b.kind >= (a.formatVersion < 29 ? Structure.Cowshed : Structure.Count) && !(mayContainWalls && retiredWallCosts.has(b.kind)))
       throw new Error('Invalid building kind');
   if (a.reading) v.open = new Uint8Array(vector(u8).read(a));
   else vector(u8).write(a, v.open);
@@ -672,13 +673,32 @@ function townFields(a: SaveArchive, v: SaveTown): void {
           building.productionProgress > 30
         )
           throw new Error('Invalid production progress');
-        if (building.kind === Structure.Ranch) {
+        if (a.formatVersion >= 29) {
+          const recipe = livestockRecipe(building.kind);
+          if (recipe) {
+            if (a.formatVersion >= 30) {
+              // Cutting a notch for the shelter can add a few corners to the original drawing.
+              a.fields(building, { pasture: vector(pointCodec, pastureRules.maxCorners + 6) });
+              if (building.pasture.length) {
+                const grass = area(building.pasture);
+                if (building.pasture.length < 3 || building.pasture.some(p => !v.world.inside(p)) ||
+                    selfIntersects(building.pasture) || grass < pastureRules.minimum || grass > pastureRules.maximum)
+                  throw new Error('Invalid livestock pasture');
+              }
+            }
+            a.fields(building, { storedProduce: u8 });
+            if (building.storedProduce > produceCapacity(building)) throw new Error('Invalid livestock produce');
+          }
+        } else if (a.reading && building.kind === Structure.ChickenCoop) {
           if (a.formatVersion >= 24) {
-            a.fields(building, { eggs: u8, pigBreeding: f64, cowBreeding: f64 });
-            if (building.eggs > nestCapacity || building.productionProgress >= 1 ||
-                ![building.pigBreeding, building.cowBreeding].every(t => Number.isFinite(t) && t >= 0 && t <= TownState.secondsPerDay))
+            const old = { eggs: 0, pigBreeding: 0, cowBreeding: 0 };
+            a.fields(old, { eggs: u8, pigBreeding: f64, cowBreeding: f64 });
+            if (old.eggs > 12 || building.productionProgress >= 1 ||
+                ![old.pigBreeding, old.cowBreeding].every(t => Number.isFinite(t) && t >= 0 && t <= TownState.secondsPerDay))
               throw new Error('Invalid ranch production');
-          } else if (a.reading) building.productionProgress = 0;
+            building.storedProduce = old.eggs;
+          }
+          building.productionProgress = 0;
         }
         if (
           !Number.isFinite(building.repairCredit) ||
@@ -698,7 +718,13 @@ function townFields(a: SaveArchive, v: SaveTown): void {
       for (const field of v.farmland) a.fields(field, { faction: i32 });
       a.fields(v, { neutralSettlements: vector(neutralCodec) });
     }
-    if (a.formatVersion >= 14) for (const field of v.farmland) a.fields(field, { tilled: f32 });
+    if (a.formatVersion >= 14) for (const field of v.farmland) {
+      if (a.formatVersion >= 29) a.fields(field, { cropProgress: f64 });
+      else a.fields(field, { tilled: f32 });
+      if (!Number.isFinite(field.cropProgress) || field.cropProgress < 0 || field.cropProgress >= 5 ||
+          (a.formatVersion < 29 && field.cropProgress > 1))
+        throw new Error('Invalid crop progress');
+    }
     if (a.formatVersion >= 13) {
       a.fields(v, {
         realmGate: i32,
@@ -799,6 +825,9 @@ function townFields(a: SaveArchive, v: SaveTown): void {
           if (a.formatVersion < 27) migrateSiegeStrength(v, gate, siege, a.formatVersion);
           const boss = v.beasts.find(b => b.id === siege.guardian && b.health > 0);
           if (boss && boss.windupUntil >= 0) {
+            const target = choosePrey(boss, v.folk.filter(p => !p.inside && p.health > 0 && p.downedAt < 0 &&
+              distance(p.position, boss.position) <= rankRules.slamRadius));
+            if (target) v.engage(target);
             v.emit(CombatCue.Telegraph, boss.position, { creature: boss.id, radius: rankRules.slamRadius, duration: rankRules.slamWindup });
             v.events[v.events.length - 1].at = boss.windupUntil - rankRules.slamWindup;
           }
@@ -919,7 +948,7 @@ function townFields(a: SaveArchive, v: SaveTown): void {
         animal.insideLair ||
         !Number.isFinite(animal.health) ||
         !v.world.inside(animal.position) ||
-        v.world.regionAt(animal.position) !== Region.Middle
+        (v.world.regionAt(animal.position) !== Region.Middle && (a.formatVersion < 30 || !livestockKind(animal.animal)))
       )
         throw new Error('Invalid wildlife habitat');
     if (a.formatVersion < 19) settleOldStations(v);
@@ -928,12 +957,40 @@ function townFields(a: SaveArchive, v: SaveTown): void {
     for (const b of v.placed) coverDeposits(v.world, b.footprint());
     const obstacles = walkingObstacles(v.placed);
     v.grid.rebuild(v.world, v.network, obstacles);
+    if (a.formatVersion < 29) specializeOldRanches(v);
     if (v.realmGate >= 0 || v.parties.length || v.folk.some(p => p.activity === Activity.Expedition || p.activity === Activity.Exploring))
       v.retireExpeditions();
     v.walkRevision = v.changes = 1n;
     v.roadChanges = 1n;
     v.roadOnlyChanges = 0n;
     v.recount();
+  }
+}
+/** Keep paid eggs, captured stock and valid orders. Release displaced livestock alive outside the fence. */
+function specializeOldRanches(town: SaveTown): void {
+  for (const pen of town.placed) {
+    if (pen.kind !== Structure.ChickenCoop) continue;
+    const herd = stockInPen(town, pen.id);
+    const inbound = town.folk.filter(p => p.task === Activity.Herding && p.taskSite === pen.id)
+      .map(p => town.animals.find(a => a.id === p.herdAnimal));
+    const species = [...herd, ...inbound].map(a => a?.animal);
+    if (!pen.storedProduce && species.includes(AnimalKind.Cow) && !species.includes(AnimalKind.Chicken))
+      pen.kind = Structure.Cowshed;
+    const recipe = livestockRecipe(pen.kind)!;
+    let kept = 0;
+    for (const animal of herd) {
+      if (animal.animal === recipe.species && kept < recipe.stalls) { ++kept; continue; }
+      animal.pen = -1;
+      animal.home = animal.position = town.grid.nearestWalkable(pen.door());
+      animal.path = [];
+    }
+  }
+  for (const p of town.folk) {
+    const pen = town.building(p.taskSite);
+    // In the old archives the milking slot was the job of preparing meat.
+    if (p.task === Activity.Milking || (p.task === Activity.Herding && (!pen ||
+        livestockRecipe(pen.kind)?.species !== town.animals.find(a => a.id === p.herdAnimal)?.animal)))
+      finishRanchOrder(town, p);
   }
 }
 /** Keep all sections through archive ownership and material decoding, then remove them before rebuilding navigation. */
@@ -1116,18 +1173,19 @@ export function encodeTownPayload(town: SaveTown): Uint8Array {
   const expedition = town.firstExpedition.departureSeconds >= 0 || town.firstExpedition.withdrew ||
     town.firstExpedition.slam !== FirstSlam.Unseen || !!town.world.passageCells ||
     town.folk.some((p) => p.inventory.some((s) => s?.item === 'embersteel-boots') || orderItem(p.craftItem)?.lavaProof);
-  const livestockOrRefining = town.placed.some(b => b.kind === Structure.Ranch) || town.animals.some(a => a.pen >= 0) ||
-    town.folk.some(p => p.task === Activity.Herding || p.refining !== Product.None);
-  const ranchCycle = town.placed.some(b => b.kind === Structure.Ranch &&
-    (b.productionProgress > 0 || b.eggs > 0 || b.pigBreeding > 0 || b.cowBreeding > 0)) ||
-    town.animals.some(a => a.ranchBornAt >= 0) || town.folk.some(p => isRanchHarvest(p.task));
+  const specializedPens = town.placed.some(b => livestockRecipe(b.kind)) ||
+    town.folk.some(p => isRanchHarvest(p.task) || p.task === Activity.Herding) || town.animals.some(a => a.pen >= 0);
+  const refining = town.folk.some(p => p.refining !== Product.None);
   const siege = town.folk.some(p => targetedDungeon(p) >= 0);
   // Older readers accepted level 30 only as the cap, with no experience carried toward the next level.
   const campaign = town.sieges.some(Boolean) || town.folk.some(p => p.level > 30 || (p.level === 30 && p.experience > 0));
   const levelledMonsters = town.beasts.some(m => m.level > 1);
   // Version 28 records that active monsters already carry the new health and attack values.
   const balancedMonsters = town.beasts.some(m => m.vigor > 0);
-  a.formatVersion = balancedMonsters ? 28 : campaign ? 27 : levelledMonsters ? 26 : siege ? 25 : ranchCycle ? 24 : livestockOrRefining ? 23 : expedition ? 22 : foundry ? 21 : town.folk.some((p) => p.birthStrength !== 0 || p.birthVitality !== 0)
+  // A keeper can bring livestock across a regional boundary. They can still be there after the pen is gone.
+  const pasture = town.placed.some(b => b.pasture.length) ||
+    town.animals.some(m => livestockKind(m.animal) && town.world.regionAt(m.position) !== Region.Middle);
+  a.formatVersion = pasture ? 30 : specializedPens || town.farmland.some(field => field.cropProgress > 1) ? 29 : balancedMonsters ? 28 : campaign ? 27 : levelledMonsters ? 26 : siege ? 25 : refining ? 23 : expedition ? 22 : foundry ? 21 : town.folk.some((p) => p.birthStrength !== 0 || p.birthVitality !== 0)
     ? 20
     : stations
     ? 19
@@ -1193,10 +1251,10 @@ export function decodeTown<T extends SaveTown>(encoded: string, create: (map: Wo
     endian = u32.read(a),
     appearanceSize = u32.read(a);
   let climateSize = 0;
-  if (version >= 2 && version <= 28) climateSize = u32.read(a);
+  if (version >= 2 && version <= 30) climateSize = u32.read(a);
   if (
     version < 2 ||
-    version > 28 ||
+    version > 30 ||
     endian !== 0x01020304 ||
     appearanceSize !== nativeAppearanceSize ||
     climateSize !== nativeClimateSize

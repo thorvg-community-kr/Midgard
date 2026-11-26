@@ -72,7 +72,7 @@ export interface GameInputApp extends GameAppState {
   cancelStroke(): void;
   cancelPointer(): void;
   finish(): void;
-  layFarm(drawn: Outline): void;
+  layArea(drawn: Outline): void;
   select(): void;
   press(): void;
   pointerMove(x: number, y: number): void;
@@ -192,24 +192,29 @@ export function plan(this: GameInputApp): Plan {
       return result;
     }
     case Tool.Farm:
-    case Tool.Field: {
+    case Tool.Field:
+    case Tool.ChickenCoop:
+    case Tool.Cowshed: {
       preview.kind = PreviewKind.Field;
-      if (!buildingUnlock(this.town, Structure.Farm).available) return result;
-      // The area is laid out as it would be on release: the farmhouse in its corner, the rest as the field.
+      const kind = toolStructure(this.tool) ?? Structure.Farm;
+      if (!buildingUnlock(this.town, kind).available) return result;
       const lay = (drawn: Outline) => {
-        const layout = this.town.farmLayout(drawn);
+        const layout = kind === Structure.Farm ? this.town.farmLayout(drawn) : this.town.pastureLayout(kind, drawn);
         take(layout.check);
         if (layout.house) {
-          const half = f(structureSpec(Structure.Farm).size / 2);
+          const half = f(structureSpec(kind).size / 2);
           preview.house = new Footprint(layout.house.center, half, layout.house.angle).corners();
         }
-        return layout;
+        if (!layout.check.ok) return drawn;
+        if ('pasture' in layout) {
+          result.problem = kind === Structure.ChickenCoop ? `Room for ${layout.capacity} hens` : `Room for ${layout.capacity} cows`;
+          return layout.pasture;
+        }
+        result.problem = lround(area(layout.field)) + ' acres';
+        return layout.field;
       };
       if (this.fieldFrom && distance(this.toScreen(this.fieldFrom), this.mouse) > 8) {
-        const drawn = this.fieldRectangle(this.fieldFrom, this.cursor),
-          layout = lay(drawn);
-        preview.outline = layout.check.ok ? layout.field : drawn;
-        if (!result.problem) result.problem = lround(area(preview.outline)) + ' acres';
+        preview.outline = lay(this.fieldRectangle(this.fieldFrom, this.cursor));
         return result;
       }
       preview.outline = this.outline.map((p) => ({ ...p }));
@@ -230,10 +235,17 @@ export function plan(this: GameInputApp): Plan {
     case Tool.Demolish: {
       preview.kind = PreviewKind.Clear;
       take(this.town.canDemolish(this.cursor));
-      const id = this.town.buildingAt(this.cursor),
+      const id = this.town.buildingAt(this.cursor, true),
         field = this.town.fieldAt(this.cursor),
         road = this.town.roads().road(this.hoveredRoad());
-      if (id >= 0) preview.outline = this.town.building(id)!.footprint().corners();
+      if (id >= 0) {
+        const building = this.town.building(id)!;
+        preview.outline = building.footprint().corners();
+        if (building.pasture.length) {
+          preview.house = preview.outline;
+          preview.outline = building.pasture;
+        }
+      }
       else if (field >= 0) preview.outline = this.town.field(field)!.outline;
       else if (road && this.town.roads().distance(this.cursor).distance < f(Town.roadHalfWidth + f(0.15)))
         preview.road = road.path;
@@ -367,21 +379,23 @@ export function cancel(this: GameInputApp): void {
 }
 export function finish(this: GameInputApp): void {
   this.status = '';
-  if (drawsArea(this.tool) && this.outline.length >= 3) this.layFarm(this.outline);
+  if (drawsArea(this.tool) && this.outline.length >= 3) this.layArea(this.outline);
 }
-/** Lays out the drawn area: a farmhouse with its field, or one more field for a farm already there. */
-export function layFarm(this: GameInputApp, drawn: Outline): void {
-  const layout = this.town.farmLayout(drawn);
-  if (!this.town.layFarm(drawn)) {
+/** Commits the drawing and gives any new building site to its builders. */
+export function layArea(this: GameInputApp, drawn: Outline): void {
+  const kind = toolStructure(this.tool) ?? Structure.Farm;
+  const before = this.town.buildings().length;
+  const placed = kind === Structure.Farm ? this.town.layFarm(drawn) : this.town.layPasture(kind, drawn);
+  if (!placed) {
+    const layout = kind === Structure.Farm ? this.town.farmLayout(drawn) : this.town.pastureLayout(kind, drawn);
     this.status = layout.check.reason;
     return;
   }
   this.outline = [];
-  if (!layout.house) {
+  if (this.town.buildings().length === before) {
     this.cue(Cue.Place);
     return;
   }
-  // A new farmhouse is handed to its builders like any other site; the tool is put down.
   const site = this.town.buildings().at(-1)!,
     crew = controllableIds(this.town, this.crew);
   this.selectTool(Tool.Select);
@@ -523,13 +537,15 @@ export function press(this: GameInputApp): void {
     }
     case Tool.Farm:
     case Tool.Field:
-      if (!buildingUnlock(this.town, Structure.Farm).available) return;
+    case Tool.ChickenCoop:
+    case Tool.Cowshed:
+      if (!buildingUnlock(this.town, toolStructure(this.tool) ?? Structure.Farm).available) return;
       if (!this.outline.length) this.fieldFrom = { ...this.cursor };
       else if (this.outline.length >= 3 && this.nearOnScreen(this.outline[0])) this.finish();
       else this.outline.push({ ...this.cursor });
       return;
     case Tool.Demolish: {
-      const target = this.town.building(this.town.buildingAt(this.cursor));
+      const target = this.town.building(this.town.buildingAt(this.cursor, true));
       if (target && !isPlayerBuilding(target)) {
         this.status = buildingControlReason(target);
         return;
@@ -637,7 +653,7 @@ export function pointerUp(this: GameInputApp, x: number, y: number, button: Poin
     const from = this.fieldFrom;
     this.fieldFrom = null;
     if (distance(this.toScreen(from), this.mouse) > 8) {
-      this.layFarm(this.fieldRectangle(from, this.cursor));
+      this.layArea(this.fieldRectangle(from, this.cursor));
     } else this.outline.push(from);
     return;
   }

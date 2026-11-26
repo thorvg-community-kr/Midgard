@@ -1,3 +1,4 @@
+import { economyRules } from '../../packages/engine/src/economy-rules';
 import { describe, expect, it, vi } from 'vitest';
 import { Town } from '../../packages/engine/src/town';
 import { WorldMap } from '../../packages/engine/src/world-map';
@@ -303,7 +304,8 @@ describe('stress recovery and independent settlements', () => {
     const food = p.food;
     town.advance(0.1);
     expect(p.faction).toBeGreaterThan(0);
-    expect(p.food).toBe(Math.fround(food - Math.fround(Math.fround(0.1) * Math.fround(0.1 / 300))));
+    const spent = Math.fround(Math.fround(0.75 / economyRules.daysPerMeal) * Math.fround(0.1 / Town.secondsPerDay));
+    expect(p.food).toBe(Math.fround(food - spent));
     expect(town.neutralSettlements[0].planAt).toBe(0);
   });
 

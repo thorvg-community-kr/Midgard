@@ -422,86 +422,64 @@ try {
     axe > 0 && bare > 0 && Math.abs(axe - bare * 0.8) < 0.25,
     `felling ${bare.toFixed(1)} s by hand, ${axe.toFixed(1)} s with the axe`,
   );
-  const pen = await page.evaluate(() => {
-    Object.assign(probe.town.stock(), { wood: 20, food: 20 });
-    return probe.build('Ranch');
+  const pens = await page.evaluate(() => {
+    Object.assign(probe.town.stock(), { wood: 45, stone: 12, food: 25, water: 30 });
+    return [probe.build('ChickenCoop'), probe.build('Cowshed')];
   });
-  assert(pen >= 0, 'a ranch is built from the first camp');
-  const herd = await page.evaluate(async ([id, penId]) => {
+  assert(pens.every(id => id >= 0), 'both specialized pens can be built from the first camp');
+  const production = await page.evaluate(async ([id, pens]) => {
     const { Monster, AnimalKind } = await import('/packages/engine/src/person.ts');
-    const { town, game } = probe, ranch = town.building(penId), handler = town.person(id);
+    const { town } = probe, handler = town.person(id);
     town.orderStop(town.people().map(p => p.id));
-    const parents = [];
-    for (const kind of [AnimalKind.Chicken, AnimalKind.Pig, AnimalKind.Pig]) {
-      const at = town.grid.nearestWalkable({ x: ranch.door().x + 2, y: ranch.door().y + 1 });
+    for (const [i, kind] of [AnimalKind.Chicken, AnimalKind.Cow].entries()) {
+      const pen = town.building(pens[i]);
+      const at = town.grid.nearestWalkable({ x: pen.door().x + 2, y: pen.door().y + 1 });
       const animal = new Monster(town.nextMonster++, -1, at);
       animal.animal = kind; animal.home = { ...at }; animal.ready = town.clock() + 30;
       town.animals.push(animal);
       handler.rest = handler.food = handler.hydration = 1;
-      if (!town.orderAttack([id], animal.id)) break;
-      probe.advance(100, () => animal.pen === penId);
-      if (animal.pen !== penId) break;
-      parents.push(animal.id);
+      if (!town.assignJob([id], pen.id)) throw new Error('Failed to assign the keeper');
+      if (!town.orderAttack([id], animal.id)) throw new Error('Failed to lead animal');
+      probe.advance(100, () => animal.pen === pen.id);
+      if (animal.pen !== pen.id) throw new Error('Animal did not reach its own pen');
     }
-    const stock = town.stock(ranch.village);
-    stock.food = 0;
-    game.selectPeople([]); game.selectBuilding(penId); probe.look(penId);
-    probe.advance(160, () => town.animals.some(a => a.pen === penId && a.ranchBornAt >= 0) && ranch.eggs > 0);
-    const young = town.animals.find(a => a.pen === penId && a.ranchBornAt >= 0);
-    return { parents, young: young?.id, eggs: ranch.eggs, bank: stock.food };
-  }, [second, pen]);
-  assert.equal(herd.parents.length, 3, JSON.stringify(herd));
-  assert(herd.eggs > 0 && herd.young >= 0 && herd.bank === 0, JSON.stringify(herd));
-  const viewRanch = () => page.evaluate(async id => {
+    town.setWorkers(pens[1], 0);
+    const store = town.stock(town.building(pens[0]).village);
+    for (const id of pens) town.building(id).storedProduce = 0;
+    store.food = 10; store.water = 10;
+    town.editHour(23.999); town.advance(.1);
+    return [store.food, store.water, ...pens.map(id => town.building(id).storedProduce)];
+  }, [second, pens]);
+  assert.deepEqual(production, [7, 7, 2, 5]);
+  const viewPen = id => page.evaluate(async id => {
     const { setGuidePreference } = await import('/apps/web/src/native/guide-preferences.ts');
     const { game, town } = probe;
     setGuidePreference('cards', false);
     game.guide.card = null;
     game.noticeFeed = []; town.notices.length = 0;
-    town.sky.previewTime(town.yearFraction(), .5);
-    game.selectBuilding(id); probe.look(id);
+    town.editHour(12);
+    game.selectPeople([]); game.selectBuilding(id); probe.look(id);
     game.camera.zoom = 3.1; game.camera.y += 16;
     probe.frames(4);
-  }, pen);
+  }, id);
   await away();
-  await viewRanch();
-  const penside = () => page.evaluate(([penId, youngId]) => {
-    const { renderer } = probe.game;
-    return { eggs: renderer.visuals.get(penId).nestEggs.filter(egg => egg.alpha > 0).length,
-      size: Math.abs(renderer.beasts.get(youngId).paint.matrix[0]) };
-  }, [pen, herd.young]);
-  const youngInPen = await penside();
-  assert.equal(youngInPen.eggs, Math.min(4, herd.eggs));
-  assert(youngInPen.size < .8);
-  await shot('09-ranch');
-  await page.evaluate(() => probe.language('KR'));
-  await shot('09-ranch-kr');
-  await click('ranch-collect-eggs');
-  const eggs = await page.evaluate(id => {
-    const ranch = probe.town.building(id), store = probe.town.stock(ranch.village);
-    probe.advance(60, () => store.food > 0);
-    return [ranch.eggs, store.food];
-  }, pen);
-  assert.deepEqual(eggs, [0, herd.eggs]);
-  assert.equal((await penside()).eggs, 0);
-  await page.evaluate(async ([penId, youngId]) => {
-    const { ranchGrowth } = await import('/packages/engine/src/ranch-cycle.ts');
-    const animal = probe.town.creature(youngId);
-    probe.advance(100, () => ranchGrowth(animal, probe.town.clock()) >= 1);
-    probe.game.selectBuilding(penId);
-    probe.frames(4);
-  }, [pen, herd.young]);
-  await viewRanch();
-  assert.equal((await penside()).size, 1);
-  await shot('10-ranch-grown-kr');
-  await click('ranch-prepare-meat');
-  const meat = await page.evaluate(([penId, youngId, parents]) => {
-    const { town } = probe;
-    probe.advance(60, () => !town.creature(youngId));
-    return { served: !town.creature(youngId), food: town.stock(town.building(penId).village).food,
-      parents: parents.every(id => town.creature(id)?.pen === penId) };
-  }, [pen, herd.young, herd.parents]);
-  assert.deepEqual(meat, { served: true, food: herd.eggs + 12, parents: true });
+  for (const [i, key] of ['coop-collect-eggs', 'cowshed-collect-milk'].entries()) {
+    const id = pens[i];
+    await viewPen(id);
+    if (!i) assert.equal(await page.evaluate(id => probe.game.renderer.visuals.get(id).nestEggs.filter(egg => egg.alpha > 0).length, id), 2);
+    const shotName = i ? '10-cowshed' : '09-chicken-coop';
+    await page.evaluate(() => probe.language('EN'));
+    await shot(shotName);
+    await page.evaluate(() => probe.language('KR'));
+    await shot(shotName + '-kr');
+    await click(key);
+    const after = await page.evaluate(id => {
+      const pen = probe.town.building(id), stock = probe.town.stock(pen.village);
+      probe.advance(60, () => !pen.storedProduce);
+      return [pen.storedProduce, stock.food];
+    }, id);
+    assert.deepEqual(after, [0, i ? 14 : 9]);
+  }
   assert.deepEqual(report.errors, []);
   report.passed = true;
 } catch (error) {

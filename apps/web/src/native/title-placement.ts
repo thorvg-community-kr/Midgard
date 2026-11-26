@@ -258,6 +258,9 @@ export function farmArea(town: Town, spot: Placement): Outline | null {
     out = rotated(point(0, 1), spot.angle),
     across = point(-out.y, out.x);
   for (const [wide, deep] of [
+    // A farmhand spends a week on one field. Leave room for a full harvest where the land allows it.
+    [4.5, 4.5],
+    [4, 4],
     [3, 3],
     [3.5, 2.5],
     [2.5, 3.5],
@@ -271,15 +274,15 @@ export function farmArea(town: Town, spot: Placement): Outline | null {
     }
   return null;
 }
-/** A field of about six acres within the farmhouse's reach, or null. */
+/** Try a full field near the farmhouse, then smaller plots that fit between the streets. */
 export function fieldBeside(town: Town, farm: Building, seed: number, salt = 0): Outline | null {
   const turn = hash01(seed, farm.id, salt, 73) * Math.PI * 2;
   for (let r = 2.6; r < TownState.farmReach; r += 0.8)
     for (let i = 0; i < 12; ++i) {
       const angle = turn + (i * Math.PI) / 6,
         c = point(farm.center.x + r * Math.cos(angle), farm.center.y + r * Math.sin(angle)),
-        wide = i % 2 ? 1.5 : 1.1,
-        deep = i % 2 ? 1.1 : 1.5,
+        wide = i < 6 ? 2.2 : i % 2 ? 1.5 : 1.1,
+        deep = i < 6 ? 2 : i % 2 ? 1.1 : 1.5,
         outline = [
           point(c.x - wide, c.y - deep),
           point(c.x + wide, c.y - deep),

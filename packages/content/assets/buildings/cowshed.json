@@ -1,0 +1,108 @@
+{
+  "format": "building-asset",
+  "version": 1,
+  "id": "cowshed",
+  "name": "Cowshed",
+  "footprint": 2,
+  "variants": [
+    {
+      "patches": [],
+      "blocks": [
+        {
+          "bounds": [
+            0.12,
+            0.12,
+            1.74,
+            0.91
+          ],
+          "wall": 22,
+          "roof": 11,
+          "shape": "gable-x",
+          "wallLit": [
+            167,
+            113,
+            85
+          ],
+          "wallShade": [
+            128,
+            91,
+            85
+          ],
+          "roofLit": [
+            82,
+            110,
+            98
+          ],
+          "roofShade": [
+            70,
+            89,
+            94
+          ],
+          "base": 0,
+          "delay": 0,
+          "windows": 1,
+          "door": true,
+          "trim": "none",
+          "glass": [
+            250,
+            206,
+            128
+          ],
+          "ornament": "none",
+          "accent": [
+            186,
+            72,
+            62
+          ]
+        },
+        {
+          "bounds": [
+            1.57,
+            1.16,
+            1.82,
+            1.67
+          ],
+          "wall": 4,
+          "roof": 0,
+          "shape": "flat",
+          "wallLit": [
+            121,
+            93,
+            71
+          ],
+          "wallShade": [
+            97,
+            77,
+            75
+          ],
+          "roofLit": [
+            91,
+            134,
+            142
+          ],
+          "roofShade": [
+            77,
+            105,
+            123
+          ],
+          "base": 0,
+          "delay": 0,
+          "windows": 0,
+          "door": false,
+          "trim": "none",
+          "glass": [
+            250,
+            206,
+            128
+          ],
+          "ornament": "none",
+          "accent": [
+            186,
+            72,
+            62
+          ]
+        }
+      ]
+    }
+  ]
+}

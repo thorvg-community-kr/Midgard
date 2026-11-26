@@ -236,6 +236,10 @@ try {
   assert.deepEqual(state.chosen, [mage.id]);
   assert(state.controls.some((c) => c.id === 'skill-auto-burst'));
   await shot('abilities-mage');
+  await click('speed-toggle');
+  await click('speed-5x');
+  assert.equal(await page.evaluate(() => loop.game.gameSpeed()), 5);
+  await click('speed-toggle');
   // Q quick-casts the rune at the ground under the cursor.
   const ground = await page.evaluate(() => {
     const t = loop.game.town, p = loop.member(4).position;
@@ -262,6 +266,19 @@ try {
   state = await snapshot();
   assert.match(state.status, /^Rune Burst is ready in \d+ s$/);
   await shot('ability-cooldown');
+  assert((await snapshot()).paused, 'Giving a combat order while paused keeps the game paused');
+  await page.keyboard.press('Space');
+  assert.equal(await page.evaluate(() => loop.game.gameSpeed()), 2, 'Casting at an enemy resumes at 2x before the rune lands');
+  await click('speed-toggle');
+  for (const speed of [3, 4, 5]) {
+    const fast = (await snapshot()).controls.find(c => c.id === `speed-${speed}x`);
+    assert(fast, 'The clock lists each speed during combat');
+    await page.mouse.click(fast.bounds.x + fast.bounds.w / 2, fast.bounds.y + fast.bounds.h / 2);
+    await frames(1, 0.001);
+    assert.equal(await page.evaluate(() => loop.game.gameSpeed()), 2);
+  }
+  await click('speed-1x');
+  await click('speed-toggle');
   // Backquote selects the whole party again.
   await page.keyboard.press('`');
   await frames(1, 0.001);

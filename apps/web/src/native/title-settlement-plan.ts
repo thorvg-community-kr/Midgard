@@ -212,6 +212,8 @@ function keepUp(ctx: TitleContext): Shortfall {
   let want: Structure | null = null;
   if (!own(town, Structure.Farm) && !own(town, Structure.Farm, false) && population >= 3)
     want = Structure.Farm;
+  else if (own(town, Structure.Farm) && !own(town, Structure.Well))
+    want = Structure.Well;
   else if (
     own(town, Structure.Shrine) &&
     population < altarCap(town) &&

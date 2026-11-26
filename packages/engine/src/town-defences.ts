@@ -23,6 +23,7 @@ function nearestFoe(town: TownState, from: Building, reach: number): Monster | n
   return mark;
 }
 function shoot(town: TownState, from: Building, mark: Monster, damage: number, pause: number): void {
+  town.engage(from);
   town.volleyAt.set(from.id, town.time + pause);
   mark.health = f(mark.health - damage);
   town.blows.push({

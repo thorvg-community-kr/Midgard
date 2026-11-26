@@ -150,7 +150,7 @@ function play(world: number, seed: number, days: number, stopAfterExpedition = t
     const day = town.clock() / 300;
     if (run.coreDay < 0 && currentGoal(town, GoalBranch.Core) < 0) run.coreDay = day;
     if (run.roadDay < 0 && ownRoads().length) run.roadDay = day;
-    // Counted at home in the first days, before raids and the party start calling residents away by the hour.
+    // Watch the early settlement through its first raids, before a dungeon assault calls settlers away.
     if (day < returnDays) {
       run.watched = day;
       for (const p of town.people()) {
@@ -214,9 +214,9 @@ function play(world: number, seed: number, days: number, stopAfterExpedition = t
 }
 
 const runs: Run[] = [];
-// Each complete settlement has its own simulation budget. A deep read-only view also checks the first run.
+// Allow six weeks of nightly battles to train the party. A deep read-only view also checks the first run.
 for (const [world, seed, deep] of [[5, 101, true], [5, 202, false], [11, 303, false]] as const) {
-  beforeAll(() => { runs.push(play(world, seed, 22, true, deep)); }, 600000);
+  beforeAll(() => { runs.push(play(world, seed, 42, true, deep)); }, 600000);
 }
 beforeAll(() => {
   console.log(

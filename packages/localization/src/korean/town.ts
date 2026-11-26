@@ -42,6 +42,13 @@ export const townPhrases: Phrases = {
   // town-construction: fields and demolition
   'Click to outline a field': '클릭해서 밭의 윤곽을 그리세요',
   'Drag an area for the farm': '농장이 들어설 구역을 드래그하세요',
+  'Drag an area for the pasture': '우리가 들어설 구역을 드래그하세요',
+  'Too many corners in the pasture': '우리의 모서리가 너무 많습니다',
+  'Too small for a shelter and pasture': '축사와 우리가 들어가기에 너무 작습니다',
+  'No corner has room for the shelter': '모서리에 축사가 들어설 자리가 없습니다',
+  'At most {0} acres per pasture': '우리 하나는 최대 {0}에이커입니다',
+  'Pasture in the way': '동물 우리가 가로막고 있습니다',
+  'The pasture gate is unreachable': '우리 입구로 가는 길이 없습니다',
   'Too small for a farmhouse and a field': '농가와 밭이 들어가기에 너무 작습니다',
   'No corner has room for the farmhouse': '모서리에 농가가 들어설 자리가 없습니다',
   'Too large for one farmhouse to work': '농가 하나가 돌보기에 너무 큽니다',
@@ -115,8 +122,7 @@ export const townPhrases: Phrases = {
   'Winter begins': '겨울이 시작됩니다',
   'Winter is one season away: fields will lie fallow and game will thin. Store food.':
     '한 계절 뒤면 겨울입니다. 밭은 쉬고 사냥감은 줄어듭니다. 식량을 비축하세요.',
-  'Winter: game is scarce and hungry monsters raid more often':
-    '겨울: 사냥감이 드물고 굶주린 몬스터의 습격이 잦아집니다',
+  'Game is scarce in winter.': '겨울에는 사냥감이 줄어듭니다.',
   'The stores are full: build a suitable depot or storehouse':
     '저장고가 가득 찼습니다. 알맞은 보관소나 창고를 지으세요',
   '{0} bought their {1} for {2} gold': '{0}: 살던 {1} 구입 ({2} 골드)',

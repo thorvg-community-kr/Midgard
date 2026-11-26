@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Town } from '../../packages/engine/src/town';
 import { WorldMap } from '../../packages/engine/src/world-map';
 import { DungeonKind, Layer, Terrain, makeTile } from '../../packages/engine/src/world-types';
-import { Activity, Calling, Monster, Person, Race, Role } from '../../packages/engine/src/person';
+import { Activity, AnimalKind, Calling, Monster, Person, Race, Role } from '../../packages/engine/src/person';
 import { Building } from '../../packages/engine/src/town-models';
 import { Resources, Structure } from '../../packages/engine/src/building-catalog';
 import { distance, point, type Point } from '../../packages/engine/src/geometry';
@@ -166,11 +166,8 @@ describe('group moves arrive in formation', () => {
     town.roll = () => 0.99;
     town.strike(p, foe);
     const hits = town.hits().filter((hit) => hit.attacker === p.id);
-    expect(hits.map((hit) => [hit.ranged, hit.primary])).toEqual([
-      [false, false],
-      [false, true],
-    ]);
-    expect(behind.health).toBeLessThan(100);
+    expect(hits.map((hit) => [hit.ranged, hit.primary])).toEqual([[false, true]]);
+    expect(behind.health).toBe(100);
   });
   it('sends a single resident to the exact point', () => {
     const town = fixture(),
@@ -194,7 +191,7 @@ describe('two skills per calling', () => {
     expect(town.skillsOf(settler)).toEqual([]);
     expect(town.abilityOf(old)).toEqual(town.skillsOf(old)[0]);
     expect(town.useSkill([young.id], 1)).toBe(0);
-    expect(town.skillReach(old, 1)).toBe(skillSpec('whirl').radius);
+    expect(town.skillReach(old, 1)).toBe(skillSpec('whirl').range);
     expect(town.abilityReach(old)).toBe(town.skillReach(old, 0));
     // Skills help on their own until the player takes one in hand.
     expect(town.skillsOf(old).map((s) => s.auto)).toEqual([true, true]);
@@ -202,32 +199,68 @@ describe('two skills per calling', () => {
     expect(town.skillsOf(old)[1].auto).toBe(false);
     expect(town.skillsOf(old)[0].auto).toBe(true);
   });
-  it('Whirl lands a heavy blow on every enemy around the warrior', () => {
+  it.each([
+    ['whirl' as const, Calling.Warrior, 'sword'],
+    ['volley' as const, Calling.Ranger, 'bow'],
+  ] as const)('%s follows the chosen enemy and spares the crowd around it', (skill, calling, weapon) => {
     const town = fixture(),
-      w = resident(town, point(20, 20), Calling.Warrior, 'sword'),
-      near = [monster(town, point(21, 20)), monster(town, point(20, 21.2))],
-      out = monster(town, point(22.5, 20)),
-      blow = town.blowStrength(w);
-    expect(town.useSkill([w.id], 1)).toBe(1);
-    expect(w).toMatchObject({ cast: 'whirl', castAt: town.clock() });
-    expect(cues(town, CombatCue.Ability).at(-1)).toMatchObject({ skill: 'whirl', text: 'Whirl', person: w.id, radius: 1.8 });
-    step(town, 0.4);
-    for (const m of near) expect(100 - m.health).toBeGreaterThanOrEqual(blow * skillPower.whirl - 0.01);
-    expect(out.health).toBe(100);
-    expect(town.skillsOf(w)[1]).toMatchObject({ ready: false, remaining: expect.any(Number) });
+      p = resident(town, point(20, 20), calling, weapon),
+      beside = monster(town, point(20.7, 20)),
+      mark = monster(town, point(21, 20)),
+      behind = monster(town, point(21.4, 20)),
+      blow = town.blowStrength(p);
+    p.foe = mark.id;
+    town.setSkillAuto([p.id], 0, false);
+    expect(town.skillsOf(p)[1].targeted).toBe(false);
+    expect(town.useSkill([p.id], 1)).toBe(1);
+    expect(cues(town, CombatCue.Ability).at(-1)).toMatchObject({ skill, creature: mark.id, radius: 0 });
+    expect(mark.health).toBe(100);
+    mark.position = point(21.2, 20.1);
+    town.time += skillSpec(skill).delay;
+    town.advanceAbilities();
+    expect(100 - mark.health).toBeCloseTo(blow * skillPower[skill], 4);
+    expect([beside.health, behind.health]).toEqual([100, 100]);
   });
-  it('Volley rains on a circle, picking the thickest spot on its own', () => {
-    const town = fixture(),
-      r = resident(town, point(20, 20), Calling.Ranger, 'bow'),
-      pack = [monster(town, point(26, 20)), monster(town, point(26.5, 20.5)), monster(town, point(25.6, 19.4))],
-      lone = monster(town, point(20, 26));
-    town.orderHold([r.id]);
-    r.ready = Infinity;
-    expect(town.useSkill([r.id], 1)).toBe(1);
-    step(town, 0.8);
-    for (const m of pack) expect(m.health).toBeLessThan(100);
-    expect(lone.health).toBe(100);
-    expect(town.useSkill([r.id], 1, point(20, 26))).toBe(0);
+  it('does not transfer a physical skill to a bystander when the target dies before impact', () => {
+    const town = fixture(), p = resident(town, point(20, 20), Calling.Ranger, 'bow'),
+      mark = monster(town, point(22, 20)), beside = monster(town, point(22.1, 20));
+    town.setSkillAuto([p.id], 0, false);
+    expect(town.useSkill([p.id], 1)).toBe(1);
+    mark.health = 0;
+    town.time += skillSpec('volley').delay;
+    town.advanceAbilities();
+    expect(beside.health).toBe(100);
+  });
+  it.each([Calling.Warrior, Calling.Ranger])('auto skills pass peaceful creatures to hit a raider for calling %i', calling => {
+    const town = fixture(), p = resident(town, point(20, 20), calling),
+      giant = monster(town, point(20.5, 20)), wildlife = monster(town, point(20.3, 20)),
+      raider = monster(town, point(21.5, 20));
+    giant.race = Race.Giant;
+    wildlife.animal = AnimalKind.Wolf;
+    town.beasts.splice(town.beasts.indexOf(wildlife), 1);
+    town.animals.push(wildlife);
+    giant.raider = giant.angry = wildlife.raider = wildlife.angry = false;
+    p.activity = Activity.Fighting;
+    town.setSkillAuto([p.id], 0, false);
+    town.advanceAbilities();
+    town.time += skillSpec(calling === Calling.Warrior ? 'whirl' : 'volley').delay;
+    town.advanceAbilities();
+    expect(raider.health).toBeLessThan(100);
+    for (const neutral of [giant, wildlife]) expect(neutral).toMatchObject({ health: 100, angry: false });
+  });
+  it('honors an explicit attack order against a peaceful giant', () => {
+    const town = fixture(), p = resident(town, point(20, 20), Calling.Ranger),
+      raider = monster(town, point(21, 20)), giant = monster(town, point(24, 20));
+    giant.race = Race.Giant;
+    giant.raider = giant.angry = false;
+    town.setSkillAuto([p.id], 0, false);
+    expect(town.orderAttack([p.id], giant.id)).toBe(true);
+    expect(town.useSkill([p.id], 1)).toBe(1);
+    town.time += skillSpec('volley').delay;
+    town.advanceAbilities();
+    expect(giant.health).toBeLessThan(100);
+    expect(giant.angry).toBe(true);
+    expect(raider.health).toBe(100);
   });
   it('Frost Ring slows the enemies inside to half pace and half bite rate', () => {
     const town = fixture(),

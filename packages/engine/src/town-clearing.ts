@@ -46,7 +46,7 @@ export function clearMarkOf(town: Town, kind: ClearKind, id: number): ClearMark 
   return clearMarks(town).find((m) => m.kind === kind && m.id === id) ?? null;
 }
 export function clearTargetAt(town: Town, p: Point): ClearTarget | null {
-  const building = town.buildingAt(p);
+  const building = town.buildingAt(p, true);
   if (building >= 0) return { kind: 'building', id: building };
   const field = town.fieldAt(p);
   if (field >= 0) return { kind: 'field', id: field };

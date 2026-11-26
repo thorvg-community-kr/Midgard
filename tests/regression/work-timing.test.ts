@@ -101,6 +101,7 @@ describe('work contacts use one simulation timeline', () => {
       expect(phase).toBeCloseTo(Math.round(phase), 8);
     }
     expect(site.progress).toBeGreaterThan(0);
+    expect(p).toMatchObject({ level: 1, experience: 0 });
     town.orderMove([p.id], point(25, 18));
     const serial = town.nextTreeEvent;
     town.advance(0.5);

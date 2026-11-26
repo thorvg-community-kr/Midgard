@@ -128,7 +128,9 @@ describe('placing a building', () => {
     const cursor = point(27, 20.82), aligned = town.fit(Structure.Tent, cursor, 0);
     expect(aligned.snapped).toBe(true);
     expect(town.canPlace(Structure.Tent, aligned.center, aligned.angle).reason).toBe('Occupied');
-    const { spot, check } = town.buildingSite(Structure.Tent, cursor, 0);
+    // Face the road so the free plot's entrance stays clear of the tent behind it.
+    expect(town.canPlace(Structure.Tent, cursor, 0).reason).toBe('Blocks a door');
+    const { spot, check } = town.buildingSite(Structure.Tent, cursor, Math.PI);
     expect(check.ok).toBe(true);
     expect(spot.snapped).toBe(false);
     expect(spot.center).toEqual(cursor);
@@ -169,5 +171,15 @@ describe('placing a building', () => {
     town.tick(0);
     expect(town.canPlace(Structure.Tent, point(26, 25), 0).reason).toBe('Blocks a door');
     expect(town.place(Structure.Tent, point(27, 24), 0)).toBe(true);
+  });
+
+  it('keeps the new doorway clear of earlier foundations before their walls enter the walking grid', () => {
+    const town = settlement();
+    expect(town.place(Structure.Tent, point(26, 24), 0)).toBe(true);
+    const behind = point(26, 23);
+    expect(town.canPlace(Structure.Tent, behind, 0).reason).toBe('Blocks a door');
+    town.completeConstruction();
+    expect(town.place(Structure.Tent, behind, 0)).toBe(false);
+    expect(town.place(Structure.Tent, behind, Math.PI)).toBe(true);
   });
 });

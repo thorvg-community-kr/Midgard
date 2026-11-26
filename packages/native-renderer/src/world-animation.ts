@@ -23,7 +23,7 @@ export function animate(s: WorldRendererState, town: Town, seconds: number): voi
       target = f32(stage * (1 - removed)),
       frame = Math.min(target, f32(item.frame + f32(Math.max(0, elapsed) * item.layout.frameRate)));
     if (item.nestEggs) {
-      const eggs = b.eggs;
+      const eggs = b.storedProduce;
       item.nestEggs.forEach((egg, i) => {
         const alpha = i < eggs ? 255 : 0;
         if (egg.alpha !== alpha) egg.opacity(alpha);

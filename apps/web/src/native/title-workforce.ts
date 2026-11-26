@@ -10,6 +10,8 @@ import * as mining from '../../../../packages/engine/src/mining';
 import { supplies } from '../../../../packages/engine/src/harvest-material';
 import { carryLimit, heldAmount } from '../../../../packages/engine/src/carried-resources';
 import { animalSpec } from '../../../../packages/engine/src/wildlife';
+import { cropWater } from '../../../../packages/engine/src/farm-work';
+import { herdLeader } from '../../../../packages/engine/src/livestock';
 import type { Building } from '../../../../packages/engine/src/town-models';
 import type { WorkRound } from '../../../../packages/engine/src/work-efficiency';
 import { isPlayerBuilding } from '../../../../packages/engine/src/faction';
@@ -146,13 +148,16 @@ export function staffSites(ctx: TitleContext): void {
 function staffWanted(town: Town, kind: Structure, population: number): number {
   const stock = town.stock(),
     jobs = structureSpec(kind).jobs;
+  if (!population) return 0;
   switch (kind) {
-    case Structure.Farm:
-      // Meals cost little; the farm's surplus is what the altar asks for.
+    case Structure.Farm: {
       if (!town.fieldAcres()) return 0;
-      return Math.min(jobs, stock.food < population * 4 ? 3 : population >= 6 && stock.food < 80 ? 2 : 1);
+      // Two founders share the field and the well. A lone survivor alternates as the water store fills.
+      const hands = population === 1 ? Number(stock.water >= waterReserve(town, population)) : population - 1;
+      return Math.min(jobs, hands, stock.food < population * 4 ? 3 : population >= 6 && stock.food < 80 ? 2 : 1);
+    }
     case Structure.Well:
-      return population >= 3 && stock.water < population * 3 ? 1 : 0;
+      return (town.fieldAcres() > 0 || population >= 3) && stock.water < waterReserve(town, population) ? 1 : 0;
     case Structure.Lumberyard:
       return population >= 7 ? 1 : 0;
     case Structure.Quarry:
@@ -169,6 +174,9 @@ function staffWanted(town: Town, kind: Structure, population: number): number {
       return 0;
   }
 }
+function waterReserve(town: Town, population: number): number {
+  return town.fields().reduce((need, field) => Math.max(need, cropWater(field)), population * 3);
+}
 /** Sets a workplace's staff count when the player's own wish for it changes; the town's later shuffles stand. */
 function setStaff(ctx: TitleContext, id: number, count: number): void {
   if (ctx.staffed.get(id) === count) return;
@@ -179,9 +187,17 @@ function setStaff(ctx: TitleContext, id: number, count: number): void {
 /** Asks each workplace for the staff it needs; the town fills the jobs from idle hands. */
 export function staffJobs(ctx: TitleContext): void {
   const { town } = ctx, population = town.population();
+  let well: Building | undefined;
   for (const b of town.buildings()) {
-    if (isPlayerBuilding(b) && b.built() && structureSpec(b.kind).jobs)
-      setStaff(ctx, b.id, staffWanted(town, b.kind, population));
+    if (!isPlayerBuilding(b) || !b.built() || !structureSpec(b.kind).jobs) continue;
+    if (b.kind === Structure.Well && !well) well = b;
+    else setStaff(ctx, b.id, staffWanted(town, b.kind, population));
+  }
+  if (well) {
+    const wanted = staffWanted(town, well.kind, population);
+    // Other workplaces can borrow the last well worker and lower its requested staff permanently.
+    if (wanted && well.wanted === 0) ctx.staffed.delete(well.id);
+    setStaff(ctx, well.id, wanted);
   }
 }
 const prey = [AnimalKind.Chicken, AnimalKind.Pig, AnimalKind.Cow];
@@ -193,10 +209,13 @@ export function hunt(ctx: TitleContext): boolean {
   if (!seat || town.raiding() || living(town).some((p) => p.hunting)) return false;
   const game = town
     .wildlife()
-    .filter((a) => a.health > 0 && a.animal !== null && prey.includes(a.animal) && town.map().revealed(a.position))
+    .filter((a) => a.health > 0 && a.pen < 0 && a.animal !== null && prey.includes(a.animal) && !herdLeader(town, a) && town.map().revealed(a.position))
     .filter((a) => distance(a.position, seat.center) < 22)
     .sort((a, b) => distance(a.position, seat.center) - distance(b.position, seat.center));
-  const hunters = ctx.free.filter((p) => p.health > 0.7 && !ctx.party.has(p.id) && p.job < 0);
+  const fit = ctx.free.filter((p) => p.health > 0.7 && !ctx.party.has(p.id));
+  const unassigned = fit.filter(p => p.job < 0);
+  // When every free hand works the fields, one can bring back a meal before the harvest.
+  const hunters = unassigned.length ? unassigned : fit.filter(p => town.building(p.job)?.kind === Structure.Farm);
   // The prey nearest the fire first: a long chase after richer game costs a founder the day. Prey across water or
   // behind rock cannot be walked to: its round is worth nothing, and nobody is sent after it.
   for (const target of game.slice(0, 4)) {

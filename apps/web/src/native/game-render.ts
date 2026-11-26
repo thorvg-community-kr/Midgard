@@ -63,7 +63,7 @@ export interface GameRenderApp extends GameCommandApp {
   closeCharacterEditor(apply: boolean): void;
   spatial(cue: Cue, world: Point): Sound;
   gameSpeed(): number;
-  speedHeld(): boolean;
+  speedLimit(): number;
   plan(): Plan;
   raiseAlarm(seconds: number): void;
   grunt(id: number): void;
@@ -363,23 +363,29 @@ export function worldScene(this: GameRenderApp): Scene {
 export function hudScene(this: GameRenderApp): Scene {
   return this.context.scene();
 }
-/** Beyond a gate the game runs at normal speed; the chosen speed comes back on the way home. */
-export function speedHeld(this: GameRenderApp): boolean {
-  return this.town.realmActive();
+export function speedLimit(this: GameRenderApp): number {
+  if (this.town.realmActive()) return 1;
+  return this.town.inCombat() ? 2 : GameAppState.maxSpeed;
 }
 export function gameSpeed(this: GameRenderApp): number {
-  return this.paused ? 0 : this.speedHeld() ? 1 : this.speed;
+  const limit = this.speedLimit();
+  // Legacy realms temporarily hold 1x. A battle in Midgard changes the chosen speed itself.
+  if (limit === 1) return this.paused ? 0 : 1;
+  if (this.speed > limit) this.speed = limit;
+  return this.paused ? 0 : this.speed;
 }
 export function togglePause(this: GameRenderApp): void {
   this.paused = !this.paused;
 }
 export function cycleSpeed(this: GameRenderApp): void {
-  if (this.speedHeld()) return;
-  this.speed = this.speed >= GameAppState.maxSpeed ? 1 : this.speed + 1;
+  const limit = this.speedLimit();
+  if (limit === 1) return;
+  this.speed = this.speed >= limit ? 1 : this.speed + 1;
   this.paused = false;
 }
 export function setSpeed(this: GameRenderApp, value: number): void {
-  if (this.speedHeld() && value !== 1) return;
-  if (!this.speedHeld()) this.speed = value;
+  const limit = this.speedLimit();
+  if (value > limit || value < 1) return;
+  if (limit !== 1) this.speed = value;
   this.paused = false;
 }

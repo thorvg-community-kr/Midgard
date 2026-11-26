@@ -270,7 +270,7 @@ export const catalogPhrases: Phrases = {
   'A wooden tool, made at a workbench.': '작업대에서 만드는 나무 도구입니다.',
   'A stone-headed tool, made at an upgraded workbench.': '업그레이드한 작업대에서 만드는 돌 도구입니다.',
   'Digs: lays and mends roads and breaks in new fields.': '땅을 팝니다: 길을 닦고 고치며 새 밭을 일굽니다.',
-  "Cuts the standing crop: a farmhand's field work in summer and autumn.": '서 있는 작물을 벱니다: 여름과 가을의 밭일에 씁니다.',
+  "Helps a farmer harvest ripe crops.": '익은 작물을 더 빨리 수확합니다.',
   'A long thrusting weapon: its point runs on through one enemy behind its target.': '길게 찌르는 무기입니다: 창끝이 뒤에 있는 적 하나까지 꿰뚫습니다.',
   'A wooden weapon, made at the smithy.': '대장간에서 만드는 나무 무기입니다.',
   'A weapon with a stone head or edge, made at an upgraded smithy.': '업그레이드한 대장간에서 돌 머리나 날을 달아 만드는 무기입니다.',
@@ -377,12 +377,12 @@ export const catalogPhrases: Phrases = {
   // Skill descriptions
   'Nearby monsters turn on the warrior for a while; the warrior takes less damage meanwhile.':
     '가까운 몬스터들이 한동안 전사에게 달려듭니다. 그동안 전사는 피해를 덜 받습니다.',
-  'A full turn of the blade: every enemy close around takes a heavy blow.':
-    '칼날을 한 바퀴 휘둘러 바로 곁의 적 모두에게 묵직한 일격을 먹입니다.',
+  'Turn and strike one nearby enemy with a heavy blow.':
+    '몸을 돌려 가까운 적 하나에게 묵직한 일격을 가합니다.',
   'One heavy shot at the nearest enemy in range; breaks a wind-up.':
     '닿는 곳에서 가장 가까운 적에게 강력한 한 발을 쏩니다. 준비 동작을 끊습니다.',
-  'Arrows rain on a circle in the distance, striking every enemy inside.':
-    '먼 곳의 원 안에 화살비를 내려 안에 있는 적 모두를 맞힙니다.',
+  'Loose a volley of arrows at one distant enemy.':
+    '멀리 있는 적 하나에게 화살을 연달아 쏩니다.',
   'A rune circle lands after a moment, hitting every monster inside for heavy damage.':
     '잠시 뒤 룬의 원이 내려앉아 안에 있는 몬스터 모두에게 큰 피해를 줍니다.',
   'A ring of frost in the distance: enemies caught in it move and strike slower for a while.':
@@ -424,10 +424,10 @@ export const catalogPhrases: Phrases = {
     '네 명이 사는 목조 주택입니다. 가득 차고 마을 정착민이 14명이 되면 연립 주택이 됩니다.',
   'Caravans from distant lands trade here.': '먼 땅에서 온 대상들이 이곳에서 거래합니다.',
   'Draws mana from the ley lines.': '지맥에서 마나를 끌어옵니다.',
-  'Draws water for everyone; each person drinks every day. It draws more beside a lake or river.':
-    '모두가 마실 물을 길어 올립니다. 사람마다 날마다 물을 마십니다. 호수나 강 옆에서는 더 많이 길어 올립니다.',
-  'Farmers tend the fields around the farmhouse; more farmers tend more fields.':
-    '농부가 농가 둘레의 밭을 돌봅니다. 농부가 많을수록 더 많은 밭을 돌봅니다.',
+  'Supplies water for drinking, crops and livestock. A well draws more near a lake or river.':
+    '식수와 농사, 가축에 필요한 물을 공급합니다. 호수나 강 옆에서는 더 많이 길어 올립니다.',
+  'Farmers work nearby fields. Each crop needs water and yields food at harvest.':
+    '농부가 주변 밭을 경작합니다. 작물에 물을 주고 수확을 마치면 식량을 얻습니다.',
   'Forges blades: staffed, residents and guards strike harder, and adventurers buy here.':
     '칼날을 벼립니다. 일꾼이 있으면 정착민과 경비가 더 강하게 공격하고, 모험가가 이곳에서 물건을 삽니다.',
   'Mail and shields: staffed, monsters wound your people less, and adventurers buy here.':
@@ -548,7 +548,7 @@ export const catalogPhrases: Phrases = {
   'Pick Farm and drag an area: the farmhouse is raised in its corner and the rest is tilled as its field. It takes 15 wood.':
     '농장을 고르고 구역을 드래그하세요. 모서리에 농가를 짓고 나머지는 밭이 됩니다. 나무 15가 필요합니다.',
   'Build a well': '우물 짓기',
-  'Give your residents drinking water.': '정착민에게 마실 물을 마련해 주세요.',
+  'Supply drinking water, water for the fields and water for livestock.': '정착민이 마시고, 밭과 가축에 쓸 물을 마련하세요.',
   'Build a tent': '천막 짓기',
   'Provide housing for newcomers.': '새로 오는 이들이 살 집을 마련하세요.',
   'Reach {0} residents': '정착민 {0}명 달성',

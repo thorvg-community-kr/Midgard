@@ -216,7 +216,7 @@ describe('sleep state stability', () => {
     p.food = 0.35;
     town.stock().food = 0;
     const prey = new Monster(99, -1, add(p.position, point(0.7, 0)));
-    prey.animal = AnimalKind.Chicken;
+    prey.animal = AnimalKind.Pig;
     prey.health = 1;
     prey.home = { ...prey.position };
     town.animals.push(prey);

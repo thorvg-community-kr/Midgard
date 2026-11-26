@@ -88,11 +88,13 @@ describe('resident automatic policy', () => {
     town.scheduleAutomatic(p);
     expect([Activity.Felling,Activity.Mining]).not.toContain(p.activity);
   });
-  it('keeps a full meal above the hungry threshold for at least seven game days', () => {
+  it('reaches the hungry threshold between three and a half and four game days after a full meal', () => {
     const town=fixture(),p=town.people()[0];town.setAuto(p.id,false);p.food=1;
     // Tick the metabolic path only; the explicit Hold makes unrelated schedules inert.
-    for(let i=0;i<7*3000;++i) town.tick(.1);
-    expect(p.food).toBeGreaterThanOrEqual(.25);
+    for(let i=0;i<3.5*3000;++i) town.tick(.1);
+    expect(p.food).toBeGreaterThan(.25);
+    for(let i=0;i<0.5*3000;++i) town.tick(.1);
+    expect(p.food).toBeLessThan(.25);
   });
   it('prioritizes a new road over ordinary hunger and thirst', () => {
     const town=fixture(),p=town.people()[0],r=road(town);p.food=.2;p.hydration=.2;
@@ -127,13 +129,21 @@ describe('resident automatic policy', () => {
     expect(town.orderAttackPerson([p.id],other.id)).toBe(true);step(town,1.1);
     expect(other.health).toBeLessThan(.95);expect(town.hits().some(h=>h.onPerson&&h.person===other.id)).toBe(true);
   });
-  it('hunts for an empty pantry, eats one portion and carries surplus to storage', () => {
-    const town=fixture(),p=town.people()[0];town.stock().food=0;p.food=.2;
-    const prey=new Monster(50,-1,add(p.position,point(.5,0)));prey.animal=AnimalKind.Chicken;prey.home={...prey.position};prey.health=1;town.animals.push(prey);
-    town.scheduleAutomatic(p);expect(p.hunting).toBe(true);
-    for(let i=0;i<200 && town.stock().food<3;++i)town.advance(.1);
-    expect(p.food).toBeGreaterThan(.95);expect(town.stock().food).toBe(3);expect(p.carrying).toBe(0);
-  });
+  it.each([[AnimalKind.Pig, 3], [AnimalKind.Chicken, 0]])(
+    'eats one portion of hunted prey %i and delivers the remaining %i to an empty pantry', (kind, surplus) => {
+      const town = fixture(), p = town.people()[0];
+      town.stock().food = 0;
+      p.food = .2;
+      const prey = new Monster(50, -1, add(p.position, point(.5, 0)));
+      prey.animal = kind; prey.home = { ...prey.position }; prey.health = 1; town.animals.push(prey);
+      town.scheduleAutomatic(p);
+      expect(p.hunting).toBe(true);
+      for (let i = 0; i < 200 && (p.food < .9 || town.stock().food < surplus); ++i) town.advance(.1);
+      expect(p.food).toBeGreaterThan(.95);
+      expect(town.stock().food).toBe(surplus);
+      expect(p.carrying).toBe(0);
+    },
+  );
   it('walks to a Well and drinks instead of remotely consuming water', () => {
     const town=fixture(),p=town.people()[0],well=new Building(1,Structure.Well,point(35,34),0,0);well.village=0;town.placed.push(well);++town.changes;
     p.hydration=.2;const before=town.stock().water;town.scheduleAutomatic(p);

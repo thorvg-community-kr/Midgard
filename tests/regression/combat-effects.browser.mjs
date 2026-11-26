@@ -420,7 +420,6 @@ try {
     ['skill-challenge', 'challenge', 0.12, 2.6],
     ['skill-whirl', 'whirl', 0.32, 2.2],
     ['skill-aimed', 'aimed', 0.05, 2.6],
-    ['skill-volley-mark', 'volley', 0.35, 1.8],
     ['skill-volley-rain', 'volley', 0.7, 1.8],
     ['skill-burst', 'burst', 0.5, 2],
     ['skill-frost', 'frost', 1.2, 1.6],
@@ -458,8 +457,8 @@ try {
         ally.health = 0.5;
         combatProbe.look(0, 0.3, zoom);
         combatProbe.frame();
-        const ground = ['volley', 'burst', 'frost'].includes(skill) ? combatProbe.at(1, 0.3) : hero.position;
-        combatProbe.cast(skill, skill === 'aimed' ? foes[0].position : ground, hero);
+        const ground = ['burst', 'frost'].includes(skill) ? combatProbe.at(1, 0.3) : hero.position;
+        combatProbe.cast(skill, ['aimed', 'whirl', 'volley'].includes(skill) ? foes[0].position : ground, hero);
         if (skill === 'aimed') combatProbe.blow(hero, foes[0], 120, { ranged: true });
         if (skill === 'mend') combatProbe.emit(combatProbe.CombatCue.Heal, ally.position, { person: ally.id, amount: 35 });
         const lands = combatProbe.delayOf(skill);
@@ -468,7 +467,7 @@ try {
           // The engine's blows land with the skill.
           if (!fired && t + 1e-6 >= lands) {
             fired = true;
-            combatProbe.swing(hero, foes.slice(0, 3), 30, 0, { ranged: skill !== 'whirl' });
+            combatProbe.swing(hero, skill === 'burst' ? foes.slice(0, 3) : [foes[0]], 30, 0, { ranged: skill !== 'whirl' });
           }
           combatProbe.frame(1 / 30);
         }
@@ -623,12 +622,14 @@ try {
         const { resident, monster, Calling, MonsterRank } = combatProbe;
         combatProbe.reset();
         const ranger = resident(-3, -0.5, Calling.Ranger);
-        for (let i = 0; i < 9; i++) monster(-1 + (i % 3) * 0.9, -1 + Math.floor(i / 3) * 0.9, MonsterRank.Swarmer);
+        const foes = Array.from({ length: 9 }, (_, i) => monster(-1 + (i % 3) * 0.9, -1 + Math.floor(i / 3) * 0.9, MonsterRank.Swarmer));
         resident(1.5, 1.2, Calling.Warrior);
         combatProbe.look(0, 0, 3);
         combatProbe.frame();
-        combatProbe.cast('volley', combatProbe.at(0, 0), ranger);
-        for (let t = 0; t < 0.72; t += 1 / 30) combatProbe.frame(1 / 30);
+        combatProbe.cast('volley', foes[4].position, ranger);
+        combatProbe.frame(combatProbe.delayOf('volley'));
+        combatProbe.swing(ranger, [foes[4]], 30, 0, { ranged: true });
+        combatProbe.frame(0.12);
       },
     ],
     // Ground: a rune circle with units standing on it.

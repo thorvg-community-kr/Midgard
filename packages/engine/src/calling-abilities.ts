@@ -3,6 +3,7 @@ import { Activity, Role, type Monster, type Person } from './person';
 import { distance, type Point } from './geometry';
 import { f32 as f, lround } from './numeric';
 import { CombatCue, type AbilityId, type AbilityState } from './combat-events';
+import type { PendingSkill } from './combat-state';
 import { canControl, playerFaction } from './faction';
 import { healthCap } from './resident-wounds';
 import { SkillAim, StrikeKind, skillOfCalling, skillPower, skillSpec, type SkillSpec } from './skill-catalog';
@@ -11,9 +12,11 @@ import { SkillAim, StrikeKind, skillOfCalling, skillPower, skillSpec, type Skill
 const autoLook = 0.25;
 const slots = [0, 1];
 const standing = (p: Person): boolean => p.health > 0 && p.downedAt < 0;
-const foeOf = (town: Town, m: Monster): boolean =>
-  m.health > 0 && !m.insideLair && (m.animal === null || m.angry) && town.world.revealed(m.position);
 const roused = (m: Monster): boolean => m.angry || m.raider;
+const exposed = (town: Town, m: Monster): boolean =>
+  m.health > 0 && !m.insideLair && m.pen < 0 && town.world.revealed(m.position);
+const foeOf = (town: Town, m: Monster): boolean =>
+  (roused(m) || (m.animal === null && !m.giant())) && exposed(town, m);
 
 function readyAt(p: Person, slot: number): number {
   return slot ? p.abilityReadyAt2 : p.abilityReadyAt;
@@ -43,13 +46,21 @@ function allies(town: Town, p: Person, reach: number, at = p.position): Person[]
   );
 }
 function aimedMark(town: Town, p: Person, reach: number): Monster | null {
+  if (p.ordered && p.task === Activity.Fighting && p.attackPerson < 0) {
+    const chosen = town.creature(p.taskSite);
+    if (chosen && exposed(town, chosen) && distance(chosen.position, p.position) <= reach) return chosen;
+  }
   const current = p.foe >= 0 ? town.creature(p.foe) : null;
   if (current && foeOf(town, current) && distance(current.position, p.position) <= reach) return current;
-  return (
-    enemiesNear(town, p.position, reach).sort(
-      (a, b) => distance(a.position, p.position) - distance(b.position, p.position) || a.id - b.id,
-    )[0] ?? null
-  );
+  let nearest: Monster | null = null, shortest = reach;
+  for (const group of [town.beasts, town.animals])
+    for (const m of group) {
+      const gap = distance(m.position, p.position);
+      if (gap > shortest || (gap === shortest && nearest && m.id >= nearest.id) || !foeOf(town, m)) continue;
+      nearest = m;
+      shortest = gap;
+    }
+  return nearest;
 }
 /** The point within `range` of the resident with the most roused enemies inside one circle, and how many. */
 function bestSpot(town: Town, p: Person, range: number, radius: number): { at: Point; count: number } | null {
@@ -107,13 +118,13 @@ function fire(town: Town, p: Person, spec: SkillSpec, target?: Point): boolean {
         creature,
         text: spec.name,
         skill: spec.id,
-        radius: spec.radius || spec.range,
+        radius: spec.radius,
         duration: spec.duration || spec.delay,
       }),
-    land = (at: Point, damage: number) => {
-      state.bursts.push({ by: p.id, skill: spec.id, at: { ...at }, lands: time + spec.delay, damage, radius: spec.radius });
+    land = (skill: PendingSkill['skill'], at: Point, damage: number, mark?: number) => {
+      state.bursts.push({ by: p.id, skill, at: { ...at }, lands: time + spec.delay, damage, radius: spec.radius, mark });
       setUntil(p, spec.slot, time + spec.delay + spec.duration);
-      cue(at);
+      cue(at, mark);
     },
     ground = (): Point | null => {
       const at = target ?? bestSpot(town, p, spec.range, spec.radius)?.at ?? null;
@@ -123,6 +134,7 @@ function fire(town: Town, p: Person, spec: SkillSpec, target?: Point): boolean {
     case 'challenge': {
       const foes = enemiesNear(town, p.position, spec.radius).filter((m) => m.animal === null);
       if (!foes.length) return false;
+      town.engage(p);
       for (const m of foes) {
         state.taunts.set(m.id, { by: p.id, until: time + spec.duration });
         if (!m.raider) m.angry = true;
@@ -131,9 +143,12 @@ function fire(town: Town, p: Person, spec: SkillSpec, target?: Point): boolean {
       cue(p.position);
       return true;
     }
-    case 'whirl': {
-      if (!enemiesNear(town, p.position, spec.radius).length) return false;
-      land(p.position, f(town.blowStrength(p) * skillPower.whirl));
+    case 'whirl':
+    case 'volley': {
+      const mark = aimedMark(town, p, spec.range);
+      if (!mark) return false;
+      if (mark.animal === null) town.engage(p);
+      land(spec.id, mark.position, f(town.blowStrength(p) * skillPower[spec.id]), mark.id);
       return true;
     }
     case 'aimed': {
@@ -145,12 +160,11 @@ function fire(town: Town, p: Person, spec: SkillSpec, target?: Point): boolean {
       return true;
     }
     case 'burst':
-    case 'volley':
     case 'frost': {
       const at = ground();
       if (!at) return false;
-      const power = spec.id === 'burst' ? skillPower.burst : spec.id === 'volley' ? skillPower.volley : 0;
-      land(at, f(town.blowStrength(p) * power));
+      if (town.beasts.some(m => distance(m.position, at) <= spec.radius && foeOf(town, m))) town.engage(p);
+      land(spec.id, at, spec.id === 'burst' ? f(town.blowStrength(p) * skillPower.burst) : 0);
       return true;
     }
     case 'mend': {
@@ -182,6 +196,7 @@ function fire(town: Town, p: Person, spec: SkillSpec, target?: Point): boolean {
     case 'dirge': {
       const foes = enemiesNear(town, p.position, spec.radius).filter((m) => m.animal === null);
       if (!foes.length) return false;
+      town.engage(p);
       for (const m of foes) {
         state.dirged.set(m.id, time + spec.duration);
         if (!m.raider) m.angry = true;
@@ -211,7 +226,10 @@ function worthUsing(town: Town, p: Person, spec: SkillSpec): boolean {
     case 'challenge':
       return enemiesNear(town, p.position, 3).filter((m) => m.animal === null).length >= 2;
     case 'whirl':
-      return enemiesNear(town, p.position, spec.radius).filter((m) => m.animal === null).length >= 3;
+    case 'volley': {
+      const mark = aimedMark(town, p, spec.range);
+      return !!mark && (roused(mark) || p.activity === Activity.Fighting);
+    }
     case 'aimed': {
       const mark = aimedMark(town, p, spec.range);
       return (
@@ -222,8 +240,6 @@ function worthUsing(town: Town, p: Person, spec: SkillSpec): boolean {
     }
     case 'burst':
       return (bestSpot(town, p, spec.range, spec.radius)?.count ?? 0) >= 2;
-    case 'volley':
-      return (bestSpot(town, p, spec.range, spec.radius)?.count ?? 0) >= 3;
     case 'frost':
       return (bestSpot(town, p, spec.range, spec.radius)?.count ?? 0) >= 4;
     case 'mend': {
@@ -327,16 +343,21 @@ export function advanceAbilities(this: Town, dt = 0): void {
   const state = this.combatState;
   for (const pending of state.bursts.filter((b) => this.time >= b.lands)) {
     const by = this.person(pending.by),
-      caster = by && standing(by) ? by : null,
-      // A whirl turns with the warrior; the rest land where they were aimed.
-      at = pending.skill === 'whirl' ? (caster?.position ?? pending.at) : pending.at;
-    if (pending.skill === 'whirl' && !caster) continue;
-    for (const m of enemiesNear(this, at, pending.radius)) {
+      caster = by && standing(by) && !by.inside ? by : null;
+    if (pending.skill === 'whirl' || pending.skill === 'volley') {
+      const mark = pending.mark === undefined ? null : this.creature(pending.mark);
+      if (!mark || !exposed(this, mark)) continue;
+      if (pending.skill === 'whirl' && (!caster || distance(caster.position, mark.position) > skillSpec('whirl').range)) continue;
+      skillBlow(this, caster?.position ?? pending.at, mark, pending.damage, caster, pending.skill === 'volley');
+      continue;
+    }
+    for (const m of enemiesNear(this, pending.at, pending.radius)) {
       if (pending.skill === 'frost') {
+        if (caster && m.animal === null) this.engage(caster);
         state.chilled.set(m.id, this.time + skillSpec('frost').duration);
         if (caster) rouse(m, caster);
         else if (!m.raider) m.angry = true;
-      } else skillBlow(this, at, m, pending.damage, caster, pending.skill !== 'whirl');
+      } else skillBlow(this, pending.at, m, pending.damage, caster, true);
     }
   }
   state.bursts = state.bursts.filter((b) => this.time < b.lands);

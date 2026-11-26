@@ -56,14 +56,14 @@ export const skills: readonly SkillSpec[] = [
   {
     id: 'whirl',
     name: 'Whirl',
-    description: 'A full turn of the blade: every enemy close around takes a heavy blow.',
+    description: 'Turn and strike one nearby enemy with a heavy blow.',
     calling: Calling.Warrior,
     slot: 1,
     level: secondSkillLevel,
     cooldown: 10,
-    aim: SkillAim.Self,
-    range: 0,
-    radius: 1.8,
+    aim: SkillAim.Enemy,
+    range: 1.8,
+    radius: 0,
     delay: 0.25,
     duration: 0,
     auto: true,
@@ -86,14 +86,14 @@ export const skills: readonly SkillSpec[] = [
   {
     id: 'volley',
     name: 'Volley',
-    description: 'Arrows rain on a circle in the distance, striking every enemy inside.',
+    description: 'Loose a volley of arrows at one distant enemy.',
     calling: Calling.Ranger,
     slot: 1,
     level: secondSkillLevel,
     cooldown: 14,
-    aim: SkillAim.Ground,
+    aim: SkillAim.Enemy,
     range: 8,
-    radius: 2.2,
+    radius: 0,
     delay: 0.6,
     duration: 0,
     auto: true,
@@ -220,7 +220,7 @@ export enum StrikeKind {
 }
 export interface StrikeSpec {
   kind: StrikeKind;
-  /** Tiles around the target (Cleave, Splash) or beyond it (Pierce) that the blow also reaches. */
+  /** Tiles around the target reached by a magical splash. */
   reach: number;
   /** Share of the damage the other enemies take. */
   share: number;
@@ -231,12 +231,8 @@ export interface StrikeSpec {
 }
 const single: StrikeSpec = { kind: StrikeKind.Single, reach: 0, share: 0, most: 1, stagger: 0 };
 const byShape: Record<string, StrikeSpec> = {
-  sword: { kind: StrikeKind.Cleave, reach: 1.2, share: 0.6, most: 3, stagger: 0 },
   mace: { kind: StrikeKind.Crush, reach: 0, share: 0, most: 1, stagger: 0.8 },
-  bow: { kind: StrikeKind.Pierce, reach: 2.5, share: 0.6, most: 2, stagger: 0 },
   staff: { kind: StrikeKind.Splash, reach: 0.9, share: 0.5, most: 4, stagger: 0 },
-  spear: { kind: StrikeKind.Pierce, reach: 1.2, share: 0.6, most: 2, stagger: 0 },
 };
-/** The blow a weapon deals, by the shape it is drawn with (an item's `visual`), so every sword cleaves
- * whatever it is made of; tools and bare hands strike one target. */
+/** Only a staff's magic splashes. A mace also staggers the enemy it strikes. */
 export const strikeOf = (visual: string | null | undefined): StrikeSpec => (visual && byShape[visual]) || single;

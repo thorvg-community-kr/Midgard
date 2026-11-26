@@ -1,3 +1,4 @@
+import { CropStage } from '../../packages/engine/src/farm-work';
 import { beforeAll, afterAll, expect, it, vi } from 'vitest';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import ThorVG, { type ThorVGNamespace } from '@thorvg/webcanvas';
@@ -203,6 +204,7 @@ it('shows work equipment only while actually outdoors at the field or productive
   p.workField = 0;
   let time = 1;
   const combatTarget = { position: point(5, 6) };
+  const field = { id: 0, cropProgress: CropStage.Tilling };
   const town = {
       people: () => [p],
       person: (id: number) => (id === 99 ? combatTarget : p),
@@ -210,9 +212,9 @@ it('shows work equipment only while actually outdoors at the field or productive
       building: (id: number) => (id === b.id ? b : null),
       monsters: () => [],
       wildlife: () => [],
-      fields: () => [{ id: 0, tilled: 1 }],
+      fields: () => [field],
       // The engine reads these directly when it picks the tool for the field's work.
-      farmland: [{ id: 0, tilled: 1 }],
+      farmland: [field],
       get time() {
         return time;
       },
@@ -228,6 +230,9 @@ it('shows work equipment only while actually outdoors at the field or productive
     expect(parts.hoe!.alpha).toBe(255);
     expect(parts.waterDrops!.alpha).toBe(0);
     time = 7;
+    moveAgents(s, town, traffic, time, []);
+    expect(parts.hoe!.alpha).toBe(255);
+    field.cropProgress = CropStage.Watering;
     moveAgents(s, town, traffic, time, []);
     expect(parts.wateringCan!.alpha).toBe(255);
     expect(parts.waterDrops!.alpha).toBe(255);

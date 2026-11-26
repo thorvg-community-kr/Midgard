@@ -274,7 +274,7 @@ describe('the notices on screen', () => {
       ui.drawLog(1);
       expect(body(ui.words())).toHaveLength(1);
       expect(ui.words()).toContain('The first kill');
-      expect(ui.words().map(String).filter((text) => text.startsWith('A kill gives experience'))).toHaveLength(0);
+      expect(ui.words().map(String).filter((text) => text.startsWith('Defeating a monster gives experience'))).toHaveLength(0);
     } finally {
       ui.dispose();
     }

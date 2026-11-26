@@ -1,5 +1,6 @@
 // Native town.cpp placement, construction, staffing and land rules. No tutorial policy is added here.
 import { levelVariant, topLevel } from './craft-stations';
+import { livestockRecipe } from './pasture-geometry';
 import { TownState } from './town-state';
 import { Building, Field, Check, Placement } from './town-models';
 import type { WalkGrid } from './walk-paths';
@@ -15,6 +16,8 @@ import {
 } from './building-catalog';
 import { Activity, Person, Role, TreeWorkKind } from './person';
 import { footBlockedBy } from './person-collision';
+import { canControl } from './faction';
+import { finishRanchOrder, isRanchHarvest } from './livestock';
 import type { Town } from './town';
 import { canClear, clearNow, clearTargetAt } from './town-clearing';
 import { CampEconomy } from './camp-economy';
@@ -66,10 +69,11 @@ export interface ConstructionTown extends TownState {
   clearTrees(points: Point[]): number;
   reveal(x: number, y: number, radius: number): void;
   assignHomes(): void;
+  assignJob(ids: number[], id: number): boolean;
   staff(): void;
   recount(): void;
   borrowWorker(b: Building): void;
-  buildingAt(p: Point): number;
+  buildingAt(p: Point, includePasture?: boolean): number;
   fieldAt(p: Point): number;
   field(id: number): Field | null;
   touchesSettlement(p: Point): boolean;
@@ -82,6 +86,7 @@ export interface ConstructionTown extends TownState {
   canBuildRoad(path: RoadPath): Check;
   canPave(id: number): Check;
   canReshapeRoad(id: number, path: RoadPath): Check;
+  plotObstruction(outline: Outline): string;
   canPlantField(o: Outline, house?: Footprint): Check;
   canDemolish(p: Point): Check;
   raze(id: number): void;
@@ -192,6 +197,17 @@ export function editBuilding(
         { center, angle, progress, health },
       );
       for (const p of draft.footprint().corners()) if (!this.world.inside(p)) return false;
+      if (livestockRecipe(building.kind) && (center.x !== building.center.x || center.y !== building.center.y || angle !== building.angle)) {
+        const move = (p: Point) => add(center, rotated(sub(p, building.center), angle - building.angle));
+        draft.pasture = building.pasture.map(move);
+        if (draft.pasture.some(p => !this.world.inside(p))) return false;
+        for (const animal of this.animals) {
+          if (animal.pen !== id) continue;
+          animal.position = move(animal.position);
+          animal.home = move(animal.home);
+          animal.path = [];
+        }
+      }
       Object.assign(building, draft);
       building.version = f32(building.version + 1) >>> 0;
       ++this.changes;
@@ -207,6 +223,7 @@ export function roomToGrow(this: ConstructionTown, item: Building, next: Structu
   if (this.groundProblem(grown)) return false;
   for (const other of this.placed)
     if (other.id !== item.id && grown.overlaps(other.footprint())) return false;
+  if (this.placed.some(b => b.pasture.length && overlaps(grown.corners(), b.pasture))) return false;
   for (const segment of this.network.segments()) if (grown.contains(segment.a, -f32(0.1))) return false;
   return true;
 }
@@ -245,9 +262,11 @@ export function setFaith(this: ConstructionTown, id: number, faith: Faith): bool
 export function field(this: ConstructionTown, id: number): Field | null {
   return this.farmland.find((f) => f.id === id) ?? null;
 }
-export function buildingAt(this: ConstructionTown, p: Point): number {
+export function buildingAt(this: ConstructionTown, p: Point, includePasture = false): number {
   for (let i = f32(this.placed.length - 1); i >= 0; --i)
     if (this.placed[i].footprint().contains(p)) return this.placed[i].id;
+  if (includePasture)
+    for (const shed of this.placed) if (shed.pasture.length && contains(shed.pasture, p)) return shed.id;
   return -1;
 }
 export function fieldAt(this: ConstructionTown, p: Point): number {
@@ -350,7 +369,11 @@ export function buildingSite(
 }
 // The preview asks about the same doorway every frame. Even nearby doors can straddle a wall.
 const doorways = new WeakMap<Float32Array, Map<string, boolean>>();
-function doorReached(grid: WalkGrid, from: Point, door: Point): boolean {
+function blocksDoor(wall: Footprint, door: Point, kind: Structure): boolean {
+  // A resident needs room for their feet. A crafter also works out here in front of the station.
+  return topLevel(kind) ? wall.contains(door, f32(0.45)) : footBlockedBy(door, wall);
+}
+export function doorReached(grid: WalkGrid, from: Point, door: Point): boolean {
   let known = doorways.get(grid.costs);
   if (!known) doorways.set(grid.costs, (known = new Map()));
   const key = `${from.x},${from.y}>${door.x},${door.y}`;
@@ -388,14 +411,13 @@ export function canPlace(this: ConstructionTown, kind: Structure, center: Point,
   const footprint = new Footprint(center, f32(spec.size / 2), angle),
     problem = this.groundProblem(footprint);
   if (problem) return refuse(check, problem);
-  for (const other of this.placed)
+  for (const other of this.placed) {
     if (footprint.overlaps(other.footprint())) return refuse(check, 'Occupied');
+    if (other.pasture.length && overlaps(other.pasture, footprint.corners())) return refuse(check, 'Pasture in the way');
+  }
   for (const other of this.placed) {
     if (other.kind === Structure.Torch) continue;
-    const door = other.door();
-    // A resident needs room for their feet. A crafter also works out here in front of the station.
-    if (topLevel(other.kind) ? footprint.contains(door, f32(0.45)) : footBlockedBy(door, footprint))
-      return refuse(check, 'Blocks a door');
+    if (blocksDoor(footprint, other.door(), other.kind)) return refuse(check, 'Blocks a door');
   }
   for (const segment of this.network.segments())
     if (touches(footprint, segment.a, segment.b, TownState.roadHalfWidth))
@@ -408,10 +430,12 @@ export function canPlace(this: ConstructionTown, kind: Structure, center: Point,
     return refuse(check, 'Needs rocky ground close by');
   // Builders work from the doorway, so a plot nobody can walk to would stand unbuilt for good.
   const seat = founding ? null : this.camp(village);
-  if (seat && this.grid.costs.length) {
-    const door = new Building(-1, kind, { ...center }, angle, placementVariant(this.world, kind, center)).door();
-    if (!doorReached(this.grid, seat.door(), door)) return refuse(check, 'Builders cannot reach its door');
-  }
+  const door = new Building(-1, kind, center, angle, placementVariant(this.world, kind, center)).door();
+  if (seat && this.grid.costs.length && !doorReached(this.grid, seat.door(), door))
+    return refuse(check, 'Builders cannot reach its door');
+  // A route can still cross a foundation whose walls have yet to enter the walking grid.
+  if (this.placed.some(other => other.kind !== Structure.Torch && blocksDoor(other.footprint(), door, kind)))
+    return refuse(check, 'Blocks a door');
   check.ok = true;
   return check;
 }
@@ -487,12 +511,15 @@ export function checkRoad(this: ConstructionTown, path: RoadPath, ignore: number
     if (terrain === Terrain.Ice) return refuse(check, 'Ice');
     if (terrain === Terrain.Lava) return refuse(check, 'Lava');
     if (tile.dungeon >= 0) return refuse(check, 'A dungeon entrance');
-    for (const item of this.placed)
+    for (const item of this.placed) {
       if (
         item.kind !== Structure.Torch &&
         item.footprint().contains(p, end ? -f32(0.05) : f32(TownState.roadHalfWidth - f32(0.1)))
       )
         return refuse(check, 'Building in the way');
+      if (item.pasture.length && outlineDistance(item.pasture, p) < TownState.roadHalfWidth)
+        return refuse(check, 'Pasture in the way');
+    }
     if (this.fieldAt(p) >= 0) return refuse(check, 'Fields in the way');
     connected = connected || this.network.distance(p, ignore).distance < TownState.roadHalfWidth;
   }
@@ -589,6 +616,18 @@ export function reshapeRoad(this: ConstructionTown, id: number, path: RoadPath):
   this.roadChanged(false);
   return true;
 }
+/** Ground already claimed by another field, enclosure, building or road. */
+export function plotObstruction(this: ConstructionTown, outline: Outline): string {
+  for (const item of this.placed) {
+    if (overlaps(item.footprint().corners(), outline)) return 'Occupied';
+    if (item.pasture.length && overlaps(item.pasture, outline)) return 'Pasture in the way';
+  }
+  for (const field of this.farmland) if (overlaps(field.outline, outline)) return 'Occupied';
+  for (const road of this.network.roads())
+    for (const p of road.line)
+      if (outlineDistance(outline, p) < TownState.roadHalfWidth) return 'Road in the way';
+  return '';
+}
 /** `house` is a farmhouse about to be staked out with the field: it stands in for one close by. */
 export function canPlantField(this: ConstructionTown, outline: Outline, house?: Footprint): Check {
   const check = new Check();
@@ -605,12 +644,8 @@ export function canPlantField(this: ConstructionTown, outline: Outline, house?: 
     if (terrain === Terrain.Ash) return refuse(check, 'Too dry for crops');
     if (terrain === Terrain.Frost) return refuse(check, 'Too cold for crops');
   }
-  for (const item of this.placed)
-    if (overlaps(item.footprint().corners(), outline)) return refuse(check, 'Occupied');
-  for (const item of this.farmland) if (overlaps(item.outline, outline)) return refuse(check, 'Occupied');
-  for (const road of this.network.roads())
-    for (const p of road.line)
-      if (outlineDistance(outline, p) < TownState.roadHalfWidth) return refuse(check, 'Road in the way');
+  const obstruction = this.plotObstruction(outline);
+  if (obstruction) return refuse(check, obstruction);
   if (house ? overlaps(house.corners(), outline) : false) return refuse(check, 'Occupied');
   if (
     !house &&
@@ -627,12 +662,14 @@ export function canPlantField(this: ConstructionTown, outline: Outline, house?: 
 export function plantField(this: ConstructionTown, outline: Outline): boolean {
   if (!this.canPlantField(outline).ok) return false;
   this.commanded();
-  const village = this.settlementAt(centroid(outline));
+  const center = centroid(outline);
+  const farm = this.placed.filter(b => b.kind === Structure.Farm && b.faction === this.controlFaction)
+    .sort((a, b) => distance(a.center, center) - distance(b.center, center) || a.id - b.id)[0];
+  const village = this.settlementOf(farm);
   const field = new Field(this.nextId++, structuredClone(outline), village);
   field.faction = this.controlFaction;
   field.tilled = 0;
   this.farmland.push(field);
-  this.credit(new Resources(0, this.clearTrees(samples(outline))), village);
   ++this.changes;
   return true;
 }
@@ -684,7 +721,10 @@ export function regrow(this: ConstructionTown): void {
   // Trees occupy their cell. A roadside deposit is reserved only if its base falls inside the road.
   for (const road of this.network.roads())
     for (let s = 0; s <= 1; s = f32(s + f32(f32(0.3) / Math.max(1, road.length())))) mark(road.along(s), trees);
-  for (const item of this.placed) for (const p of samples(item.footprint())) mark(p);
+  for (const item of this.placed) {
+    for (const p of samples(item.footprint())) mark(p);
+    if (item.pasture.length) for (const p of samples(item.pasture)) mark(p);
+  }
   for (const item of this.farmland) for (const p of samples(item.outline)) mark(p);
   for (let y = 0; y < this.world.height(); ++y)
     for (let x = 0; x < this.world.width(); ++x) {
@@ -713,15 +753,27 @@ export function regrow(this: ConstructionTown): void {
 export function setWorkers(this: ConstructionTown, id: number, workers: number): boolean {
   for (const item of this.placed) {
     if (item.id !== id || item.faction !== this.controlFaction) continue;
+    const ranch = livestockRecipe(item.kind);
     const jobs = structureSpec(item.kind).jobs,
       before = item.workers;
     item.wanted = clamp(workers, 0, jobs);
     for (let i = f32(this.folk.length - 1); i >= 0 && item.workers > item.wanted; --i)
       if (this.folk[i].job === id) {
-        this.folk[i].job = -1;
+        const p = this.folk[i];
+        p.job = -1;
+        if (ranch && p.taskSite === id && (p.task === Activity.Herding || isRanchHarvest(p.task))) finishRanchOrder(this, p);
         --item.workers;
       }
     this.staff();
+    if ((ranch || item.kind === Structure.Farm) && item.built() && item.workers < item.wanted) {
+      // A click on the worker control is an order for free hands, including a settler the player had stopped.
+      const village = this.settlementOf(item), door = item.door();
+      const hands = this.folk.filter(p => canControl(p, this.controlFaction) && p.job < 0 && !p.ordered && !p.moving() &&
+        p.task === Activity.Idle && (p.activity === Activity.Idle || p.activity === Activity.Holding) && this.settlementOf(p) === village)
+        .sort((a, b) => distance(a.position, door) - distance(b.position, door) || a.id - b.id)
+        .slice(0, item.wanted - item.workers);
+      if (hands.length) this.assignJob(hands.map(p => p.id), id);
+    }
     if (item.workers < item.wanted) this.borrowWorker(item);
     if (item.workers === before) return false;
     ++this.changes;
@@ -799,7 +851,8 @@ export function staff(this: ConstructionTown): void {
     for (const item of this.placed) {
       if ((item.kind === Structure.Farm) !== farms || !item.built()) continue;
       const jobs = structureSpec(item.kind).jobs;
-      let cap = item.wanted < 0 ? jobs : Math.min(jobs, item.wanted);
+      const defaultWorkers = livestockRecipe(item.kind) ? 0 : jobs;
+      let cap = item.wanted < 0 ? defaultWorkers : Math.min(jobs, item.wanted);
       if (this.titleAutoplay && structureSpec(item.kind).product === Product.Food)
         cap = Math.min(cap, Math.max(1, Math.trunc((this.population() + 3) / 4)));
       for (const person of this.folk) {

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import ThorVG, { type ThorVGNamespace } from '@thorvg/webcanvas';
 import { Town } from '../../packages/engine/src/town';
 import { WorldMap } from '../../packages/engine/src/world-map';
-import { Terrain, Layer, DungeonKind } from '../../packages/engine/src/world-types';
+import { Terrain, Layer } from '../../packages/engine/src/world-types';
 import { Activity, Calling, Person, Race, Role } from '../../packages/engine/src/person';
 import { Building } from '../../packages/engine/src/town-models';
 import { Resources, Structure } from '../../packages/engine/src/building-catalog';
@@ -27,7 +27,7 @@ function meadow(founders: number, wood: (x: number, y: number) => number = () =>
   for (let y = 0; y < 40; ++y)
     for (let x = 0; x < 48; ++x)
       Object.assign(map.at(x, y), { terrain: Terrain.Grass, trees: wood(x, y), wild: 0, revealed: true, dungeon: -1 });
-  map.sites = [{ name: 'Raid source', kind: DungeonKind.Cave, origin: point(44, 36), discovered: false }];
+  map.sites = [];
   const town = new Town(map, 48, false);
   town.wildlifeDay = 0;
   const camp = new Building(0, Structure.Camp, point(12, 20), 0, 0);
@@ -71,11 +71,12 @@ function lay(town: Town, tiles: number): { seconds: number; walked: number[]; ba
 
 describe('a crew on one road', () => {
   it('lays a clear way about twice as fast with two as with one', () => {
-    const one = lay(meadow(1), 10),
-      two = lay(meadow(2), 10);
+    const solo = meadow(1), crew = meadow(2);
+    const one = lay(solo, 10), two = lay(crew, 10);
     expect(one.seconds).toBeGreaterThan(75);
     expect(one.seconds).toBeLessThan(85);
     expect(two.seconds).toBeLessThan(45);
+    for (const worker of [...solo.folk, ...crew.folk]) expect(worker).toMatchObject({ level: 1, experience: 0 });
   });
   it('lays up to a wood at the far end of the way instead of walking there and back', () => {
     // Six trees on the last two tiles of a way of fourteen: the front has to come to them.
