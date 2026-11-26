@@ -1,7 +1,9 @@
 import { Product } from '../../engine/src/building-catalog';
-// Exact shared stone geometry from src/game/mining.h (2026-11-09).
 import { point, type Point } from '../../engine/src/geometry';
-import { f32 } from '../../engine/src/numeric';
+import * as mining from '../../engine/src/mining';
+import { f32, hash01 } from '../../engine/src/numeric';
+import type { WorldMap } from '../../engine/src/world-map';
+import { stone } from './flat-forms';
 import { ShapeNode, type Rgb } from './paint';
 import { appendPolygon } from './vector-paint';
 export const stoneLit: Rgb = [92, 90, 96];
@@ -28,9 +30,36 @@ export function appendStone(lit: ShapeNode, shade: ShapeNode, b: Point, s: numbe
   ]);
 }
 
-/** Exposed iron is rusty ochre; a charcoal cinder vein breaks along a copper-red seam. */
-export function depositPaint(product: Product, base: Point, size: number, basalt = false): ShapeNode[] {
+/** Fieldstones lie in uneven groups around one mining spot. All pieces share the same two paints. */
+function fieldstones(lit: ShapeNode, shade: ShapeNode, base: Point, size: number, map: WorldMap, x: number, y: number): void {
+  const vary = (salt: number) => hash01(map.seed(), x, y, salt);
+  const side = vary(64) < 0.5 ? -1 : 1;
+  const main = size * (0.82 + vary(65) * 0.22);
+  const shoulder = size * (0.25 + vary(66) * 0.38);
+  const offset = -side * size * (0.05 + vary(67) * 0.34);
+  const arrangement = vary(69), origin = point();
+  stone(lit, shade, origin, offset, 0, main);
+  if (arrangement > 0.18)
+    stone(lit, shade, origin, offset + side * (main + shoulder * 0.63), size * (vary(68) - 0.4) * 1.05, shoulder);
+  if (arrangement > 0.62)
+    stone(lit, shade, origin, offset - side * main * 0.9, size * 0.4, size * (0.18 + vary(70) * 0.19));
+
+  // Seat the group at the mining foot. Bake its tilt into the outlines so the distant scenery batch keeps it.
+  const rise = 0.65 + vary(71) * 0.4, lean = (vary(72) - 0.5) * 0.95;
+  for (const face of [lit, shade]) for (const p of face.commands) {
+    if (p[0] !== 'M' && p[0] !== 'L') continue;
+    p[1] = f32(base.x + p[1] + lean * p[2]);
+    p[2] = f32(base.y + rise * p[2]);
+  }
+}
+
+export function depositPaint(product: Product, base: Point, map: WorldMap, x: number, y: number): ShapeNode[] {
+  const size = mining.size(map, x, y), basalt = map.basaltCell === y * map.width() + x;
   const lit = new ShapeNode(), shade = new ShapeNode(), colors = depositColors(product, basalt);
+  if (product === Product.Stone && !basalt) {
+    fieldstones(lit, shade, base, size, map, x, y);
+    return [lit.fill(...colors.lit), shade.fill(...colors.shade)];
+  }
   if (basalt) {
     // Three cooling columns interlock across the pass. Their broken tops show where the pick can bite.
     const at = (x: number, y: number) => point(base.x + x * size, base.y + y * size);

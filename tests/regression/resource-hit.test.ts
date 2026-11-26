@@ -17,7 +17,7 @@ import { Terrain } from '../../packages/engine/src/world-types';
 import { harvestDuration, harvestTiming, treeFallTiming } from '../../packages/engine/src/work-timing';
 import * as mining from '../../packages/engine/src/mining';
 import { WorldRendererState } from '../../packages/native-renderer/src/world-renderer-state';
-import { SceneNode, identity } from '../../packages/native-renderer/src/paint';
+import { SceneNode, ShapeNode, identity } from '../../packages/native-renderer/src/paint';
 import { mistTones } from '../../packages/native-renderer/src/mist-bands';
 import { Rect } from '../../packages/native-ui/src/types';
 import { buildTreeRow, swayTrees, updateFelling } from '../../packages/native-renderer/src/world-trees';
@@ -179,6 +179,36 @@ function expectGrounded(paint: SceneNode, pivot: { x: number; y: number }) {
   expect(m[3]).toBe(0);
   expect(m[4]).toBe(1);
 }
+
+it('picks every stone in a group as one deposit and clears the entire group when mined', () => {
+  const v = fixture(true);
+  try {
+    const before = v.draw(1), faces = v.target().children;
+    expect(faces).toHaveLength(2);
+    const lit = faces[0] as ShapeNode;
+    expect(lit.commands.filter(p => p[0] === 'M').length).toBeGreaterThan(1);
+    let x = 0, y = 0, count = 0;
+    for (const p of lit.commands) {
+      if (p[0] === 'M' || p[0] === 'L') {
+        x += p[1];
+        y += p[2];
+        ++count;
+      } else if (p[0] === 'Z') {
+        const pixel = v.state.view.toScreen(point(x / count, y / count), 640, 400);
+        expect(v.picker.pick(pixel)).toMatchObject({ kind: 'rock', id: v.cell });
+        x = y = count = 0;
+      }
+    }
+    v.rebuild();
+    expect(v.draw(1)).toBe(before);
+    v.map.at(v.cell % 32, Math.floor(v.cell / 32)).quarried = true;
+    v.rebuild();
+    v.draw(1);
+    expect(v.picker.selectionGeometry({ kind: 'rock', id: v.cell })).toBeNull();
+  } finally {
+    v.dispose();
+  }
+});
 
 for (const stone of [false, true])
   it(`reacts to the actual ${stone ? 'mine' : 'chop'} timestamp and settles without moving the resource base`, () => {

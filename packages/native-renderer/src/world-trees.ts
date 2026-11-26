@@ -114,7 +114,7 @@ export function buildTreeRow(
     }
     if (mining.deposit(map, x, y)) {
       const foot = mining.position(x, y), product = harvestProduct(map, x, y, true),
-        shapes = depositPaint(product, project(foot.x, foot.y), mining.size(map, x, y), map.basaltCell === y * map.width() + x);
+        shapes = depositPaint(product, project(foot.x, foot.y), map, x, y);
       append(foot, `stone:${x}:${y}`, shapes, undefined, { kind: 'rock', id: y * map.width() + x });
     }
   }
