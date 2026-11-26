@@ -5,6 +5,8 @@ import { World, DungeonKind, Terrain } from '../../packages/engine/src/world-typ
 import { WalkGrid } from '../../packages/engine/src/walk-paths';
 import { RoadNetwork } from '../../packages/engine/src/road-network';
 import { distance, normalized, point, sub } from '../../packages/engine/src/geometry';
+import { deposit, ironBearingRock, position as boulderFoot } from '../../packages/engine/src/mining';
+import { hash01 } from '../../packages/engine/src/numeric';
 
 const digest = (map: WorldMap) => createHash('sha256').update(JSON.stringify(map)).digest('hex');
 // Complete maps catch divergence between scheduled generation and immediate new games.
@@ -37,6 +39,33 @@ describe('cooperative world generation', () => {
 });
 
 describe('the sheltered founding shore', () => {
+  it.each([[5, 96], [11, 176]])('spaces ordinary boulders and preserves walkable starter stone on seed %i at size %i', (seed, size) => {
+    const map = WorldMap.generate(seed, size, size), grid = new WalkGrid();
+    grid.rebuild(map, new RoadNetwork());
+    const boulders = new Set<number>();
+    let candidates = 0, reachable = 0;
+    for (let y = 0; y < size; ++y) {
+      for (let x = 0; x < size; ++x) {
+        if (map.at(x, y).terrain !== Terrain.Rock || hash01(seed, x, y, 60) >= 0.55) continue;
+        if (ironBearingRock(map, x, y)) {
+          expect(deposit(map, x, y)).toBe(true);
+          continue;
+        }
+        ++candidates;
+        if (!deposit(map, x, y)) continue;
+        const cell = y * size + x, foot = boulderFoot(x, y);
+        expect(x > 0 && boulders.has(cell - 1)).toBe(false);
+        expect(boulders.has(cell - size)).toBe(false);
+        boulders.add(cell);
+        if (distance(map.camp(), foot) <= 20 && grid.path(map.camp(), foot).length) ++reachable;
+      }
+    }
+    expect(reachable).toBeGreaterThanOrEqual(2);
+    expect(boulders.size).toBeLessThan(candidates * .6);
+    for (const cell of boulders) map.tiles[cell].quarried = true;
+    expect(map.tiles.some((t, cell) => t.terrain === Terrain.Rock && !ironBearingRock(map, cell % size, Math.floor(cell / size)) &&
+      deposit(map, cell % size, Math.floor(cell / size)))).toBe(false);
+  });
   it('turns the saddles inland where the coast hooks around the camp on seed 18', () => {
     const map = WorldMap.generate(18), grid = new WalkGrid();
     grid.rebuild(map, new RoadNetwork());

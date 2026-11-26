@@ -12,6 +12,17 @@ export function harvestSwingPeriod(duration: number): number {
   const span = duration - harvestTiming.impact;
   return span / Math.max(1, Math.round(span / harvestTiming.period));
 }
+/** Four parts of the same mining order: three visible fractures, then the final break. */
+export function miningStageAtContact(contact: number, duration: number): number {
+  return Math.min(3, Math.floor(4 * contact / duration + 1e-8));
+}
+/** Resume at the swing which freed the last piece, using the current miner's tool speed. */
+export function minedSeconds(stage: number, duration: number): number {
+  if (!stage) return 0;
+  const period = harvestSwingPeriod(duration);
+  const swings = Math.ceil((duration * stage / 4 - harvestTiming.impact) / period - 1e-8);
+  return harvestTiming.impact + swings * period;
+}
 /** Seconds it takes to pick up what a felled tree or a broken load gives. */
 export const collectSeconds = (stone: boolean): number => (stone ? 0.65 : 0.8);
 /** Road length a second of construction work lays, paves or mends. */

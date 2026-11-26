@@ -423,8 +423,9 @@ export class MapDocument {
         changed = tile.terrain !== next || changed;
         tile.terrain = next;
         if (d > radiusSquared) continue;
-        if (tile.quarried) {
+        if (tile.quarried || tile.miningStage) {
           tile.quarried = false;
+          map.setMiningStage(y * map.width() + x, 0);
           changed = true;
         }
         const trees = tile.terrain === terrain ? wildTrees(map, x, y) : 0;

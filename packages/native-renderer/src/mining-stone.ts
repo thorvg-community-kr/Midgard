@@ -3,11 +3,10 @@ import { point, type Point } from '../../engine/src/geometry';
 import * as mining from '../../engine/src/mining';
 import { f32, hash01 } from '../../engine/src/numeric';
 import type { WorldMap } from '../../engine/src/world-map';
-import { stone } from './flat-forms';
 import { ShapeNode, type Rgb } from './paint';
 import { appendPolygon } from './vector-paint';
-export const stoneLit: Rgb = [92, 90, 96];
-export const stoneShade: Rgb = [60, 58, 66];
+export const stoneLit: Rgb = [114, 115, 121];
+export const stoneShade: Rgb = [69, 70, 81];
 const basaltColors = { lit: [105, 89, 94], shade: [58, 54, 68] } as const;
 const ironColors = { lit: [153, 111, 85], shade: [100, 79, 78], seam: [220, 176, 120] } as const;
 const cinderColors = { lit: [91, 73, 84], shade: [60, 52, 65], seam: [207, 109, 77] } as const;
@@ -30,34 +29,46 @@ export function appendStone(lit: ShapeNode, shade: ShapeNode, b: Point, s: numbe
   ]);
 }
 
-/** Fieldstones lie in uneven groups around one mining spot. All pieces share the same two paints. */
-function fieldstones(lit: ShapeNode, shade: ShapeNode, base: Point, size: number, map: WorldMap, x: number, y: number): void {
-  const vary = (salt: number) => hash01(map.seed(), x, y, salt);
-  const side = vary(64) < 0.5 ? -1 : 1;
-  const main = size * (0.82 + vary(65) * 0.22);
-  const shoulder = size * (0.25 + vary(66) * 0.38);
-  const offset = -side * size * (0.05 + vary(67) * 0.34);
-  const arrangement = vary(69), origin = point();
-  stone(lit, shade, origin, offset, 0, main);
-  if (arrangement > 0.18)
-    stone(lit, shade, origin, offset + side * (main + shoulder * 0.63), size * (vary(68) - 0.4) * 1.05, shoulder);
-  if (arrangement > 0.62)
-    stone(lit, shade, origin, offset - side * main * 0.9, size * 0.4, size * (0.18 + vary(70) * 0.19));
+export const stoneStageScale = (stage: number): number => 1 - 0.18 * stage;
 
-  // Seat the group at the mining foot. Bake its tilt into the outlines so the distant scenery batch keeps it.
-  const rise = 0.65 + vary(71) * 0.4, lean = (vary(72) - 0.5) * 0.95;
-  for (const face of [lit, shade]) for (const p of face.commands) {
-    if (p[0] !== 'M' && p[0] !== 'L') continue;
-    p[1] = f32(base.x + p[1] + lean * p[2]);
-    p[2] = f32(base.y + rise * p[2]);
+/** A weathered boulder with a flat fracture on the shoulder facing the miner. */
+function boulder(lit: ShapeNode, shade: ShapeNode, base: Point, size: number, map: WorldMap, x: number, y: number): void {
+  const stage = map.at(x, y).miningStage ?? 0;
+  const half = size * stoneStageScale(stage), height = half * (0.92 + 0.31 * hash01(map.seed(), x, y, 71));
+  const lean = (hash01(map.seed(), x, y, 72) - 0.5) * 0.52;
+  const at = (u: number, v: number): [number, number] => [base.x + half * (u - lean * v), base.y + height * v];
+  const shoulder = 0.58 - 0.10 * stage, crown = -0.90 + 0.055 * stage;
+  const frontEdge = (face: ShapeNode) => face
+    .cubicTo(...at(0.73, -0.65), ...at(0.98, -0.38), ...at(1, -0.16))
+    .cubicTo(...at(1.02, -0.04), ...at(0.79, 0.05), ...at(0.60, 0.10))
+    .cubicTo(...at(0.22, 0.17), ...at(-0.61, 0.16), ...at(-0.89, 0.055))
+    .cubicTo(...at(-0.98, 0.02), ...at(-1.01, -0.04), ...at(-0.98, -0.14)).close();
+
+  lit.moveTo(...at(-0.98, -0.14));
+  shade.moveTo(...at(-0.98, -0.14));
+  if (stage === 0) {
+    lit.cubicTo(...at(-0.91, -0.38), ...at(-0.74, -0.67), ...at(-0.55, -0.80))
+      .cubicTo(...at(-0.37, -0.92), ...at(-0.27, -1.01), ...at(-0.09, -1));
+    shade.cubicTo(...at(-0.73, -0.13), ...at(-0.39, -0.21), ...at(-0.17, -0.33));
+  } else {
+    const lip = -0.85 + 0.055 * stage, shelf = lip + 0.20 + 0.065 * stage, rim = -0.40 - 0.055 * stage;
+    for (const face of [lit, shade]) face
+      .cubicTo(...at(-0.97, -0.24), ...at(lip - 0.055, rim + 0.045), ...at(lip, rim))
+      .lineTo(...at(shelf, rim - 0.04));
+    lit.lineTo(...at(-0.28 + 0.055 * stage, -0.92 + 0.035 * stage))
+      .cubicTo(...at(-0.19 + 0.055 * stage, -0.96 + 0.035 * stage), ...at(-0.06, -0.97), ...at(0.02, -0.97));
+    shade.lineTo(...at(-0.18 + 0.055 * stage, -0.33));
   }
+  frontEdge(lit.cubicTo(...at(0.12, -0.97), ...at(shoulder - 0.10, crown - 0.07), ...at(shoulder, crown)));
+  frontEdge(shade.lineTo(...at(0.16, -0.48))
+    .cubicTo(...at(shoulder - 0.08, -0.57), ...at(shoulder + 0.02, crown + 0.12), ...at(shoulder, crown)));
 }
 
 export function depositPaint(product: Product, base: Point, map: WorldMap, x: number, y: number): ShapeNode[] {
   const size = mining.size(map, x, y), basalt = map.basaltCell === y * map.width() + x;
   const lit = new ShapeNode(), shade = new ShapeNode(), colors = depositColors(product, basalt);
   if (product === Product.Stone && !basalt) {
-    fieldstones(lit, shade, base, size, map, x, y);
+    boulder(lit, shade, base, size, map, x, y);
     return [lit.fill(...colors.lit), shade.fill(...colors.shade)];
   }
   if (basalt) {

@@ -3,7 +3,9 @@ import { CombatCue, MonsterRank, type Fallen } from './combat-events';
 import { FirstSlam } from './expedition-record';
 import { realmPlan } from './town-realm';
 import { markPassage } from './realm-passage';
-import { coverDeposits } from './mining';
+import { coverDeposits, deposit } from './mining';
+import { harvestProduct } from './harvest-material';
+import { harvestDuration, minedSeconds } from './work-timing';
 import { preparePassage } from './realm-layout';
 import { migrateSiegeStrength, targetedDungeon, type DungeonSiege } from './dungeon-siege';
 import { gateSealed, sealable } from './gate-seals';
@@ -36,6 +38,7 @@ import { finishRanchOrder, isRanchHarvest, livestockKind } from './livestock';
 import { WorldMap } from './world-map';
 import {
   Layer,
+  Terrain,
   Giant,
   Volcano,
   DungeonKind,
@@ -136,6 +139,7 @@ const riverCodec = record((): River => ({ path: [], width: [] }), {
   path: vector(pointCodec),
   width: vector(f32),
 });
+const minedStoneCodec = record(() => ({ cell: 0, stage: 0 }), { cell: u32, stage: u8 });
 function worldFields(a: SaveArchive, v: WorldMap): void {
   a.fields(v, { columns: i32, rows: i32, mapSeed: u32, origin: coordCodec });
   if (v.columns < 32 || v.columns > 256 || v.rows < 32 || v.rows > 256)
@@ -157,6 +161,22 @@ function worldFields(a: SaveArchive, v: WorldMap): void {
     throw new Error('Invalid world data');
   for (const layer of v.layers)
     if (layer.length !== (v.columns * 2 + 1) * (v.rows * 2 + 1)) throw new Error('Invalid world layers');
+  if (a.formatVersion >= 31) {
+    const boulders: { cell: number; stage: number }[] = [];
+    if (!a.reading) v.tiles.forEach((tile, cell) => {
+      if (tile.miningStage) boulders.push({ cell, stage: tile.miningStage });
+    });
+    const entries = a.value(vector(minedStoneCodec, v.tiles.length), boulders);
+    if (a.reading) for (const { cell, stage } of entries) {
+      const tile = v.tiles[cell];
+      if (!tile || tile.quarried || tile.miningStage || tile.terrain !== Terrain.Rock || stage < 1 || stage > 3)
+        throw new Error('Invalid boulder stage');
+      v.setMiningStage(cell, stage);
+      const x = cell % v.width(), y = Math.floor(cell / v.width());
+      if (!deposit(v, x, y) || harvestProduct(v, x, y, true) !== Product.Stone)
+        throw new Error('Invalid boulder deposit');
+    }
+  }
 }
 const worldCodec: Codec<WorldMap> = {
   read(a) {
@@ -954,6 +974,23 @@ function townFields(a: SaveArchive, v: SaveTown): void {
     if (a.formatVersion < 19) settleOldStations(v);
     if (mayContainWalls) retireWalls(v);
     releaseFormerWorkers(v);
+    if (a.formatVersion < 31) {
+      // An old save still knows the deadline of a miner already at work.
+      for (const p of v.folk) {
+        const tile = v.world.tiles[p.tree];
+        const x = p.tree % v.world.width(), y = Math.floor(p.tree / v.world.width());
+        if (p.activity !== Activity.Mining || p.moving() || !tile || tile.quarried || tile.terrain !== Terrain.Rock ||
+            harvestProduct(v.world, x, y, true) !== Product.Stone) continue;
+        const duration = harvestDuration(p, true), elapsed = duration - (p.until - v.time);
+        if (elapsed < 0 || elapsed > duration) continue;
+        for (let stage = 3; stage > 0; --stage) {
+          if (elapsed + 1e-8 < minedSeconds(stage, duration)) continue;
+          v.world.setMiningStage(p.tree, stage);
+          if (!deposit(v.world, x, y)) v.world.setMiningStage(p.tree, 0);
+          break;
+        }
+      }
+    }
     for (const b of v.placed) coverDeposits(v.world, b.footprint());
     const obstacles = walkingObstacles(v.placed);
     v.grid.rebuild(v.world, v.network, obstacles);
@@ -1185,7 +1222,8 @@ export function encodeTownPayload(town: SaveTown): Uint8Array {
   // A keeper can bring livestock across a regional boundary. They can still be there after the pen is gone.
   const pasture = town.placed.some(b => b.pasture.length) ||
     town.animals.some(m => livestockKind(m.animal) && town.world.regionAt(m.position) !== Region.Middle);
-  a.formatVersion = pasture ? 30 : specializedPens || town.farmland.some(field => field.cropProgress > 1) ? 29 : balancedMonsters ? 28 : campaign ? 27 : levelledMonsters ? 26 : siege ? 25 : refining ? 23 : expedition ? 22 : foundry ? 21 : town.folk.some((p) => p.birthStrength !== 0 || p.birthVitality !== 0)
+  const partlyMined = town.world.tiles.some(tile => tile.miningStage);
+  a.formatVersion = partlyMined ? 31 : pasture ? 30 : specializedPens || town.farmland.some(field => field.cropProgress > 1) ? 29 : balancedMonsters ? 28 : campaign ? 27 : levelledMonsters ? 26 : siege ? 25 : refining ? 23 : expedition ? 22 : foundry ? 21 : town.folk.some((p) => p.birthStrength !== 0 || p.birthVitality !== 0)
     ? 20
     : stations
     ? 19
@@ -1251,10 +1289,10 @@ export function decodeTown<T extends SaveTown>(encoded: string, create: (map: Wo
     endian = u32.read(a),
     appearanceSize = u32.read(a);
   let climateSize = 0;
-  if (version >= 2 && version <= 30) climateSize = u32.read(a);
+  if (version >= 2 && version <= 31) climateSize = u32.read(a);
   if (
     version < 2 ||
-    version > 30 ||
+    version > 31 ||
     endian !== 0x01020304 ||
     appearanceSize !== nativeAppearanceSize ||
     climateSize !== nativeClimateSize

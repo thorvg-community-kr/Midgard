@@ -29,7 +29,7 @@ import { lightCrater, updateLava } from './lava-motion';
 import { SceneNode } from './paint';
 import { syncVisuals, buildObjects, buildRoadLights, addVolcano } from './world-objects';
 import { buildDarkness, updateVision, warmEverywhere } from './world-vision';
-import { cullTrees, swayTrees, updateFelling, updateGrowth } from './world-trees';
+import { buildTreeRow, cullTrees, swayTrees, updateFelling, updateGrowth } from './world-trees';
 import { WindLeaves } from './wind-leaves';
 import { moveAgents, tread, markDamage } from './world-people';
 import { updateThor } from './world-thor';
@@ -142,6 +142,7 @@ export class WorldRenderer extends WorldRendererState {
     this.rowBuildings = [];
     this.rowLamps = [];
     this.treeKeys = [];
+    this.miningRevision = 0;
     this.treeBounds = [];
     this.rowCanopies = [];
     this.swaying = false;
@@ -296,6 +297,7 @@ export class WorldRenderer extends WorldRendererState {
         (revision !== this.revision ||
           key !== this.climateKey ||
           generation !== this.appearanceGeneration);
+    const map = town.map(), miningChanged = !settling && map.miningRevision !== this.miningRevision;
     const roadsChanged = !settling && town.roadRevision() !== this.roadRevision;
     if (volcanoOnly) {
       addVolcano(this, town.map());
@@ -316,7 +318,13 @@ export class WorldRenderer extends WorldRendererState {
       this.farmland.remove();
       paintFields(this.farmland, town);
       buildObjects(this, town, climate);
+    } else if (miningChanged) {
+      // A chipped rock changes its own scenery row, including the outlines used for picking and distant fog.
+      map.miningRowRevision.forEach((revision, row) => {
+        if (revision > this.miningRevision) buildTreeRow(this, map, climate, row);
+      });
     }
+    if (miningChanged) this.miningRevision = map.miningRevision;
     if (roadsChanged) {
       this.roadRevision = town.roadRevision();
       this.roads.remove();

@@ -186,6 +186,7 @@ function retile(map: WorldMap, area: RealmArea): void {
       tile.trees = tile.wild = 0;
       tile.dungeon = -1;
       tile.revealed = tile.quarried = false;
+      if (tile.miningStage) map.setMiningStage(y * map.width() + x, 0);
     }
   // Forget only what was seen from inside the square: a look from Midgard that merely reached over
   // the sea also covers land outside it, and dropping it would hide what it revealed there.

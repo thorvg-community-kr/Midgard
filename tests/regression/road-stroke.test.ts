@@ -153,7 +153,7 @@ function expectAt(actual: Point, expected: Point, digits = 3): void {
 }
 
 describe('drawing roads on rocky ground', () => {
-  it.each([[5, 56, 40], [11, 55, 48]])('previews, stakes and builds the road to a stone pile on seed %i', (seed, x, y) => {
+  it.each([[5, 56, 40], [11, 54, 48]])('previews, stakes and builds the road to a boulder on seed %i', (seed, x, y) => {
     const town = new Town(seed, 96), map = town.map(), origin = map.camp(), rock = rockPosition(x, y);
     town.scout(origin.x, origin.y, 22);
     expect(town.place(Structure.Camp, origin, 0)).toBe(true);
@@ -180,15 +180,16 @@ describe('drawing roads on rocky ground', () => {
   it('clears only piles within the curved stroke when it is laid or reshaped and keeps them covered after loading', () => {
     const town = settlement(), map = town.map();
     map.layer(Layer.Elevation).fill(0.8);
-    const rocks: { x: number; y: number }[] = [];
+    const rockTiles: { x: number; y: number }[] = [];
     for (let y = 28; y <= 38; ++y)
       for (let x = 32; x <= 40; ++x) {
         map.at(x, y).terrain = Terrain.Rock;
-        if (deposit(map, x, y)) rocks.push({ x, y });
+        rockTiles.push({ x, y });
       }
+    const rocks = rockTiles.filter(({ x, y }) => deposit(map, x, y));
     const start = sharpAnchor(at(1.1, 0.25)), end = sharpAnchor(at(7.5, 5.55));
     const first = [start, { point: at(5.5, 0.55), in: at(4.5, 0.25), out: at(6.5, 0.85) }, end];
-    const next = [start, { point: at(4.5, 4.55), in: at(3.7, 3.95), out: at(5.3, 5.15) }, end];
+    const next = [start, { point: at(4.5, 4.05), in: at(3.8, 3.45), out: at(5.3, 4.75) }, end];
     const touched = (line: readonly Point[], x: number, y: number) =>
       line.some((b, i) => i > 0 && segmentDistance(rockPosition(x, y), line[i - 1], b) <= Town.roadHalfWidth);
     map.layer(Layer.Ridge).fill(0.2);

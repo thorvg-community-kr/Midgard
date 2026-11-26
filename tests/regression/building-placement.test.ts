@@ -60,13 +60,14 @@ describe('placing a building', () => {
     expect(town.place(Structure.Camp, point(18.5, 16.5), 0)).toBe(true);
   });
   it('stakes a rotated foundation on rock, covers only the piles under it and keeps them covered after loading', () => {
-    const town = settlement(), map = town.map(), piles = [];
+    const town = settlement(), map = town.map(), rockTiles = [];
     map.layer(Layer.Elevation).fill(0.8);
     for (let y = 25; y < 32; ++y)
       for (let x = 25; x < 32; ++x) {
         map.at(x, y).terrain = Terrain.Rock;
-        if (deposit(map, x, y)) piles.push({ x, y });
+        rockTiles.push({ x, y });
       }
+    const piles = rockTiles.filter(({ x, y }) => deposit(map, x, y));
     const first = piles[0], at = rockPosition(first.x, first.y), angle = Math.PI / 4;
     expect(map.terrainAt(at)).toBe(Terrain.Rock);
     const preview = town.buildingSite(Structure.Tent, at, angle);

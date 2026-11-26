@@ -1,11 +1,12 @@
 import type { Climate } from '../../engine/src/climate';
+import { Product } from '../../engine/src/building-catalog';
 import { project, type Point } from '../../engine/src/geometry';
 import { harvestProduct } from '../../engine/src/harvest-material';
 import * as mining from '../../engine/src/mining';
 import { clamp, hash01 } from '../../engine/src/numeric';
 import { TreeWorkKind, type TreeWorkEvent } from '../../engine/src/person';
 import type { WorldMap } from '../../engine/src/world-map';
-import { depositColors } from './mining-stone';
+import { depositColors, stoneStageScale } from './mining-stone';
 import { SceneNode, ShapeNode, type Matrix } from './paint';
 import { treeCrown, treeAt, TreeKind, type Tree } from './tree-painter';
 import { mix } from './vector-paint';
@@ -47,7 +48,7 @@ export function buildingDust(at: Point, side: number, seed: number, event: TreeW
   } };
 }
 
-function stoneChips(base: Point, size: number, side: number, final: boolean,
+function stoneChips(base: Point, size: number, side: number, final: boolean, fracture: boolean,
   stone: ReturnType<typeof depositColors>, vary: Variation): HarvestDebris {
   const paint = new SceneNode().translate(base.x, base.y);
   const chips = Array.from({ length: final ? 7 : 4 }, (_, i) => {
@@ -62,7 +63,8 @@ function stoneChips(base: Point, size: number, side: number, final: boolean,
       node, air: 0.29 + 0.16 * vary(i, 2), lift: 3.8 + 5.5 * vary(i, 3),
       travel: (i % 4 === 3 ? side : -side) * (5 + (final ? 20 : 12) * vary(i, 4)),
       ground: 0.4 + 3.8 * vary(i, 5), spin: (vary(i, 6) - 0.5) * 6,
-      angle: Math.PI * vary(i, 7), size: 0.67 + 0.62 * vary(i, 8) + (final ? 0.16 : 0),
+      angle: Math.PI * vary(i, 7), size: 0.67 + 0.62 * vary(i, 8) + (final ? 0.16 : 0)
+        + (fracture && i === 0 ? size * 0.075 : 0),
     };
   });
   const life = Math.max(...chips.map(chip => chip.air)) + 0.27;
@@ -124,6 +126,9 @@ export function harvestDebris(s: WorldRendererState, map: WorldMap, climate: Rea
   if (event.kind === TreeWorkKind.Chop)
     return shakenTree(s, treeAt(map, x, y, event.index), climate, side, final, wind, vary);
   const foot = mining.position(x, y);
-  const colors = depositColors(harvestProduct(map, x, y, true), map.basaltCell === event.cell);
-  return stoneChips(project(foot.x, foot.y), mining.size(map, x, y), side, final, colors, vary);
+  const product = harvestProduct(map, x, y, true), colors = depositColors(product, map.basaltCell === event.cell);
+  // Fragments leave the face that the pick struck, just before that piece broke off.
+  const struckStage = final ? 3 : event.stoneStage !== undefined ? event.stoneStage - 1 : map.at(x, y).miningStage ?? 0;
+  const size = mining.size(map, x, y) * (product === Product.Stone ? stoneStageScale(struckStage) : 1);
+  return stoneChips(project(foot.x, foot.y), size, side, final, event.stoneStage !== undefined, colors, vary);
 }

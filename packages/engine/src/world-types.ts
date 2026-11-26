@@ -9,7 +9,7 @@ export const unsafeGround = (terrain: Terrain): boolean => impassable(terrain) |
 export const crestRidge = f32(.085), lavaFloor = f32(.67), volcanoFoot = f32(12.4);
 export const volcanicCrest = (land: number, heat: number, ridge: number): boolean => land > f32(.1) && heat > f32(.62) && ridge > crestRidge;
 export function lavaLevel(land: number, heat: number, ridge: number): number { return Math.min(f32(f32(land - f32(.1)) + f32(f32(.1) * clamp(f32(heat - 1), 0, 1))), f32(f32(ridge + f32(.08)) - f32(Math.max(0, f32(f32(.75) - heat)) * 3)), f32(f32(heat - lavaFloor) * 4)); }
-export interface Tile { terrain: Terrain; shade: number; trees: number; wild: number; revealed: boolean; dungeon: number; quarried: boolean; }
+export interface Tile { terrain: Terrain; shade: number; trees: number; wild: number; revealed: boolean; dungeon: number; quarried: boolean; miningStage?: number; }
 export const makeTile = (): Tile => ({ terrain: Terrain.Grass, shade: 0, trees: 0, wild: 0, revealed: false, dungeon: -1, quarried: false });
 export interface TileCoord { x: number; y: number; }
 export enum DungeonKind { Cave, Crypt, Portal, Ruin, GiantHall, /** The way home from the world beyond a gate; exists only while a party is there. */ Return }

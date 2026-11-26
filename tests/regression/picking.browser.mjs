@@ -86,6 +86,7 @@ try {
           world,
           roads,
           trees,
+          mining,
         ] = await Promise.all([
           import('/apps/web/src/native/bootstrap.ts'),
           import('/packages/engine/src/person.ts'),
@@ -97,6 +98,7 @@ try {
           import('/packages/engine/src/world-types.ts'),
           import('/packages/engine/src/road-network.ts'),
           import('/packages/native-renderer/src/tree-painter.ts'),
+          import('/packages/engine/src/mining.ts'),
         ]);
         const runtime = await bootstrap.startNativeGame(
           document.querySelector('#world'),
@@ -200,6 +202,20 @@ try {
             addPerson(11, point(tree.foot.x + 2, tree.foot.y - 2));
             focus = tree.foot;
             data = { cell: y * 32 + x, x, y, tree, person: back.id };
+          } else if (kind === 'rock') {
+            const y = 16;
+            for (let x = 11; x < 22; ++x) {
+              const tile = town.world.at(x, y);
+              Object.assign(tile, { terrain: world.Terrain.Rock, quarried: false });
+              if (mining.deposit(town.world, x, y)) {
+                focus = mining.position(x, y);
+                const worker = addPerson(10, point(focus.x - 1, focus.y + 1));
+                data = { cell: y * 32 + x, person: worker.id };
+                break;
+              }
+              Object.assign(tile, { terrain: world.Terrain.Grass, quarried: true });
+            }
+            if (data.cell === undefined) throw Error('No mineable boulder in the fixture');
           } else if (kind === 'building') {
             const building = new Building(20, Structure.Tent, point(16, 16), 0, 0);
             town.placed.push(building);
@@ -266,6 +282,7 @@ try {
           people: game.chosen,
           building: game.selected,
           tree: game.selectedTree,
+          rock: game.selectedRock,
           treeInstance: game.selectedTreeInstance,
           objects: game.selectedObjects,
         });
@@ -673,6 +690,40 @@ try {
       assert.equal(await hover(gap), null, 'Transparent canopy bounding-box corner must not hit');
       assert.equal((await click(gap)).tree, -1);
       row.checks.push('transparent small-tree bounding-box corner does not select');
+
+      const rock = await reset('rock'), ref = { kind: 'rock', id: rock.cell };
+      const rockPoint = await find(ref);
+      assert.equal((await click(rockPoint)).rock, rock.cell);
+      await page.evaluate((rock) => picking.game.selectPeople([rock.person]), rock);
+      await frame();
+      await click(rockPoint, 'right');
+      const sizes = [];
+      for (let stage = 0; stage <= 4; ++stage) {
+        const shape = await page.evaluate(({ stage, rock }) => {
+          const { game } = picking, town = game.town, tile = town.world.tiles[rock.cell];
+          const readStage = () => tile.quarried ? 4 : tile.miningStage ?? 0;
+          if (stage === 0 && town.person(rock.person).task !== picking.Activity.Mining) throw Error('Mining order was lost');
+          for (let i = 0; i < 800 && readStage() < stage; ++i) town.advance(1 / 60);
+          if (readStage() !== stage) throw Error(`Boulder did not reach stage ${stage}`);
+          picking.frame();
+          const geometry = game.renderer.selectionGeometry({ kind: 'rock', id: rock.cell });
+          if (!geometry) return null;
+          return { width: geometry.bounds.w, height: geometry.bounds.h, ring: geometry.ellipse.rx, foot: geometry.foot };
+        }, { stage, rock });
+        if (stage === 4) {
+          assert.equal(shape, null, 'The shattered rock must leave no selectable outline');
+        } else {
+          assert.ok(shape);
+          if (sizes.length) {
+            const before = sizes.at(-1);
+            assert.ok(shape.width < before.width && shape.height < before.height && shape.ring < before.ring);
+            assert.deepEqual(shape.foot, before.foot);
+          }
+          sizes.push(shape);
+          assert.equal((await hover(await find(ref)))?.id, rock.cell);
+        }
+      }
+      row.checks.push('mining breaks one boulder down in three steps, shrinking its painted and selectable outline');
 
       const building = await reset('building');
       const buildingPoint = await find(

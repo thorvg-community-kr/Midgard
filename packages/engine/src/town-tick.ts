@@ -18,7 +18,7 @@ import { lavaHealthPerSecond } from './walk-paths';
 import { f32 as f, clamp } from './numeric';
 import * as mining from './mining';
 import { canHarvest, harvestAmount, harvestProduct } from './harvest-material';
-import { collectSeconds, hammerContact, harvestTiming, harvestDuration, harvestSwingPeriod, roadCrewStep, roadWorkRate, workImpactBetween } from './work-timing';
+import { collectSeconds, hammerContact, harvestTiming, harvestDuration, harvestSwingPeriod, miningStageAtContact, roadCrewStep, roadWorkRate, workImpactBetween } from './work-timing';
 import { takeHeld } from './carried-resources';
 import { advanceHerding, advanceRanchHarvest, herdLeader, isRanchHarvest } from './livestock';
 import { animalSpec } from './wildlife';
@@ -465,15 +465,26 @@ export function tick(this: TickTown, dt: number): void {
         const duration = harvestDuration(p, stone), started = p.until - duration,
           timing = { period: harvestSwingPeriod(duration), impact: harvestTiming.impact },
           contact = workImpactBetween(this.time - dt - started, Math.min(duration, this.time - started), timing);
-        if (contact !== null)
+        if (contact !== null) {
+          let stoneStage: number | undefined;
+          if (stone && product === Product.Stone && contact < duration - 1e-8) {
+            const stage = miningStageAtContact(contact, duration);
+            if (stage > (this.world.tiles[p.tree].miningStage ?? 0)) {
+              this.world.setMiningStage(p.tree, stage);
+              stoneStage = stage;
+            }
+          }
           this.timberEvents.push({
             serial: this.nextTreeEvent++, kind: stone ? TreeWorkKind.Mine : TreeWorkKind.Chop,
             person: p.id, cell: p.tree, index: stone ? 0 : this.world.at(x,y).trees - 1,
             worker: { ...p.position }, at: Math.abs(contact - duration) < 1e-8 ? p.until : started + contact,
+            stoneStage,
           });
+        }
         if (this.time < p.until) break;
         if (stone) {
           this.world.at(x, y).quarried = true;
+          this.world.setMiningStage(p.tree, 0);
           if (p.tree === this.world.basaltCell) {
             this.combatState.flows.clear();
             this.notify('The basalt passage is open');

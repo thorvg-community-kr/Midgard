@@ -82,7 +82,8 @@ export function buildTreeRow(
       ref,
       body: [scene],
       foot: { ...at },
-      ellipse: kind !== undefined ? { rx: 7, ry: 3 } : { rx: 9, ry: 4 },
+      ellipse: ref?.kind === 'rock' ? { rx: body.w * 0.54, ry: body.w * 0.20 }
+        : kind !== undefined ? { rx: 7, ry: 3 } : { rx: 9, ry: 4 },
     });
     if (ref?.kind === 'tree' || ref?.kind === 'rock')
       registerResourceHit(scene, ref.kind, ref.id, ref.instanceIndex ?? 0, at);

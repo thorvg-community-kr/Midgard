@@ -11,7 +11,7 @@ import { f32 as f } from './numeric';
 import { DungeonKind, Dungeon } from './world-types';
 import { CampEconomy } from './camp-economy';
 import { enter } from './town-residents';
-import { harvestDuration } from './work-timing';
+import { harvestDuration, minedSeconds } from './work-timing';
 import { prepareFarmWork } from './farm-work';
 import { buildingWorkSpot } from './person-navigation';
 import { finishMove } from './unit-orders';
@@ -312,9 +312,11 @@ export function arrive(this: PeopleTown, p: Person): void {
     case Activity.Felling:
       p.until = this.time + harvestDuration(p);
       break;
-    case Activity.Mining:
-      p.until = this.time + harvestDuration(p, true);
+    case Activity.Mining: {
+      const duration = harvestDuration(p, true);
+      p.until = this.time + duration - minedSeconds(this.world.tiles[p.tree]?.miningStage ?? 0, duration);
       break;
+    }
     case Activity.Leaving:
       p.health = -1;
       break;

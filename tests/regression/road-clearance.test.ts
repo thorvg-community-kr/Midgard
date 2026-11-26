@@ -6,6 +6,7 @@ import { Structure, Resources } from '../../packages/engine/src/building-catalog
 import { Activity, Person, Role, Calling, Race } from '../../packages/engine/src/person';
 import { point, add, scale, distance, Footprint } from '../../packages/engine/src/geometry';
 import { RoadNetwork, sharpAnchor } from '../../packages/engine/src/road-network';
+import { deposit, stonePerRock } from '../../packages/engine/src/mining';
 import { footBounds } from '../../packages/engine/src/person-collision';
 import { plotFor } from '../../apps/web/src/native/title-placement';
 
@@ -162,7 +163,9 @@ describe('roads remain open between legally placed buildings', () => {
     worker.inventory[0] = { item: 'hammer', quantity: 1 }; worker.inventory[1] = { item: 'pickaxe', quantity: 1 };
     worker.equipment.tool1 = 1; worker.equipment.tool2 = 2;
     town.stock().stone = 0;
-    for (let y = 22; y <= 25; ++y) for (let x = 22; x <= 25; ++x) map.at(x, y).terrain = Terrain.Rock;
+    for (let y = 22; y <= 26; ++y) for (let x = 22; x <= 28; ++x) map.at(x, y).terrain = Terrain.Rock;
+    const boulders = map.tiles.filter((_, cell) => deposit(map, cell % map.width(), Math.floor(cell / map.width())));
+    expect(boulders.length * stonePerRock).toBeGreaterThanOrEqual(town.canPave(road.id).cost.stone);
     ++town.changes;
     town.tick(0);
     expect(town.pave(road.id)).toBe(true);

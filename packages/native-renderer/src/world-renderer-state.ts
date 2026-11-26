@@ -185,6 +185,7 @@ export class WorldRendererState {
   swayAt = -1;
   swaying = false;
   treeKeys: bigint[] = [];
+  miningRevision = 0;
   wisps: { center: Point; color: Rgb; radius: number }[] = [];
   pools: Pool[] = [];
   buildingPools = 0;

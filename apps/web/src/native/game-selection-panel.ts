@@ -10,7 +10,7 @@ import { animalSpec } from '../../../../packages/engine/src/wildlife';
 import { point } from '../../../../packages/engine/src/geometry';
 import { animalSprite } from '../../../../packages/native-renderer/src/wildlife-sprites';
 import { treeAt, TreeKind, TreeBatch } from '../../../../packages/native-renderer/src/tree-painter';
-import { depositPaint } from '../../../../packages/native-renderer/src/mining-stone';
+import { depositPaint, stoneStageScale } from '../../../../packages/native-renderer/src/mining-stone';
 import { SceneNode } from '../../../../packages/native-renderer/src/paint';
 import { hudPaint } from './hud-paint';
 import type { GameHudApp } from './game-hud-contract';
@@ -20,12 +20,12 @@ import type { GameCommandApp } from './game-commands';
 import { actionButton } from './hud-actions';
 import { clearRows, objectClearTarget } from './clear-order-hud';
 import type { InspectorRows } from './game-progress-hud';
-function fitted(context: Context, model: Paint, frame: Rect): Paint {
+function fitted(context: Context, model: Paint, frame: Rect, relativeSize = 1): Paint {
   const holder = new context.tvg.Scene(),
     bounds = model.bounds();
   const { x, y, width: w, height: h } = bounds;
   if (w > 0 && h > 0) {
-    const scale = Math.min(f32(f32(frame.w - 14) / w), f32(f32(frame.h - 14) / h));
+    const scale = relativeSize * Math.min(f32(f32(frame.w - 14) / w), f32(f32(frame.h - 14) / h));
     model.scale(scale);
     model.translate(
       f32(f32(f32(frame.w - f32(w * scale)) / 2) - f32(x * scale)),
@@ -167,11 +167,11 @@ export function worldObjectPanel(this: GameHudApp, panel: Rect): void {
   if (!map.inside(x, y)) return;
   const product = harvestProduct(map, x, y, stone);
   if (stone) {
-    const basalt = cell === map.basaltCell;
-    c.paint(JSON.stringify(['stone-profile', product, basalt, map.seed(), cell, portrait]), () => {
+    const basalt = cell === map.basaltCell, stage = map.at(x, y).miningStage ?? 0;
+    c.paint(JSON.stringify(['stone-profile', product, basalt, map.seed(), cell, stage, portrait]), () => {
       const model = new SceneNode();
       for (const shape of depositPaint(product, point(), map, x, y)) model.add(shape);
-      return fitted(c, hudPaint(c, model), portrait);
+      return fitted(c, hudPaint(c, model), portrait, stoneStageScale(stage));
     });
     text(10, harvestName(product, basalt), t.text, 17, true);
     text(35, harvestNeeds(product, basalt) || 'Stone deposit', t.accent);

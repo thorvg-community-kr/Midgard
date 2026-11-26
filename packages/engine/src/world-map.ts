@@ -185,6 +185,9 @@ export function treePosition(map: WorldMap, x: number, y: number, index: number)
 export const worldName = (world: World): string => ['Asgard', 'Vanaheim', 'Alfheim', 'Jotunheim', 'Svartalfheim', 'Niflheim', 'Muspelheim', 'Helheim'][world] || '';
 let lastGenerated: { seed: number; width: number; height: number; map: WorldMap } | undefined;
 const noDrifts: ReadonlySet<number> = new Set();
+// Faction views share terrain tiles, including changes to individual boulders.
+const miningChanges = new WeakMap<Tile[], { revision: number; rows: number[] }>();
+const noMiningRows: readonly number[] = [];
 export class WorldMap {
     static readonly resolution = 2;
     columns = 0;
@@ -192,6 +195,19 @@ export class WorldMap {
     mapSeed = 0;
     origin: TileCoord = { x: 0, y: 0 };
     tiles: Tile[] = [];
+    get miningRevision(): number { return miningChanges.get(this.tiles)?.revision ?? 0; }
+    get miningRowRevision(): readonly number[] { return miningChanges.get(this.tiles)?.rows ?? noMiningRows; }
+    /** A pick breaks away part of a boulder without changing the footing beneath it. */
+    setMiningStage(cell: number, stage: number): void {
+        const tile = this.tiles[cell];
+        if ((tile.miningStage ?? 0) === stage) return;
+        if (stage) tile.miningStage = stage;
+        else delete tile.miningStage;
+        const row = cell % this.columns + Math.floor(cell / this.columns);
+        let changes = miningChanges.get(this.tiles);
+        if (!changes) miningChanges.set(this.tiles, (changes = { revision: 0, rows: [] }));
+        changes.rows[row] = ++changes.revision;
+    }
     layers: Float32Array[] = [];
     stream: River = { path: [], width: [] };
     seen: Sight[] = [];

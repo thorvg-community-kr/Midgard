@@ -25,6 +25,7 @@ import { treeAt } from '../../packages/native-renderer/src/tree-painter';
 import { sortWorldObjects } from '../../packages/native-renderer/src/world-depth';
 import { pickSource } from '../../packages/native-renderer/src/world-pick-registry';
 import { WorldPicker } from '../../packages/native-renderer/src/world-picking';
+import { stoneLit } from '../../packages/native-renderer/src/mining-stone';
 import {
   hasResourceHits,
   resetResourceHits,
@@ -199,31 +200,34 @@ it('draws building dust from a productive stroke and releases it after the puff 
   }
 });
 
-it('picks every stone in a group as one deposit and clears the entire group when mined', () => {
+it('picks one boulder that shrinks around its foot through three breaks and disappears when spent', () => {
   const v = fixture(true);
   try {
-    const before = v.draw(1), faces = v.target().children;
-    expect(faces).toHaveLength(2);
-    const lit = faces[0] as ShapeNode;
-    expect(lit.commands.filter(p => p[0] === 'M').length).toBeGreaterThan(1);
-    let x = 0, y = 0, count = 0;
-    for (const p of lit.commands) {
-      if (p[0] === 'M' || p[0] === 'L') {
-        x += p[1];
-        y += p[2];
-        ++count;
-      } else if (p[0] === 'Z') {
-        const pixel = v.state.view.toScreen(point(x / count, y / count), 640, 400);
-        expect(v.picker.pick(pixel)).toMatchObject({ kind: 'rock', id: v.cell });
-        x = y = count = 0;
+    const tile = v.map.at(v.cell % 32, Math.floor(v.cell / 32)), ref = { kind: 'rock', id: v.cell } as const;
+    const foot = v.state.view.toScreen(v.pivot, 640, 400);
+    let width = Infinity, height = Infinity;
+    for (let stage = 0; stage <= 3; ++stage) {
+      tile.miningStage = stage;
+      v.rebuild();
+      v.draw(1);
+      const faces = v.target().children as ShapeNode[];
+      expect(faces).toHaveLength(2);
+      for (const face of faces) expect(face.commands.filter(c => c[0] === 'M')).toHaveLength(1);
+      const geometry = v.picker.selectionGeometry(ref)!;
+      expect(geometry.foot).toEqual(foot);
+      const bounds = geometry.bounds;
+      expect(bounds.w).toBeLessThan(width);
+      expect(bounds.h).toBeLessThan(height);
+      width = bounds.w;
+      height = bounds.h;
+      for (const [u, vOffset] of [[0.38, 0.40], [0.65, 0.75]]) {
+        expect(v.picker.pick(point(bounds.x + u * width, bounds.y + vOffset * height))).toMatchObject(ref);
       }
     }
-    v.rebuild();
-    expect(v.draw(1)).toBe(before);
-    v.map.at(v.cell % 32, Math.floor(v.cell / 32)).quarried = true;
+    tile.quarried = true;
     v.rebuild();
     v.draw(1);
-    expect(v.picker.selectionGeometry({ kind: 'rock', id: v.cell })).toBeNull();
+    expect(v.picker.selectionGeometry(ref)).toBeNull();
   } finally {
     v.dispose();
   }
@@ -247,7 +251,7 @@ for (const stone of [false, true])
       for (let i = 0; i < v.surface.pixels.length; i += 4) {
         const r = v.surface.pixels[i],
           g = v.surface.pixels[i + 1];
-        if (stone ? g > 102 : r > 80 && r > g + 10) chipPixels++;
+        if (stone ? g > Math.max(102, stoneLit[1]) : r > 80 && r > g + 10) chipPixels++;
       }
       // The original stone/tree and flat background contain none of these chip colors.
       // This catches particles accidentally hidden behind the resource for their whole lifetime.

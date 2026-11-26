@@ -1,7 +1,6 @@
 import { Product } from './building-catalog';
 import { toolFor } from './equipment';
 import type { Person } from './person';
-import { hash01 } from './numeric';
 import * as mining from './mining';
 import type { WorldMap } from './world-map';
 import { Terrain } from './world-types';
@@ -13,18 +12,8 @@ export function harvestProduct(map: WorldMap, x: number, y: number, stone: boole
   if (map.basaltCell === y * map.width() + x) return Product.CinderOre;
   if (terrain === Terrain.Ash) return Product.CinderOre;
   if (terrain === Terrain.Frost) return Product.IronOre;
-  // Some exposed rock at the foot of a distant peak carries iron too.
-  if (terrain !== Terrain.Rock || hash01(map.seed(), x, y, 63) >= 0.22) return Product.Stone;
-  const camp = map.start();
-  if ((x - camp.x) ** 2 + (y - camp.y) ** 2 < 16 * 16) return Product.Stone;
-  for (const [dx, dy] of mountainNeighbors) {
-    if (!map.inside(x + dx, y + dy)) continue;
-    const adjacent = map.at(x + dx, y + dy).terrain;
-    if (adjacent === Terrain.Mountain || adjacent === Terrain.Ice || adjacent === Terrain.Frost) return Product.IronOre;
-  }
-  return Product.Stone;
+  return mining.ironBearingRock(map, x, y) ? Product.IronOre : Product.Stone;
 }
-const mountainNeighbors = [[0, -1], [0, 1], [-1, 0], [1, 0]] as const;
 export const harvestAmount = (product: Product): number => product === Product.CinderOre ? 2 : 3;
 const tools = {
   [Product.IronOre]: { work: 'mining', tier: 2, needs: 'Needs a stone pick or better' },

@@ -428,6 +428,22 @@ describe('resident automatic policy', () => {
     for(let i=0;i<500&&(!p.autoMode||p.carrying>0);++i)town.advance(.1);
     expect(town.map().at(cell%64,Math.floor(cell/64)).quarried).toBe(true);expect(town.stock().stone).toBe(0);expect(packAmount(p,Product.Stone)).toBe(3);expect(p.autoMode).toBe(true);expect(p.ordered).toBe(false);
   });
+  it('releases a legacy mining order walking to a boulder removed by the new spacing', () => {
+    const town = fixture(), miner = town.people()[0], oldCell = 34 * 64 + 31;
+    town.stock().stone = 0;
+    town.map().at(31, 34).terrain = Terrain.Rock;
+    expect(town.orderMine([miner.id], oldCell)).toBe(true);
+    expect(miner.moving()).toBe(true);
+    // Two adjoining boulders existed on old maps. Only the second is exposed by the new spacing.
+    town.map().at(32, 34).terrain = Terrain.Rock;
+    expect(deposit(town.map(), 31, 34)).toBe(false);
+    const loaded = decodeTown(encodeTown(town), map => new Town(map, 64, false, true));
+    const resident = loaded.person(miner.id)!;
+    for (let n = 0; n < 300 && resident.ordered; ++n) loaded.advance(.1);
+    expect(resident.ordered).toBe(false);
+    expect(resident.taskSite).not.toBe(oldCell);
+    expect(resident.autoMode).toBe(true);
+  });
   it('returns to Auto after the explicit attack target dies', () => {
     const town=fixture(),p=town.people()[0],animal=new Monster(88,-1,add(p.position,point(.5,0)));animal.animal=AnimalKind.Chicken;animal.health=1;animal.home={...animal.position};town.animals.push(animal);
     town.setAuto(p.id,false);expect(town.orderAttack([p.id],animal.id)).toBe(true);

@@ -14,6 +14,9 @@ import { Structure } from '../../packages/engine/src/building-catalog';
 import { Terrain } from '../../packages/engine/src/world-types';
 import { point } from '../../packages/engine/src/geometry';
 import { hammerTiming, harvestDuration, workElapsed } from '../../packages/engine/src/work-timing';
+import { deposit } from '../../packages/engine/src/mining';
+import { decodeTown, encodeTown, encodeTownPayload } from '../../packages/engine/src/save-game';
+import { copyNative } from '../../packages/engine/src/native-copy';
 
 function fixture() {
   const town = new Town(5, 32, false);
@@ -75,6 +78,63 @@ describe('work contacts use one simulation timeline', () => {
       fall = events.find(e => e.kind === TreeWorkKind.Fall)!;
     expect(contacts.map(e => Number(e.at.toFixed(6)))).toEqual(Array.from({length: 17}, (_,i) => Number((.6 + i * .9).toFixed(6))));
     expect(fall.at).toBeCloseTo(15,8);expect(contacts.at(-1)!.at).toBeCloseTo(fall.at,8);expect(p.carrying).toBe(3);
+  });
+  it('breaks a boulder at three pick contacts and keeps the broken face for the next miner', () => {
+    const { town, p } = fixture(), map = town.map();
+    let cell = -1;
+    for (let y = 16; y < 22 && cell < 0; ++y) for (let x = 18; x < 25 && cell < 0; ++x) {
+      map.at(x, y).terrain = Terrain.Rock;
+      if (deposit(map, x, y)) cell = y * map.width() + x;
+    }
+    expect(cell).toBeGreaterThanOrEqual(0);
+    const tile = map.tiles[cell];
+    ++town.changes;
+    expect(town.orderMine([p.id], cell)).toBe(true);
+    const fractures = new Map<bigint, TreeWorkEvent>();
+    for (let i = 0; i < 1000 && (tile.miningStage ?? 0) < 2; ++i) {
+      town.advance(.05);
+      for (const hit of town.treeEvents()) if (hit.stoneStage) fractures.set(hit.serial, hit);
+    }
+    expect([...fractures.values()].map(hit => [hit.kind, hit.index, hit.stoneStage])).toEqual([
+      [TreeWorkKind.Mine, 0, 1], [TreeWorkKind.Mine, 0, 2],
+    ]);
+    const legacy = copyNative(town);
+    legacy.map().setMiningStage(cell, 0);
+    const restore = (t: Town) => decodeTown(encodeTown(t), world => new Town(world, 32, false, true));
+    expect(encodeTownPayload(legacy)[0]).toBeLessThan(31);
+    expect(restore(legacy).map().tiles[cell].miningStage).toBe(2);
+    expect(p.carrying).toBe(0);
+    town.orderStop([p.id]);
+    town.advance(1);
+    expect(tile.miningStage).toBe(2);
+    expect(encodeTownPayload(town)[0]).toBe(31);
+    const loaded = restore(town);
+    const restored = loaded.map().tiles[cell];
+    expect(restored.miningStage).toBe(2);
+    const relief = loaded.makePerson(Role.Resident, Calling.Settler, { ...p.position });
+    relief.home = relief.village = p.village;
+    relief.inventory[0] = { item: 'pickaxe', quantity: 1 };
+    relief.equipment.tool1 = 1;
+    loaded.folk.push(relief);
+    expect(loaded.orderMine([relief.id], cell)).toBe(true);
+    for (let i = 0; i < 500 && relief.moving(); ++i) loaded.advance(.05);
+    const remaining = relief.until - loaded.time;
+    expect(remaining).toBeGreaterThan(0);
+    expect(remaining).toBeLessThanOrEqual(harvestDuration(relief, true) / 2);
+    const contacts: TreeWorkEvent[] = [];
+    const seen = new Set<bigint>();
+    for (let i = 0; i < 500 && !restored.quarried; ++i) {
+      loaded.advance(.05);
+      for (const hit of loaded.treeEvents()) if (hit.person === relief.id && !seen.has(hit.serial)) {
+        contacts.push(hit);
+        seen.add(hit.serial);
+      }
+    }
+    expect(contacts.filter(hit => hit.stoneStage).map(hit => hit.stoneStage)).toEqual([3]);
+    expect(contacts.filter(hit => hit.kind === TreeWorkKind.Shatter)).toHaveLength(1);
+    expect(restored.miningStage).toBeUndefined();
+    expect(relief.carrying).toBe(3);
+    expect(encodeTownPayload(loaded)[0]).toBeLessThan(31);
   });
   it('emits hammer contacts only while a worker actually advances construction', () => {
     const { town, p } = fixture(),

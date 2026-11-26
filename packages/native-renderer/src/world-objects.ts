@@ -388,7 +388,7 @@ export function buildObjects(s: WorldRendererState, town: Town, climate: Readonl
       const tile = map.at(x, f32(row - x));
       key = BigInt.asUintN(64, key * 1099511628211n) ^ (BigInt(tile.trees) | (BigInt(tile.quarried) << 8n));
     }
-    if (key === s.treeKeys[row]) continue;
+    if (key === s.treeKeys[row] && (map.miningRowRevision[row] ?? 0) <= s.miningRevision) continue;
     const fresh = s.treeKeys[row] === -1n;
     s.treeKeys[row] = key;
     if (s.treeCounts.length !== f32(map.width() * map.height()))
