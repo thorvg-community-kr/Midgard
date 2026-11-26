@@ -102,18 +102,19 @@ export const rankPause = (beast: Monster): number =>
       ? rankRules.spitterPause
       : 1;
 
-/** Picks whom a monster goes for among residents in reach; a stalker weighs exposure against distance. */
+/** Stalkers prefer exposed residents and unarmoured or ranged opponents. */
+export function preyScore(beast: Monster, p: Person, candidates: readonly Person[], gap: number): number {
+  if (beast.rank !== MonsterRank.Stalker) return gap;
+  let alone = 4;
+  for (const other of candidates)
+    if (other !== p) alone = Math.min(alone, distance(other.position, p.position));
+  return gap - alone - (shotWeapon(p) || armorProtection(p) <= 0 ? 3 : 0);
+}
 export function choosePrey(beast: Monster, candidates: readonly Person[]): Person | null {
   let best: Person | null = null,
     bestScore = Infinity;
   for (const p of candidates) {
-    let score = distance(p.position, beast.position);
-    if (beast.rank === MonsterRank.Stalker) {
-      let alone = 4;
-      for (const other of candidates)
-        if (other !== p) alone = Math.min(alone, distance(other.position, p.position));
-      score -= alone + (shotWeapon(p) || armorProtection(p) <= 0 ? 3 : 0);
-    }
+    const score = preyScore(beast, p, candidates, distance(p.position, beast.position));
     if (score < bestScore) {
       best = p;
       bestScore = score;

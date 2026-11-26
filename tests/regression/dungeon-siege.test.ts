@@ -277,6 +277,15 @@ describe('sieges in Midgard', () => {
     saved.stir(0);
     expect(saved.person(bait.id)!.health).toBeLessThan(1);
     expect(saved.person(walker.id)!.health).toBe(1);
+    // A surviving party can use the recovery to move out before the guardian gives chase.
+    saved.person(bait.id)!.inside = true;
+    const impact = { ...loaded.position };
+    saved.time += siegeRules.slamRecovery / 2;
+    saved.stir(0.2);
+    expect(loaded.position).toEqual(impact);
+    saved.time += siegeRules.slamRecovery;
+    saved.stir(0.2);
+    expect(distance(loaded.position, impact)).toBeGreaterThan(0);
     walker.calling = Calling.Ranger;
     walker.foe = boss.id;
     expect(town.useAbility([walker.id])).toBe(1);

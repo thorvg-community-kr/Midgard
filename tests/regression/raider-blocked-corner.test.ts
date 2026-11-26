@@ -5,8 +5,9 @@ import { DungeonKind, Layer, Terrain, makeTile } from '../../packages/engine/src
 import { Calling, Monster, Role } from '../../packages/engine/src/person';
 import { Building } from '../../packages/engine/src/town-models';
 import { Structure } from '../../packages/engine/src/building-catalog';
-import { distance, point } from '../../packages/engine/src/geometry';
+import { distance, point, type Point } from '../../packages/engine/src/geometry';
 import { RaidKind } from '../../packages/engine/src/raid-progression';
+import { CombatCue, MonsterRank } from '../../packages/engine/src/combat-events';
 
 /** Open grass with a camp to the south-east and a long pond in the raider's way: the way round is by its south end. */
 function fixture() {
@@ -92,6 +93,136 @@ describe('a raider pressed against a blocked cell', () => {
       town.advance(0.1);
     }
     expect(distance(raider.position, start)).toBeGreaterThan(3);
+  });
+});
+
+describe('surface melee targeting', () => {
+  function resident(town: Town, position: Point, calling = Calling.Settler) {
+    const person = town.makePerson(Role.Resident, calling, position);
+    town.folk.push(person);
+    return person;
+  }
+
+  function raider(town: Town, position: Point) {
+    const beast = new Monster(town.nextMonster++, 0, position);
+    beast.home = { ...position };
+    beast.raider = true;
+    beast.strength = 0.05;
+    town.beasts.push(beast);
+    return beast;
+  }
+
+  function fight(town: Town, seconds: number) {
+    const victims: number[] = [];
+    for (let tick = 0; tick < Math.round(seconds * 10); ++tick) {
+      town.time += 0.1;
+      town.stir(0.1);
+      for (const hit of town.blows)
+        if (hit.at === town.time && hit.onPerson && hit.person >= 0) victims.push(hit.person);
+    }
+    return victims;
+  }
+
+  it('finds a reachable defender when the closest resident is across an impassable river', () => {
+    const town = fixture();
+    for (let y = 0; y < town.world.rows; ++y)
+      for (const x of [30, 31]) town.world.at(x, y).terrain = Terrain.Water;
+    ++town.changes;
+    town.tick(0);
+    raider(town, point(29.9, 18.5));
+    const across = resident(town, point(32.2, 18.5));
+    const nearBank = resident(town, point(26.5, 18.5));
+    const hits = fight(town, 10);
+    expect(hits).toContain(nearBank.id);
+    expect(hits).not.toContain(across.id);
+  });
+
+  it('keeps fighting an accessible opponent when a neighbour edges closer, then replaces a lost target', () => {
+    const town = fixture();
+    raider(town, point(18, 18));
+    const first = resident(town, point(18.42, 18));
+    const other = resident(town, point(8, 18));
+    expect(fight(town, 2)).toContain(first.id);
+    other.position = point(17.64, 18);
+    const contestedHits = fight(town, 4);
+    expect(new Set(contestedHits)).toEqual(new Set([first.id]));
+    first.inside = true;
+    expect(fight(town, 3)).toContain(other.id);
+  });
+
+  it('obeys a reachable warrior’s taunt while already engaged', () => {
+    const town = fixture();
+    const beast = raider(town, point(18, 18));
+    const first = resident(town, point(18.42, 18));
+    const warrior = resident(town, point(16.5, 18), Calling.Warrior);
+    expect(fight(town, 2)).toContain(first.id);
+    town.combatState.taunts.set(beast.id, { by: warrior.id, until: town.time + 12 });
+    const challengedHits = fight(town, 7);
+    expect(new Set(challengedHits)).toEqual(new Set([warrior.id]));
+  });
+
+  it('keeps challenged raiders off the camp until the warrior’s challenge ends', () => {
+    const town = fixture(), camp = town.placed[0];
+    const warrior = resident(town, point(36.6, 26), Calling.Warrior);
+    town.world.reveal(36, 26, 6);
+    for (let i = 0; i < 11; ++i)
+      raider(town, point(36.1 - (i % 3) * 0.5, 25.5 + Math.floor(i / 3) * 0.5));
+    expect(town.useSkill([warrior.id], 0)).toBe(1);
+    expect(fight(town, 4.9)).toContain(warrior.id);
+    expect(camp.health).toBe(1);
+    fight(town, 8);
+    expect(camp.health).toBeLessThan(1);
+  });
+
+  it('lets a newly summoned guardian reach slam range when its horde already fills the front', () => {
+    const town = fixture();
+    resident(town, point(21, 26));
+    function defender(position: Point, rank: MonsterRank) {
+      const beast = raider(town, position);
+      beast.raider = false;
+      beast.angry = true;
+      beast.brood = beast.id;
+      beast.rank = rank;
+      return beast;
+    }
+    for (let i = 0; i < 5; ++i) defender(point(20, 26 + (i - 2) * 0.5), MonsterRank.Swarmer);
+    fight(town, 4);
+    const guardian = defender(point(24.6, 26), MonsterRank.Guardian);
+    for (let tick = 0; tick < 120; ++tick) {
+      fight(town, 0.1);
+      if (town.events.some(e => e.creature === guardian.id && e.cue === CombatCue.Slam)) return;
+    }
+    expect.fail('The guardian never reached the defender to land its slam');
+  });
+
+  it('splits a packed wave between two defenders who both have room to fight', () => {
+    const town = fixture();
+    const front = resident(town, point(21, 26));
+    const behind = resident(town, point(23.5, 26));
+    for (let i = 0; i < 10; ++i)
+      raider(town, point(18 - Math.floor(i / 5) * 0.72, 26 + ((i % 5) - 2) * 0.72));
+    fight(town, 12);
+    const hits = fight(town, 5);
+    const onFront = hits.filter(id => id === front.id).length;
+    const onRear = hits.filter(id => id === behind.id).length;
+    expect(onFront).toBeGreaterThan(0);
+    expect(onRear).toBeGreaterThan(0);
+    expect(Math.min(onFront, onRear)).toBeGreaterThanOrEqual(Math.max(onFront, onRear) / 2);
+  });
+
+  it('sends surplus raiders to their camp objective while the front keeps the defender engaged', () => {
+    const town = fixture();
+    const defender = resident(town, point(29, 26));
+    const camp = town.placed[0];
+    for (let i = 0; i < 14; ++i)
+      raider(town, point(26 - Math.floor(i / 5) * 0.72, 26 + ((i % 5) - 2) * 0.72));
+    fight(town, 24);
+    const hits = fight(town, 3);
+    expect(hits).toContain(defender.id);
+    expect(camp.health).toBeLessThan(1);
+    const inContact = town.beasts.filter(beast => distance(defender.position, beast.position) < 0.9);
+    expect(inContact.length).toBeGreaterThanOrEqual(3);
+    expect(inContact.length).toBeLessThanOrEqual(6);
   });
 });
 

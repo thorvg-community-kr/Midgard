@@ -10,11 +10,12 @@ import { point, add, sub, scale, distance, type Point } from './geometry';
 import { f32 as f, lround } from './numeric';
 import { breedOf, monsterBite } from './town-monsters';
 import { raidDue, raidKind, raidWarning, RaidKind } from './raid-progression';
-import { CombatCue, combatRules } from './combat-events';
+import { CombatCue, MonsterRank, combatRules } from './combat-events';
 import { clearMuster, firstRaidDue, gateActive, musterRaid, musteredGates, raidSeat, updateGateOpenings } from './gate-progression';
 import { belongsToFaction } from './faction';
 import { Season, type Calendar } from './town-models';
 import { losePrey, planRaiderApproach, pursueResident, separateMonsters } from './monster-navigation';
+import { MeleeFront } from './monster-engagement';
 import { choosePrey, rankPace, slowedBy, tauntedBy } from './monster-ranks';
 export interface EncounterTown extends TownState {
   wakeGiants(): void;
@@ -77,9 +78,11 @@ export function stir(this: EncounterTown, dt: number): void {
   if (night) updateGateOpenings(this);
   const raidOn = this.raiding();
   this.defendSettlement(dt);
+  const front = new MeleeFront(this);
   for (const beast of this.beasts) {
     if (beast.health <= 0 || this.inRealm(beast.home)) continue;
     if (beast.giant() && (beast.insideLair || (!this.giantsAwake() && !beast.angry))) {
+      front.release(beast);
       this.roamGiant(beast, dt);
       continue;
     }
@@ -87,37 +90,44 @@ export function stir(this: EncounterTown, dt: number): void {
     if (!this.grid.walkable(beast.position)) beast.position = this.grid.nearestWalkable(beast.position);
     const breed = breedOf(this.world.dungeons()[beast.lair].kind), pace = rankPace(beast) * slowedBy(this, beast);
     const scent = beast.raider ? 9 : beast.angry ? 7 : 4;
-    let prey = tauntedBy(this, beast, scent * 1.5) ?? undefined;
-    if (beast.raider && prey && !belongsToFaction(prey)) prey = undefined;
-    if (!prey)
-      prey =
-        choosePrey(
-          beast,
-          this.folk.filter(
-            (p) =>
-              (!beast.raider || belongsToFaction(p)) &&
-              (!beast.giant() || (p.id === beast.provokedBy && distance(p.position, beast.home) <= 7)) &&
-              !p.inside &&
-              p.health > 0 &&
-              p.downedAt < 0 &&
-              distance(p.position, beast.position) < scent,
-          ),
-        ) ?? undefined;
-    if (guardianSlam(this, beast, prey)) continue;
-    if (prey) {
-      const gap = distance(prey.position, beast.position);
-      if (gap <= f(0.7)) {
-        if (this.grid.clear(beast.position, prey.position, Infinity, true)) {
-          beast.prey = -1;
-          if (beast.path.length) beast.path = [];
-          if (this.time >= beast.ready) monsterBite(this, beast, prey, breed);
-          continue;
-        }
+    const warrior = tauntedBy(this, beast, scent * 1.5);
+    const challenged = warrior && (!beast.raider || belongsToFaction(warrior)) ? warrior : null;
+    const candidates = challenged ? [challenged] : this.folk.filter(p =>
+      !p.inside && p.health > 0 && p.downedAt < 0 && (!beast.raider || belongsToFaction(p)) &&
+      (!beast.giant() || (p.id === beast.provokedBy && distance(p.position, beast.home) <= 7)) &&
+      distance(p.position, beast.position) < scent);
+    // The guardian can strike the ground from behind its own front rank.
+    if (beast.rank === MonsterRank.Guardian && guardianSlam(this, beast, choosePrey(beast, candidates) ?? undefined)) continue;
+    const stepToFight = f(f(breed.speed * f(0.8) * pace) * f(dt));
+    let claim = front.pick(beast, candidates);
+    while (claim) {
+      const goal = front.goal(claim);
+      if (front.inPlace(beast, claim, goal)) {
+        beast.prey = -1;
+        if (beast.path.length) beast.path = [];
+        if (this.time >= beast.ready) monsterBite(this, beast, claim.person, breed);
+        break;
       }
-      const step = f(f(breed.speed * f(0.8) * pace) * f(dt));
-      if (pursueResident(this, beast, prey, step)) continue;
+      if (pursueResident(this, beast, claim.person, goal, stepToFight)) break;
+      front.unreachable(beast, claim.person);
+      claim = front.pick(beast, candidates);
     }
-    if (!prey) losePrey(beast);
+    if (claim) continue;
+    if (challenged) {
+      // Challenged raiders gather behind the fighters instead of resuming a building attack.
+      const gap = distance(beast.position, challenged.position);
+      const standOff = 1.6 + (beast.id % 5) * 0.16;
+      if (gap > standOff + 0.2 && this.grid.sharesLand(beast.position, challenged.position)) {
+        const wait = add(challenged.position, scale(sub(beast.position, challenged.position), standOff / gap));
+        if (this.grid.walkable(wait) && pursueResident(this, beast, challenged, wait, stepToFight)) continue;
+      }
+      beast.prey = -1;
+      beast.path = [];
+      continue;
+    }
+    losePrey(beast);
+    // Dungeon defenders hold outside a full front until a place opens. Raiders have a settlement to reach.
+    if (candidates.length && !beast.raider && !beast.giant()) continue;
     beast.angry = false;
     beast.provokedBy = -1;
     if (beast.giant()) {

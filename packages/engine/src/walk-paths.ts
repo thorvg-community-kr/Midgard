@@ -39,6 +39,30 @@ class Search {
     set(n: number, value: number, from: number): void { this.stamp[n] = this.current; this.score[n] = value; this.parent[n] = from; }
 }
 const search = new Search();
+
+const edgeNeighbours = [[-1, 0], [1, 0], [0, -1], [0, 1]] as const;
+const touchingNeighbours = [...edgeNeighbours, [-1, -1], [1, -1], [-1, 1], [1, 1]] as const;
+function labelRegions(costs: Float32Array, columns: number, allowCorners: boolean): Int32Array<ArrayBuffer> {
+    const labels = new Int32Array(costs.length).fill(-1), pending: number[] = [];
+    const neighbours = allowCorners ? touchingNeighbours : edgeNeighbours;
+    for (let first = 0, label = 0; first < costs.length; ++first) {
+        if (costs[first] <= 0 || labels[first] >= 0) continue;
+        labels[first] = label;
+        pending.push(first);
+        while (pending.length) {
+            const cell = pending.pop()!, x = cell % columns;
+            for (const [dx, dy] of neighbours) {
+                const next = cell + dx + dy * columns;
+                if (x + dx < 0 || x + dx >= columns || next < 0 || next >= costs.length ||
+                    costs[next] <= 0 || labels[next] >= 0) continue;
+                labels[next] = label;
+                pending.push(next);
+            }
+        }
+        ++label;
+    }
+    return labels;
+}
 export class WalkGrid {
     columns = 0;
     rows = 0;
@@ -54,6 +78,7 @@ export class WalkGrid {
     obstacles: Footprint[] = [];
     private cellWalls = new Map<number, Footprint[]>();
     regions = new Int32Array();
+    private groundRegions?: Int32Array;
     nearObstacle = new Uint8Array();
     blocked = new BigUint64Array();
     labeled = new BigUint64Array();
@@ -194,6 +219,7 @@ export class WalkGrid {
             }
         }
         const sameGround = sameShape && this.groundCosts.length === this.costs.length && this.costs.every((cost, i) => (cost > 0) === (this.groundCosts[i] > 0));
+        if (!sameGround) this.groundRegions = undefined;
         this.groundCosts = this.costs.slice();
         for (const f of this.obstacles) {
             const x0 = Math.floor(f32(f.center.x - f32(f.half * f32(1.5)))), x1 = Math.floor(f32(f.center.x + f32(f.half * f32(1.5)))), y0 = Math.floor(f32(f.center.y - f32(f.half * f32(1.5)))), y1 = Math.floor(f32(f.center.y + f32(f.half * f32(1.5))));
@@ -238,23 +264,16 @@ export class WalkGrid {
         if (sameShape && this.regions.length === this.costs.length && this.blocked.length === this.labeled.length && this.blocked.every((v, i) => v === this.labeled[i]))
             return;
         this.labeled = this.blocked.slice();
-        this.regions = new Int32Array(this.costs.length).fill(-1);
-        const pending: number[] = [];
-        for (let first = 0, label = 0; first < this.costs.length; ++first) {
-            if (this.costs[first] <= 0 || this.regions[first] >= 0)
-                continue;
-            this.regions[first] = label;
-            pending.push(first);
-            while (pending.length) {
-                const n = pending.pop()!, x = n % this.columns;
-                for (const m of [x > 0 ? f32(n - 1) : -1, f32(x + 1) < this.columns ? f32(n + 1) : -1, f32(n - this.columns), f32(n + this.columns)])
-                    if (m >= 0 && m < this.costs.length && this.costs[m] > 0 && this.regions[m] < 0) {
-                        this.regions[m] = label;
-                        pending.push(m);
-                    }
-            }
-            ++label;
-        }
+        this.regions = labelRegions(this.costs, this.columns, false);
+    }
+    /** Cheap rejection for targets on another island. Exact feet, narrow streets and corners can
+     * join cells the centre-based route grid separates, so the fallback only looks at the ground. */
+    sharesLand(a: Point, b: Point): boolean {
+        const cell = Math.floor(a.y) * this.columns + Math.floor(a.x);
+        const other = Math.floor(b.y) * this.columns + Math.floor(b.x);
+        if (this.regions[cell] >= 0 && this.regions[cell] === this.regions[other]) return true;
+        this.groundRegions ??= labelRegions(this.groundCosts, this.columns, true);
+        return this.groundRegions[cell] >= 0 && this.groundRegions[cell] === this.groundRegions[other];
     }
     walkable(p: Point): boolean { const x = Math.floor(p.x), y = Math.floor(p.y); return x >= 0 && y >= 0 && x < this.columns && y < this.rows && this.groundCost(x, y) > 0 && !this.blockedBy(p); }
     speedAt(p: Point, boots: Footing = null): number {

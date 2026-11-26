@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import ThorVG, { type ThorVGNamespace } from '@thorvg/webcanvas';
-import { Person, Calling, Role, Race, Activity, type Hit } from '../../packages/engine/src/person';
+import { Person, Monster, Calling, Role, Race, Activity, type Hit } from '../../packages/engine/src/person';
 import { point, project } from '../../packages/engine/src/geometry';
 import { Traffic } from '../../packages/engine/src/traffic';
-import type { Town } from '../../packages/engine/src/town';
+import { Town } from '../../packages/engine/src/town';
 import { SceneNode, ShapeNode, AnimationNode } from '../../packages/native-renderer/src/paint';
 import { ceremonySeconds, type DevotionEvent } from '../../packages/engine/src/town-devotion';
 import { Building } from '../../packages/engine/src/town-models';
@@ -18,6 +18,7 @@ import { barShapesOf, updateUnitBars } from '../../packages/native-renderer/src/
 import { WebCanvasAdapter } from '../../packages/native-renderer/src/webcanvas-adapter';
 import { heldTools, showEquipment } from '../../packages/native-renderer/src/person-equipment';
 import { animateWork } from '../../packages/native-renderer/src/action-motion';
+import { breedOf, monsterBite } from '../../packages/engine/src/town-monsters';
 
 class Pixels {
   constructor(
@@ -124,6 +125,32 @@ function scene(person: Person, hits: Hit[] = []) {
     },
   };
 }
+it('faces the victim through a bite even when a crowd nudges the monster the other way', () => {
+  const town = new Town(5, 64), s = new WorldRendererState(tvg), prey = actor();
+  town.folk = [];
+  town.animals = [];
+  const beast = new Monster(9, 0, point(6.5, 6));
+  town.beasts = [beast];
+  s.rows = Array.from({ length: 64 }, () => new SceneNode());
+  s.currentVisibility.sample = () => 255;
+  try {
+    monsterBite(town, beast, prey, breedOf(town.map().dungeons()[0].kind));
+    for (let i = 0; i < 4; ++i) {
+      town.time += 0.04;
+      beast.position = point(6.5 + (i % 2) * 0.02, 6);
+      moveAgents(s, town, new Traffic(5), town.time, []);
+      expect(s.beasts.get(beast.id)!.paint.matrix[0]).toBeLessThan(0);
+    }
+    // A second contact almost directly below the monster in the isometric view keeps its facing.
+    prey.position = point(beast.position.x + 0.41, beast.position.y + 0.4);
+    monsterBite(town, beast, prey, breedOf(town.map().dungeons()[0].kind));
+    moveAgents(s, town, new Traffic(5), town.time, []);
+    expect(s.beasts.get(beast.id)!.paint.matrix[0]).toBeLessThan(0);
+  } finally {
+    s.adapter.dispose();
+  }
+});
+
 it('does not switch an in-range strike to walking or reverse facing for small combat spacing corrections', () => {
   const view = surface(640, 180),
     p = actor(),

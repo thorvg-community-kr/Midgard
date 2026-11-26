@@ -198,6 +198,8 @@ export function monsterBite(
   const slowed = slowedBy(town, beast);
   beast.ready = town.time + (breed.pause * rankPause(beast)) / slowed;
   beast.swingAt = town.time;
+  // A slam hits everyone around the guardian together, with no turn toward the last victim.
+  beast.swingHeading = area ? point() : sub(prey.position, beast.position);
   const shield = area ? null : raisedShield(prey);
   if (shield && town.roll() < shield.block) {
     town.blows.push({
@@ -566,6 +568,7 @@ export function wreck(this: CombatTown, beast: Monster, dt: number): void {
     const blow = f(breed.bite * beast.strength * f(0.25) * (boon(this, Boon.Bulwark) ? boonRules.bulwarkBuildingDamage : 1));
     beast.ready = this.time + breed.pause;
     beast.swingAt = this.time;
+    beast.swingHeading = sub(item.center, beast.position);
     this.blows.push({
       serial: this.nextBlow++,
       from: { ...beast.position },

@@ -24,6 +24,8 @@ export class Monster {
   windupUntil = -1;
   /** Clock time of its last bite or spit, for presentation; not saved. */
   swingAt = -1;
+  /** Direction of that strike at contact; later crowd movement must not turn the swing around. */
+  swingHeading?: Point;
   /** Clock time it climbed out of a den, or -1; not saved. */
   bornAt = -1;
   /** Its den or guardian, its own id when defending a standing dungeon, or -1 if unaffiliated. */

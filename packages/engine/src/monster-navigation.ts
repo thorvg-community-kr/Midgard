@@ -4,6 +4,7 @@ import type { RealmArea } from './realm-layout';
 import type { FlowField } from './combat-state';
 import { PairMinHeap } from './priority-queue';
 import { MonsterRank } from './combat-events';
+import { contactReach, meleeContact } from './monster-engagement';
 import type { Building } from './town-models';
 import { Structure, isSeat } from './building-catalog';
 import { inRaidedVillage, raidSeat } from './gate-progression';
@@ -165,20 +166,31 @@ function pursuitEntry(town: TownState, at: Point): Point {
 /** Keep the route to a moving resident until the resident moves away from its end. Failed searches retry
  * on a staggered clock. A raider with no route keeps marching against the settlement in between. */
 const pursuit = new WeakMap<Monster, { goal: Point; person: number; retry: number; failed: boolean }>();
-export function pursueResident(town: TownState, beast: Monster, resident: Person, step: number): boolean {
+export function pursueResident(town: TownState, beast: Monster, resident: Person, goal: Point, step: number): boolean {
   const grid = town.grid, remembered = pursuit.get(beast);
-  const sameGoal = remembered?.person === resident.id && distance(remembered.goal, resident.position) <= 0.8;
+  const sameGoal = remembered?.person === resident.id && distance(remembered.goal, goal) <= 0.8;
   if (sameGoal && remembered.failed && town.time < remembered.retry) return false;
   if (beast.path.length && (beast.prey >= 0 || !sameGoal)) beast.path = [];
   beast.prey = -1;
-  let waypoint = beast.path[0] ?? resident.position;
+  let waypoint = beast.path[0] ?? goal;
   if (!beast.path.length && (beast.raider || beast.brood >= 0)) {
-    const remaining = distance(beast.position, resident.position), axis = sub(resident.position, beast.home);
+    const remaining = distance(beast.position, goal), axis = sub(goal, beast.home);
     const span = Math.hypot(axis.x, axis.y);
     if (span > 1 && remaining > 1.4) {
       const width = flank(beast.id) * Math.min(1, (remaining - 1.4) / 5) / span;
-      const side = add(resident.position, point(-axis.y * width, axis.x * width));
+      const side = add(goal, point(-axis.y * width, axis.x * width));
       if (grid.walkable(side)) waypoint = side;
+    }
+  }
+  if (!beast.path.length) {
+    // An attacker assigned the far side rounds the defender's feet on its final approach.
+    const from = sub(beast.position, resident.position), to = sub(goal, resident.position);
+    const radius = Math.hypot(from.x, from.y);
+    if (radius > 0.12 && radius < 1.4 && from.x * to.x + from.y * to.y < radius * 0.32) {
+      const cross = from.x * to.y - from.y * to.x;
+      const turn = Math.abs(cross) > 0.001 ? Math.sign(cross) : (beast.id % 2 ? 1 : -1);
+      const arc = add(resident.position, rotated(scale(from, 0.68 / radius), turn * 0.8));
+      if (grid.clear(beast.position, arc, Infinity, true)) waypoint = arc;
     }
   }
   const gap = distance(beast.position, waypoint);
@@ -189,12 +201,12 @@ export function pursueResident(town: TownState, beast: Monster, resident: Person
     return true;
   }
   if (sameGoal && town.time < remembered.retry) return true;
-  const entry = pursuitEntry(town, beast.position), exit = pursuitEntry(town, resident.position);
+  const entry = pursuitEntry(town, beast.position), exit = pursuitEntry(town, goal);
   const route = grid.path(entry, exit, true);
   beast.path = entry === beast.position ? route.slice(1) : route;
-  if (route.length && exit !== resident.position) beast.path.push({ ...resident.position });
+  if (route.length && exit !== goal) beast.path.push({ ...goal });
   const failed = !beast.path.length;
-  pursuit.set(beast, { person: resident.id, goal: { ...resident.position }, failed,
+  pursuit.set(beast, { person: resident.id, goal: { ...goal }, failed,
     retry: town.time + 0.8 + (beast.id % 7) * 0.05 });
   return !failed;
 }
@@ -204,37 +216,83 @@ export function losePrey(beast: Monster): void {
   if (pursuit.delete(beast) && beast.prey < 0) beast.path = [];
 }
 
-/** A simultaneous, bounded displacement avoids order-dependent pushes or snaps. */
+const largestRadius = 0.62;
+function bodyRadius(rank: MonsterRank): number {
+  switch (rank) {
+    case MonsterRank.Swarmer: return 0.31;
+    case MonsterRank.Brute: return 0.47;
+    case MonsterRank.Guardian: return largestRadius;
+    case MonsterRank.Den: return 0.58;
+    default: return 0.37;
+  }
+}
+
+const passLookAhead = 1.4;
+
+/** Bend the next few steps around the body in our lane without giving up our march waypoint. */
+function passResident(town: TownState, beast: Monster, people: readonly Person[], first: number, dt: number): Point {
+  const at = beast.position, ahead = beast.path[0], radius = bodyRadius(beast.rank) + 0.3;
+  const dx = ahead.x - at.x, dy = ahead.y - at.y, len = Math.hypot(dx, dy);
+  if (len < 0.01) return at;
+  const ux = dx / len, uy = dy / len;
+  let nearest = Infinity, shift = 0;
+  for (let i = first; i < people.length && people[i].position.x < at.x + passLookAhead; ++i) {
+    const p = people[i].position, x = at.x - p.x, y = at.y - p.y;
+    const side = -x * uy + y * ux, forward = -x * ux - y * uy;
+    if (Math.abs(side) >= radius || forward < -radius || forward > Math.min(passLookAhead, len + radius)) continue;
+    const gap = x * x + y * y;
+    if (gap >= nearest || gap > passLookAhead * passLookAhead) continue;
+    nearest = gap;
+    const sign = Math.abs(side) < 0.015 ? ((beast.id + people[i].id) % 2 ? 1 : -1) : Math.sign(side);
+    shift = sign * Math.min(radius - Math.abs(side), dt * 1.9);
+  }
+  if (!shift) return at;
+  const next = point(at.x - uy * shift, at.y + ux * shift);
+  return town.grid.clear(at, next, Infinity, true) ? next : at;
+}
+
+/** A simultaneous, bounded displacement keeps neighbouring bodies apart. A fighter with its feet
+ * planted yields to another planted fighter only; passing monsters go around the front. */
 export function separateMonsters(town: TownState, dt: number): void {
-  // Sorted along x, only neighbours within `spacing` are compared: a swarm stays cheap.
   const beasts = town.beasts.filter(beast => beast.health > 0 && !beast.insideLair && !beast.giant())
     .sort((a, b) => a.position.x - b.position.x || a.id - b.id);
+  if (!beasts.length || dt <= 0) return;
+  const contacts = beasts.map(meleeContact), radii = beasts.map(b => bodyRadius(b.rank));
+  const fixed = beasts.map(b => b.rank === MonsterRank.Den || b.windupUntil >= 0);
   const shifts = beasts.map(() => point());
+  const maxStep = Math.min(dt * 0.95, 0.18);
   for (let i = 0; i < beasts.length; ++i)
-    for (let j = i + 1; j < beasts.length && beasts[j].position.x - beasts[i].position.x < spacing; ++j) {
-      const delta = sub(beasts[i].position, beasts[j].position), gap = distance(point(), delta);
-      if (gap >= spacing) continue;
-      // IDs give coincident spawns a stable, opposite escape direction.
-      const direction = gap > f(0.001) ? scale(delta, f(1 / gap))
-        : rotated(point(beasts[i].id < beasts[j].id ? 1 : -1, 0),
-          f(variation(Math.min(beasts[i].id, beasts[j].id), Math.max(beasts[i].id, beasts[j].id)) * Math.PI * 2));
-      const push = scale(direction, Math.min(f((spacing - gap) * 0.5), f(dt * 0.35)));
-      shifts[i] = add(shifts[i], push);
-      shifts[j] = sub(shifts[j], push);
+    for (let j = i + 1; j < beasts.length && beasts[j].position.x - beasts[i].position.x < radii[i] + largestRadius; ++j) {
+      const spacing = radii[i] + radii[j], dx = beasts[i].position.x - beasts[j].position.x;
+      const dy = beasts[i].position.y - beasts[j].position.y, gap = Math.hypot(dx, dy);
+      if (gap >= spacing - 0.002) continue;
+      const plantedI = !!contacts[i] || fixed[i], plantedJ = !!contacts[j] || fixed[j];
+      const shareI = !fixed[i] && (!plantedI || plantedJ), shareJ = !fixed[j] && (!plantedJ || plantedI);
+      const push = Math.min((spacing - gap) * (shareI && shareJ ? 0.5 : 1), maxStep);
+      // A coincident spawn also has a reproducible escape direction.
+      const angle = gap < 0.001 ? variation(beasts[i].id, beasts[j].id) * Math.PI * 2 : 0;
+      const x = push * (gap < 0.001 ? Math.cos(angle) : dx / gap);
+      const y = push * (gap < 0.001 ? Math.sin(angle) : dy / gap);
+      if (shareI) { shifts[i].x += x; shifts[i].y += y; }
+      if (shareJ) { shifts[j].x -= x; shifts[j].y -= y; }
     }
+  const people = town.folk.filter(p => !p.inside && p.health > 0 && p.downedAt < 0)
+    .sort((a, b) => a.position.x - b.position.x || a.id - b.id);
+  let first = 0;
   for (let i = 0; i < beasts.length; ++i) {
-    if (beasts[i].rank === MonsterRank.Den || beasts[i].windupUntil >= 0) continue;
-    const amount = distance(point(), shifts[i]);
-    if (amount < f(0.001)) continue;
-    const shift = scale(shifts[i], Math.min(1, f(dt * 0.35 / amount)));
-    const at = add(beasts[i].position, shift);
-    const target = beasts[i].raider && !beasts[i].path.length ? town.building(beasts[i].prey) : null;
-    // An attacker already in place must not be pushed out of reach and forced
-    // to plan its approach again on the next tick.
-    if (target?.footprint().contains(beasts[i].position, attackReach) &&
-      !target.footprint().contains(at, attackReach)) continue;
-    if (town.grid.walkable(at) && town.grid.clear(beasts[i].position, at, Infinity, true))
-      beasts[i].position = at;
+    const beast = beasts[i];
+    if (fixed[i]) continue;
+    while (first < people.length && people[first].position.x <= beast.position.x - passLookAhead) ++first;
+    if (beast.raider && beast.prey >= 0 && beast.path.length && first < people.length)
+      beast.position = passResident(town, beast, people, first, dt);
+    const amount = Math.hypot(shifts[i].x, shifts[i].y);
+    if (amount < 0.001) continue;
+    const at = add(beast.position, scale(shifts[i], Math.min(1, maxStep / amount)));
+    const contact = contacts[i];
+    if (contact && distance(at, contact.position) > contactReach) continue;
+    const target = beast.raider && !beast.path.length ? town.building(beast.prey) : null;
+    if (target?.footprint().contains(beast.position, attackReach) && !target.footprint().contains(at, attackReach)) continue;
+    if (town.grid.clear(beast.position, at, Infinity, true)) beast.position = at;
   }
 }
 

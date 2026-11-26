@@ -14,6 +14,7 @@ import { RaidKind } from '../../packages/engine/src/raid-progression';
 import { canControl, controlReason } from '../../packages/engine/src/faction';
 import { animalSpec } from '../../packages/engine/src/wildlife';
 import { skillPower } from '../../packages/engine/src/skill-catalog';
+import { separateMonsters, walkPath } from '../../packages/engine/src/monster-navigation';
 
 function fixture() {
   const map = new WorldMap();
@@ -85,6 +86,40 @@ function grant(town: Town, which: Boon) {
     }
   throw new Error('no gate for that boon');
 }
+
+describe('monster body spacing', () => {
+  it('gives heavy fighters more ground and leaves a den where it stands', () => {
+    const { town } = fixture();
+    const gaps = [MonsterRank.Swarmer, MonsterRank.Grunt, MonsterRank.Brute].map((rank, row) => {
+      const center = point(20, 20 + 3 * row);
+      const den = monster(town, center), fighter = monster(town, point(center.x + 0.02, center.y));
+      den.rank = MonsterRank.Den;
+      fighter.rank = rank;
+      for (let i = 0; i < 30; ++i) separateMonsters(town, 0.05);
+      expect(den.position).toEqual(center);
+      return distance(den.position, fighter.position);
+    });
+    expect(gaps[1] - gaps[0]).toBeGreaterThan(0.04);
+    expect(gaps[2] - gaps[1]).toBeGreaterThan(0.07);
+  });
+
+  it('walks around a defender on a crowded march while keeping its raid waypoint', () => {
+    const { town, camp } = fixture();
+    const defender = resident(town, point(22, 20));
+    const raider = monster(town, point(20, 20));
+    raider.prey = camp.id;
+    const waypoint = point(26, 20);
+    raider.path = [waypoint];
+    let closest = Infinity;
+    for (let i = 0; i < 80; ++i) {
+      walkPath(raider, 0.1);
+      separateMonsters(town, 0.05);
+      closest = Math.min(closest, distance(raider.position, defender.position));
+    }
+    expect(closest).toBeGreaterThan(0.5);
+    expect(raider.position).toEqual(waypoint);
+  });
+});
 
 describe('downed residents', () => {
   it('goes down instead of dying, and monsters leave the downed alone', () => {

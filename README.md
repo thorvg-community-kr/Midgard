@@ -77,9 +77,11 @@ When a dungeon sends out a raid, the monsters pour from its entrance and march o
 
 An unarmed settler can fell any member of the first raid with one blow. Later waves grow in number and level. In open country they spread abreast, then bunch together to pass a gap. Point at a raider to see its level.
 
+A settler in the open can be attacked from five sides. A rock face or a building cuts off the sides it covers. Once a monster reaches its place, it stays facing that settler to strike. An enemy that finds the front full looks for another settler it can reach. A raider that gets past the whole line continues toward the settlement, while a dungeon defender waits for an opening. A warrior’s Challenge can hold the rear ranks back from the camp.
+
 Click a dungeon and press **Attack** to send the group you selected. With no group selected, fighters and settlers with an equipped weapon go first. If none can reach the dungeon, other available settlers go.
 
-As your settlers damage the dungeon, three waves of defenders emerge. Each wave is larger and stronger than the last. When the dungeon collapses, the impact knocks nearby units back and a summoning circle calls its guardian and the largest horde. Defeat the guardian and every surviving defender before the dungeon rises again. A sealed dungeon pays its hoard and stops sending raids.
+As your settlers damage the dungeon, three waves of defenders emerge. Each wave is larger and stronger than the last. When the dungeon collapses, the impact knocks nearby units back and a summoning circle calls its guardian and the largest horde. Its brood makes room for the guardian to strike. Step out of the marked circle, then use the guardian’s brief recovery to regroup. Defeat the guardian and every surviving defender before the dungeon rises again. A sealed dungeon pays its hoard and stops sending raids.
 
 The standard map has eight hostile dungeons. The first is tuned for ten level-10 fighters with flint weapons. Each following dungeon calls for one more fighter and ten more levels, up to seventeen level-80 fighters at the last dungeon. Later parties can carry iron and regional weapons. Inspect a dungeon to see its recommendation. The party can set out whenever you choose.
 

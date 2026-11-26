@@ -694,14 +694,19 @@ export function moveAgents(
       const moved = rig && rig.last.x >= 0 ? sub(beast.position, rig.last) : point(),
         walking = beast.path.length > 0 || Math.hypot(moved.x, moved.y) > 0.0001;
       let ahead = beast.path.length ? sub(beast.path[0], beast.position) : moved;
+      let facingThreshold = 0.0001;
       if (rig) {
         let blow = -1;
         rig.body.transform([1, 0, 0, 0, 1, 0, 0, 0, 1]);
         const period = breedOf(town.map().dungeons()[beast.lair].kind).pause;
         // The engine stamps each blow or spit; the cycle runs from that contact to the next.
-        if (!s.sceneView && beast.swingAt >= 0 && town.clock() - beast.swingAt < period)
+        if (!s.sceneView && beast.swingAt >= 0 && town.clock() - beast.swingAt < period) {
           blow = (town.clock() - beast.swingAt) / period;
-        else if (!walking && !s.sceneView) {
+          if (beast.swingHeading) {
+            ahead = beast.swingHeading;
+            facingThreshold = 2 / tileHalfWidth;
+          }
+        } else if (!walking && !s.sceneView) {
           const hitAt = beast.ready - period;
           // A ready timestamp can also schedule roaming. Require its actual damage event.
           const hit = town
@@ -726,7 +731,7 @@ export function moveAgents(
         });
         rig.last = { ...beast.position };
       }
-      if (Math.abs(ahead.x - ahead.y) > 0.0001) facing = ahead.x - ahead.y < 0 ? -1 : 1;
+      if (Math.abs(ahead.x - ahead.y) > facingThreshold) facing = ahead.x - ahead.y < 0 ? -1 : 1;
       if (rig) rig.facing = facing;
       // A sleeping animal breathes from the ground up in its lying pose.
       const asleep = town.animalAsleep(beast),

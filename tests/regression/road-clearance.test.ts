@@ -234,15 +234,18 @@ describe('roads remain open between legally placed buildings', () => {
     for (let y = 0; y < map.height(); ++y) map.at(29, y).terrain = Terrain.Water;
     const walls = [town.camp()!, ...buildings].map((b) => b.footprint());
     town.grid.rebuild(map, town.network, walls);
+    expect(town.grid.sharesLand(from, to)).toBe(true);
     expect(town.grid.path(from, to).length).toBeGreaterThan(0);
     expect(town.grid.walkable(point(29.5, 20))).toBe(true);
     road.wear = 1;
     town.grid.rebuild(map, town.network, walls);
+    expect(town.grid.sharesLand(from, to)).toBe(false);
     expect(town.grid.path(from, to)).toEqual([]);
     expect(town.grid.walkable(point(29.5, 20))).toBe(false);
     road.wear = 0;
     road.built = 0.5;
     town.grid.rebuild(map, town.network, walls);
+    expect(town.grid.sharesLand(from, to)).toBe(false);
     expect(town.grid.path(from, to)).toEqual([]);
   });
   it('does not replace a short grass route with a distant U-shaped road just because that road has a narrow corridor', () => {
@@ -268,6 +271,7 @@ describe('roads remain open between legally placed buildings', () => {
     town.grid.rebuild(map, roads, walls);
     expect(town.grid.walkable(doorstep)).toBe(true);
     expect(town.grid.cost(8, 10)).toBe(0);
+    expect(town.grid.sharesLand(doorstep, destination)).toBe(true);
     expect(town.grid.clear(doorstep, destination, Infinity, true)).toBe(false);
     for (const [from, to] of [[doorstep, destination], [destination, doorstep]]) {
       const path = town.grid.path(from, to, true);
@@ -277,6 +281,7 @@ describe('roads remain open between legally placed buildings', () => {
     }
     for (let y = 0; y < map.height(); ++y) map.at(15, y).terrain = Terrain.Mountain;
     town.grid.rebuild(map, roads, walls);
+    expect(town.grid.sharesLand(doorstep, destination)).toBe(false);
     expect(town.grid.path(doorstep, destination, true)).toEqual([]);
   });
   it('keeps a completed bridge route available when a shorter planned bridge crosses impassable water', () => {

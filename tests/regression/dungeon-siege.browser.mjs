@@ -41,7 +41,10 @@ const setup = async (page, width, height, touch) =>
         import('/packages/engine/src/equipment.ts'),
         import('/packages/localization/src/index.ts'),
       ]);
-      (await import('/apps/web/src/native/guide-preferences.ts')).setGuidePreference('cards', false);
+      const { setGuidePreference } = await import('/apps/web/src/native/guide-preferences.ts');
+      setGuidePreference('cards', false);
+      // Keep the camera on the assault while the founding guide records discoveries at the camp.
+      setGuidePreference('focus', false);
       const tvg = await initializeWebCanvas('gl'),
         element = document.createElement('canvas');
       element.style.cssText = `display:block;width:${width}px;height:${height}px`;

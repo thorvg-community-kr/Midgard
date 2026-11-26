@@ -23,7 +23,7 @@ export interface DungeonSiege {
 }
 export const siegeRules = {
   summonSeconds: 3, reviveSeconds: 120, blastRadius: 4, knockback: 2.4,
-  firstSlam: 3, slamPower: 0.9,
+  firstSlam: 3, slamRecovery: 1, slamPower: 0.9,
 };
 const finalWave = 4;
 interface AttackTown extends TownState {
@@ -277,12 +277,14 @@ export function guardianSlam(town: BiteTown, beast: Monster, prey?: Person): boo
           monsterBite(town, beast, p, breedOf(town.world.dungeons()[beast.lair].kind), rankRules.slamPower * siegeRules.slamPower, true);
       town.emit(CombatCue.Slam, beast.position, { creature: beast.id, radius: rankRules.slamRadius });
       beast.windupUntil = -1;
-      town.combatState.slamAt.set(beast.id, town.time + rankRules.slamPause);
+      town.combatState.slamAt.set(beast.id, town.time + siegeRules.slamRecovery + rankRules.slamPause);
     }
     return true;
   }
-  if (!prey || distance(prey.position, beast.position) > rankRules.slamRadius) return false;
+  // Give the party a beat to spread out after a ground strike before the guardian can step or bite.
   const due = town.combatState.slamAt.get(beast.id);
+  if (due !== undefined && due - town.time > rankRules.slamPause) return true;
+  if (!prey || distance(prey.position, beast.position) > rankRules.slamRadius) return false;
   if (due === undefined) town.combatState.slamAt.set(beast.id, town.time + siegeRules.firstSlam);
   else if (town.time >= due) {
     beast.path = [];
