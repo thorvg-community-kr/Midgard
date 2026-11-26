@@ -133,8 +133,7 @@ function portrait(app: GameAppState, slot: string, person: Person, mood: Mood, r
   }
   state.drawn.add(slot);
   pictureFrame(c, r);
-  c.add(entry.paint);
-  entry.paint.transform({ e11: 1, e12: 0, e13: r.x + 1, e21: 0, e22: 1, e23: r.y + 1, e31: 0, e32: 0, e33: 1 });
+  c.place(entry.paint, r.x + 1, r.y + 1);
 }
 /** Enough of a person, rebuilt from the record of the dead, to draw their likeness and voice. */
 export function fallenPerson(fallen: Fallen): Person {

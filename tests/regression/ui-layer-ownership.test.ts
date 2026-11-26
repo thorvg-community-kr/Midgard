@@ -50,14 +50,38 @@ it('keeps unchanged siblings attached while drawing a clipped panel', () => {
   };
   try {
     paint(true);
+    expect(c.takePaintChanges()).toBe(true);
     const remove = vi.spyOn(c.scene(), 'remove'), add = vi.spyOn(c.scene(), 'add');
     paint(true);
+    expect(c.takePaintChanges()).toBe(false);
     expect(remove).not.toHaveBeenCalled();
     expect(add).not.toHaveBeenCalled();
     paint(false);
+    expect(c.takePaintChanges()).toBe(true);
     expect(remove).toHaveBeenCalledTimes(1);
   } finally {
     c.destroy();
+  }
+});
+it('reuses a static portrait and repaints it when its position, clip or opacity changes', () => {
+  const c = new Context(tvg, {}), view = new Rect(0, 0, 80, 60), theme = Theme.dark();
+  const portrait = new tvg.Shape().appendCircle(5, 5, 3, 3).fill(200, 120, 80);
+  const frame = (x: number, width: number, opacity: number) => {
+    c.begin(theme, view, 1);
+    c.layer(new Rect(0, 0, width, 40), () => c.place(portrait, x, 10), opacity);
+    c.end();
+    return c.takePaintChanges();
+  };
+  try {
+    expect(frame(2, 30, 255)).toBe(true);
+    expect(frame(2, 30, 255)).toBe(false);
+    expect(frame(3, 30, 255)).toBe(true);
+    expect(frame(3, 35, 255)).toBe(true);
+    expect(frame(3, 35, 100)).toBe(true);
+    expect(frame(3, 35, 100)).toBe(false);
+  } finally {
+    c.destroy();
+    portrait.dispose();
   }
 });
 it('keeps unique Paint ownership when retained icons move between dynamic nested clips', () => {

@@ -1,4 +1,4 @@
-/** Keep HUD geometry in CSS pixels and limit the area shaded by each full-screen WebGL pass. */
+/** Limits the area shaded by the world's full-screen passes. HUD lettering uses the display density. */
 export function renderPixelRatio(width: number, height: number, deviceRatio: number, touch: boolean): number {
   const density = 1 + ((deviceRatio || 1) - 1) * 0.75;
   if (!touch) return density;

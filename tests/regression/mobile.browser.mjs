@@ -33,7 +33,7 @@ try {
   await server.listen();
   browser = await chromium.launch({ headless: true, args: ['--mute-audio', '--use-angle=gl', '--enable-gpu', '--ignore-gpu-blocklist'] });
   for (const [width, height, density] of [
-    [390, 844, 3], [844, 390, 1], [360, 740, 2], [320, 568, 2], [568, 320, 1],
+    [390, 844, 3], [844, 390, 1], [360, 740, 2.625], [320, 568, 2], [568, 320, 1],
   ]) {
     const renderer = 'gl';
     const context = await browser.newContext({
@@ -199,6 +199,15 @@ try {
         return game.viewWidth === canvas.clientWidth && Math.abs(canvas.width - game.viewWidth * ratio) < 1 &&
           Math.abs(canvas.height - game.viewHeight * ratio) < 1 && ratio <= 1.75 &&
           (devicePixelRatio === 1 ? ratio === 1 : ratio > 1);
+      }));
+      check('HUD lettering uses the display pixels while the world keeps its rendering budget', await page.evaluate(() => {
+        const world = document.querySelector('#world'), hud = document.querySelector('canvas[data-goldfantasy-hud]');
+        if (devicePixelRatio === 1) return !hud && world.width === world.clientWidth;
+        if (!hud) return false;
+        const face = hud.getBoundingClientRect(), view = world.getBoundingClientRect();
+        return hud.width === Math.round(view.width * devicePixelRatio) && hud.height === Math.round(view.height * devicePixelRatio) &&
+          face.x === view.x && face.y === view.y && face.width === view.width && face.height === view.height &&
+          getComputedStyle(hud).pointerEvents === 'none' && hud.getAttribute('aria-hidden') === 'true';
       }));
       await tapControl('objectives-toggle');
       check('An expanded quest offers its full-size action even on short screens', await page.evaluate(() => {
@@ -698,26 +707,37 @@ try {
       } finally { town.advance = advance; }
     }), 'Half a second of live play takes the same simulation steps at 30, 60 and 120 Hz');
     await tap('settings');
+    await paint(8);
     const frozen = await page.evaluate(() => {
       const game = shell.app.gameSession.game, clock = game.town.clock();
       const { update, presented } = game.renderer;
-      let updates = 0, pickFrames = 0;
+      const hud = shell.host.hud.canvas, draw = hud.render;
+      let updates = 0, pickFrames = 0, hudDraws = 0;
+      hud.render = function (...args) { hudDraws++; return draw.apply(this, args); };
       game.renderer.update = function (...args) { updates++; return update.apply(this, args); };
       game.renderer.presented = function (...args) { pickFrames++; return presented.apply(this, args); };
       try {
         for (let i = 0; i < 30; i++) shell.host.render(window.stamp += 1 / 60);
-        const idle = updates, idlePicks = pickFrames, delay = shell.app.nextFrameDelay();
+        const idle = updates, idlePicks = pickFrames, idleHud = hudDraws, delay = shell.app.nextFrameDelay();
         shell.app.invalidatePresentation();
         shell.host.render(window.stamp += 1 / 60);
         shell.host.render(window.stamp += 1 / 60);
-        return { idle, idlePicks, redraw: updates - idle, newPicks: pickFrames - idlePicks,
+        return { idle, idlePicks, idleHud, redraw: updates - idle, newPicks: pickFrames - idlePicks,
           unchanged: clock === game.town.clock(), delay };
       } finally {
         game.renderer.update = update;
         game.renderer.presented = presented;
+        hud.render = draw;
       }
     });
-    assert.deepEqual(frozen, { idle: 0, idlePicks: 0, redraw: 1, newPicks: 1, unchanged: true, delay: 0.5 });
+    assert.deepEqual(frozen, { idle: 0, idlePicks: 0, idleHud: 0, redraw: 1, newPicks: 1, unchanged: true, delay: 0.5 });
+    assert.ok(await page.evaluate(() => {
+      const { app, host } = shell, full = host.capture();
+      let world;
+      try { app.worldOnly(true); world = host.capture(); }
+      finally { app.worldOnly(false); }
+      return full.startsWith('data:image/jpeg;') && full !== world && host.capture() === full;
+    }), 'A save thumbnail can omit the interface and the next capture restores the same sharp HUD');
     assert.deepEqual(scriptRuntimeRequests, [], 'Starting the title and playing requires only the rendering runtime');
     await page.screenshot({ path: output + '/settings-landscape-ko.png', scale: 'css' });
     await tap('settings/save');

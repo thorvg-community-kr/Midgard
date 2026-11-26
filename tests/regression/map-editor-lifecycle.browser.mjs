@@ -19,11 +19,13 @@ try {
   deadline = setTimeout(() => void browser.close().catch(() => {}), 180000);
   const context = await browser.newContext({
     viewport: { width: 1024, height: 768 },
+    deviceScaleFactor: 2,
     reducedMotion: 'reduce',
   });
   page = await context.newPage();
   page.on('pageerror', (error) => report.errors.push(error.stack ?? error.message));
   const cdp = await context.newCDPSession(page);
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1024, height: 768, mobile: false, deviceScaleFactor: 1 });
   await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/?test&renderer=${backend}&seed=5`, {
     waitUntil: 'domcontentloaded',
   });
@@ -81,6 +83,11 @@ try {
     await page.mouse.click(bounds.x + bounds.w / 2, bounds.y + bounds.h / 2);
     await step();
   };
+  // Move an already presented title from a 1x screen to a denser one.
+  assert.equal(await page.locator('canvas[data-goldfantasy-hud]').count(), 0);
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1024, height: 768, mobile: false, deviceScaleFactor: 2 });
+  await step();
+  assert.equal(await page.locator('canvas[data-goldfantasy-hud]').evaluate(el => el.width), 2048);
   for (let i = 0; i <= cycles; i++) {
     const close = i === cycles ? 'map-play' : 'map-cancel';
     await clickControl('map-editor');
@@ -100,34 +107,49 @@ try {
     report.cycles.push({ cycle: i + 1, close, closed: true });
   }
   if (backend === 'gl') {
+    await clickControl('title-settings');
+    await step(3);
     await page.evaluate(() => {
       window.worldBeforeRestore = goldfantasy.app.preview.state();
       window.clockBeforeRestore = worldBeforeRestore.clock();
-      window.contextRecovery = document
-        .querySelector('#world')
-        .getContext('webgl2')
-        .getExtension('WEBGL_lose_context');
-      if (!contextRecovery) throw Error('WebGL context recovery is unavailable');
-      contextRecovery.loseContext();
+      const hud = document.querySelector('canvas[data-goldfantasy-hud]');
+      window.recovery = [document.querySelector('#world'), hud].map(canvas =>
+        canvas.getContext('webgl2').getExtension('WEBGL_lose_context'));
+      if (recovery.some(ext => !ext)) throw Error('WebGL context recovery is unavailable');
+      window.headerPixels = () => {
+        goldfantasy.host.present();
+        const { x, y } = goldfantasy.app.overlay.controls.find(c => c.id === 'settings/panel').bounds;
+        const scale = hud.width / hud.clientWidth, w = Math.round(110 * scale), h = Math.round(28 * scale);
+        const sample = new OffscreenCanvas(w, h).getContext('2d');
+        sample.drawImage(hud, (x + 24) * scale, (y + 12) * scale, w, h, 0, 0, w, h);
+        const { data } = sample.getImageData(0, 0, w, h);
+        let ink = 0, hash = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i] > 150) ink++;
+          hash = Math.imul(hash, 31) + data[i] | 0;
+        }
+        return { ink, hash };
+      };
     });
-    await page.waitForFunction(() => goldfantasy.host.surfaceLost);
-    await cdp.send('HeapProfiler.collectGarbage');
-    await page.evaluate(() => contextRecovery.restoreContext());
-    await page.waitForFunction(() => !goldfantasy.host.surfaceLost);
-    assert.equal(
-      await page.evaluate(
-        () =>
-          goldfantasy.app.preview.state() === worldBeforeRestore &&
-          worldBeforeRestore.clock() === clockBeforeRestore,
-      ),
-      true,
-    );
+    const title = await page.evaluate(() => headerPixels());
+    assert.ok(title.ink > 20, 'The settings title is visible on the native-density surface');
+    for (const lost of [[0], [1], [0, 1]]) {
+      await page.evaluate(layers => layers.forEach(i => recovery[i].loseContext()), lost);
+      await page.waitForFunction(layers => layers.every(i => [goldfantasy.host.world, goldfantasy.host.hud][i].lost), lost);
+      await cdp.send('HeapProfiler.collectGarbage');
+      for (const i of lost) await page.evaluate(i => recovery[i].restoreContext(), i);
+      await page.waitForFunction(() => !goldfantasy.host.surfaceLost);
+      assert.deepEqual(await page.evaluate(() => headerPixels()), title);
+      assert.ok(await page.evaluate(() => goldfantasy.app.preview.state() === worldBeforeRestore &&
+        worldBeforeRestore.clock() === clockBeforeRestore));
+    }
     await step(3);
     report.contextRestored = true;
   }
   await page.screenshot({ path: `${output}/after-cycles.png` });
   assert.deepEqual(report.errors, []);
   await page.evaluate(() => goldfantasy.dispose());
+  assert.equal(await page.locator('canvas[data-goldfantasy-hud]').count(), 0);
   report.passed = true;
 } catch (error) {
   report.failure = error.stack ?? String(error);

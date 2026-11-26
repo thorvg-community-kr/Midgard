@@ -44,6 +44,10 @@ export interface Property {
 export interface Application {
   title(): string;
   scene(): Scene;
+  /** Detaches the HUD from scene() for an independently scaled surface, returning the same root on later calls. */
+  separateHud?(): Scene;
+  /** Whether the HUD has changed since its last presentation. */
+  takeHudChanges?(): boolean;
   render(width: number, height: number, seconds: number): void;
   /** Desired seconds until another presentation; user input can wake it earlier. */
   nextFrameDelay?(): number;

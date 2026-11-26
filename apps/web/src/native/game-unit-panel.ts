@@ -107,18 +107,7 @@ export function personPanel(this: GameHudApp, panel: Rect): void {
       this.dockPortraits.set(p.id, entry);
     }
     frame(c, r);
-    c.add(entry.paint);
-    entry.paint.transform({
-      e11: 1,
-      e12: 0,
-      e13: r.x + 1,
-      e21: 0,
-      e22: 1,
-      e23: r.y + 1,
-      e31: 0,
-      e32: 0,
-      e33: 1,
-    });
+    c.place(entry.paint, r.x + 1, r.y + 1);
   };
   const first = this.town.person(this.chosen[0]);
   const manage = () => {

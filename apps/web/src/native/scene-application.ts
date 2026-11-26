@@ -63,6 +63,8 @@ export class SceneApplication implements Application {
   private retiring: { app: Application; until: number }[] = [];
   private readonly tvg: ThorVGNamespace;
   private readonly root: Scene;
+  private hud: Scene | undefined;
+  private mountedHudSession: Application | undefined;
   private readonly overlay: Context;
   private newGame = false;
   private continueGame = false;
@@ -144,6 +146,19 @@ export class SceneApplication implements Application {
   }
   scene(): Scene {
     return this.root;
+  }
+  separateHud(): Scene {
+    if (!this.hud) {
+      this.hud = new this.tvg.Scene();
+      this.stage();
+    }
+    return this.hud;
+  }
+  takeHudChanges(): boolean {
+    // A closing editor stays painted for one frame after handing its session to the game.
+    const session = this.mountedHudSession;
+    const childChanged = session?.takeHudChanges?.() ?? !!session;
+    return this.overlay.takePaintChanges() || childChanged;
   }
   presented(pixelRatio: number): void {
     const active = this.current === 'Game' ? this.gameSession : this.editorSession;
@@ -573,6 +588,7 @@ export class SceneApplication implements Application {
   }
   private worldOnly(on: boolean): void {
     this.overlay.scene().visible(!on);
+    this.overlay.invalidatePaint();
     this.gameSession?.command('session.world-only', on ? 'on' : 'off');
   }
   private drawSlots(width: number, height: number): void {
@@ -895,7 +911,7 @@ export class SceneApplication implements Application {
     this.hoveredTitleItem = '';
     if (this.settingsOpen) this.active()?.command('session.freeze', 'off');
     this.settingsOpen = false;
-    this.root.remove();
+    this.clearStage();
     this.overlay.cancelPointer();
     this.overlayPointer = false;
     this.titleSound?.fadeOut();
@@ -943,15 +959,13 @@ export class SceneApplication implements Application {
     if (session) {
       session.setTouchInput?.(this.touchInput);
       session.command('session.resume');
-      this.root.add(session.scene());
     }
-    this.root.add(this.overlay.scene());
     if (this.current === 'Title') {
       this.retire(this.editorSession);
       this.editorSession = undefined;
       this.preparePreview();
-      this.stage();
     }
+    this.stage();
   }
   /** background finishes the file on a worker; saves that must land before the page goes do not use it. */
   private save(slot: number, background = false): boolean {
@@ -1057,12 +1071,25 @@ export class SceneApplication implements Application {
     this.root.remove(saga.paint);
     saga.dispose();
   }
-  private stage(): void {
+  private clearStage(): void {
     this.root.remove();
+    this.hud?.remove();
+    this.mountedHudSession = undefined;
+  }
+  private stage(): void {
+    this.clearStage();
+    this.overlay.invalidatePaint();
+    const session = this.active();
     // Opaque story panels replace the world, so the GPU must not draw it underneath.
     if (this.saga) this.root.add(this.saga.paint);
-    else if (this.preview) this.root.add(this.preview.worldScene());
-    this.root.add(this.overlay.scene());
+    else if (session) {
+      if (this.hud && session.separateHud) {
+        this.hud.add(session.separateHud());
+        this.mountedHudSession = session;
+      }
+      this.root.add(session.scene());
+    } else if (this.preview) this.root.add(this.preview.worldScene());
+    (this.hud ?? this.root).add(this.overlay.scene());
   }
   private advanceIntro(dt: number, width: number, height: number): void {
     this.introTime += dt;
@@ -1125,8 +1152,9 @@ export class SceneApplication implements Application {
     }
   }
   dispose(): void {
-    this.root.remove();
+    this.clearStage();
     this.root.dispose();
+    this.hud?.dispose();
     this.overlay.dispose();
     this.gameSession?.dispose();
     this.gameSession = undefined;

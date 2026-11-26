@@ -100,6 +100,7 @@ const property = (
 const saveSerials = new Map<string, number>();
 export class GameApplication implements Application {
   private readonly root: Scene;
+  private hud: Scene | undefined;
   private game: GameRuntime;
   private authoredGame: GameRuntime | null = null;
   private retiredGames: GameRuntime[] = [];
@@ -165,12 +166,28 @@ export class GameApplication implements Application {
   scene(): Scene {
     return this.root;
   }
+  separateHud(): Scene {
+    if (!this.hud) {
+      this.hud = new this.services.tvg.Scene();
+      this.root.remove();
+      this.mount();
+    }
+    return this.hud;
+  }
+  takeHudChanges(): boolean {
+    return this.game.context.takePaintChanges();
+  }
   private authoringTool(): boolean {
     return !!this.game.atlas || !!this.game.editor || !!this.game.buildings;
   }
   private mount(): void {
     this.root.add(this.game.worldScene());
-    this.root.add(this.game.hudScene());
+    (this.hud ?? this.root).add(this.game.hudScene());
+    if (this.hud) this.game.context.invalidatePaint();
+  }
+  private unmount(): void {
+    this.root.remove();
+    this.hud?.remove();
   }
   private configure(): void {
     const error = { value: '' };
@@ -212,7 +229,7 @@ export class GameApplication implements Application {
   }
   private reset(): void {
     const touchMode = this.game.touchMode;
-    this.root.remove();
+    this.unmount();
     this.game.dispose();
     this.game = this.services.createGame(worldSeed(this.options, this.services));
     this.game.touchMode = touchMode;
@@ -221,7 +238,7 @@ export class GameApplication implements Application {
   }
   render(width: number, height: number, seconds: number): void {
     if (this.remount) {
-      this.root.remove();
+      this.unmount();
       this.mount();
       for (const game of this.retiredGames) game.dispose();
       this.retiredGames = [];
@@ -501,6 +518,7 @@ export class GameApplication implements Application {
     if (id === 'session.world-only') {
       const shown = argument === 'off';
       this.game.hudScene().visible(shown);
+      this.game.context.invalidatePaint();
       return true;
     }
     if (id === 'session.save-later') {
@@ -756,11 +774,12 @@ export class GameApplication implements Application {
     return accepted;
   }
   dispose(): void {
-    this.root.remove();
+    this.unmount();
     this.game.dispose();
     this.authoredGame?.dispose();
     for (const game of this.retiredGames) game.dispose();
     this.sound.dispose();
     this.root.dispose();
+    this.hud?.dispose();
   }
 }

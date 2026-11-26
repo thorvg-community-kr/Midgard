@@ -70,16 +70,18 @@ const event = (type: EventType, x = 0, y = 0, key = Key.Unknown, shift = false, 
 });
 const matrixCache = new WeakMap<Paint, string>();
 const originalText = (value: string) => value;
-export function setTransform(paint: Paint, matrix: Matrix): void {
+export function setTransform(paint: Paint, matrix: Matrix): boolean {
   const key = JSON.stringify(matrix);
-  if (matrixCache.get(paint) === key) return;
+  if (matrixCache.get(paint) === key) return false;
   paint.transform(matrix);
   matrixCache.set(paint, key);
+  return true;
 }
 
 /** Source-equivalent immediate UI over retained ThorVG WebCanvas paints. */
 export class Context {
   private readonly rootLayer: Layer;
+  private paintChanged = true;
   private target: Layer;
   private readonly paintLayers = new Map<Paint, Layer>();
   private readonly frames = new FrameRequest();
@@ -118,6 +120,15 @@ export class Context {
   }
   scene(): Scene {
     return this.rootLayer.scene;
+  }
+  /** A separate HUD surface can keep its last frame until a retained paint changes. */
+  takePaintChanges(): boolean {
+    const changed = this.paintChanged;
+    this.paintChanged = false;
+    return changed;
+  }
+  invalidatePaint(): void {
+    this.paintChanged = true;
   }
   theme(): Theme {
     return this.tokens;
@@ -213,6 +224,7 @@ export class Context {
       common++;
     // Entering a clip has only described the prefix. Its later siblings may still be in place.
     if (common === layer.pending.length && (!complete || common === layer.attached.length)) return;
+    this.paintChanged = true;
     for (let i = common; i < layer.attached.length; i++) {
       const paint = layer.attached[i];
       layer.scene.remove(paint);
@@ -442,13 +454,14 @@ export class Context {
       previousBounds = this.clipBounds,
       index = this.target.usedClips++;
     const layer = this.target.clips[index] ?? (this.target.clips[index] = new Layer(this.tvg));
-    this.add(layer.scene);
+    this.queue(layer.scene);
     // Append-only WebCanvas may need to move this retained scene. Do that while
     // its old descendants still have renderer data: removing it after adding
     // fresh descendants asks ThorVG for their not-yet-initialized render bounds.
     this.syncLayer(previousTarget, false);
     const old = layer.bounds;
     if (old.x !== bounds.x || old.y !== bounds.y || old.w !== bounds.w || old.h !== bounds.h) {
+      this.paintChanged = true;
       const shape = new this.tvg.Shape()
         .appendRect(bounds.x, bounds.y, bounds.w, bounds.h)
         .fill(255, 255, 255);
@@ -458,7 +471,10 @@ export class Context {
       shape.dispose();
       layer.bounds = bounds;
     }
-    if (layer.scene.opacity() !== opacity) layer.scene.opacity(opacity);
+    if (layer.scene.opacity() !== opacity) {
+      this.paintChanged = true;
+      layer.scene.opacity(opacity);
+    }
     layer.begin();
     this.target = layer;
     this.clipBounds = bounds;
@@ -472,6 +488,18 @@ export class Context {
     return layer.scene;
   }
   add(paint: Paint | null): void {
+    // The caller owns this paint and may have animated it in place.
+    if (paint) this.paintChanged = true;
+    this.queue(paint);
+  }
+  /** Places a caller-owned, immutable paint such as a cached portrait. */
+  place(paint: Paint, x: number, y: number): void {
+    if (setTransform(paint, { e11: 1, e12: 0, e13: x, e21: 0, e22: 1, e23: y, e31: 0, e32: 0, e33: 1 })) {
+      this.paintChanged = true;
+    }
+    this.queue(paint);
+  }
+  private queue(paint: Paint | null): void {
     if (!paint || this.target.queued.has(paint)) return;
     this.target.queued.add(paint);
     const previous = this.paintLayers.get(paint);
@@ -488,10 +516,11 @@ export class Context {
     if (!entry || entry.key !== key) {
       const paint = make();
       if (!paint) return;
+      this.paintChanged = true;
       if (entry) this.target.retired.push(entry.paint);
       this.target.drawn[index] = { key, paint };
     }
-    this.add(this.target.drawn[index].paint);
+    this.queue(this.target.drawn[index].paint);
   }
   rect(bounds: Rect, fill: Color, radius = 0, border = transparent, stroke = 1): void {
     if (bounds.w <= 0 || bounds.h <= 0) return;
