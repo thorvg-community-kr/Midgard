@@ -120,7 +120,7 @@ function startTending(town: Town, p: Person, hurt: Person, ordered: boolean): vo
   const kneeling = p.activity === Activity.Tending && p.target === hurt.id,
     until = p.until;
   town.setOrder(p, Activity.Tending, hurt.id);
-  // A player's order ignores enemies like a Move; a helper who went on their own still defends.
+  // A player-ordered helper stays with the casualty. An automatic helper still defends.
   p.aggressive = !ordered;
   p.goal = { ...hurt.position };
   // Asked again while kneeling by them, the count carries on; a kneel by someone else does not count.

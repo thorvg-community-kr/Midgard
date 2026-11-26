@@ -2,10 +2,9 @@ import { dungeonAttackProblem, targetedDungeon } from './dungeon-siege';
 // Explicit resident commands. Absolute order timers remain double precision.
 import { TownState } from './town-state';
 import { Building } from './town-models';
-import { Activity, Calling, Person, Role, Monster } from './person';
+import { Activity, Person, Role, Monster } from './person';
 import { Product, Resources, Structure, structureSpec, isHome } from './building-catalog';
-import { Point, point, add, rotated, distance, segmentDistance, sub, scale, normalized } from './geometry';
-import { combatItem } from './equipment';
+import { Point, point, add, distance, segmentDistance } from './geometry';
 import { f32 as f } from './numeric';
 import { treePosition } from './world-map';
 import * as mining from './mining';
@@ -149,55 +148,16 @@ export function setAuto(this: OrderTown, id: number, enabled: boolean): void {
   this.staff();
   ++this.changes;
 }
-/** Formation rows: blades, maces and spears in front, bards and clerics behind them, bows and staves at the back. */
-function formationRow(p: Person): number {
-  const shape = combatItem(p)?.visual;
-  if (shape === 'bow' || shape === 'staff') return 2;
-  if (p.calling === Calling.Cleric || p.calling === Calling.Bard) return 1;
-  if (shape === 'sword' || shape === 'spear' || shape === 'mace' || p.calling === Calling.Warrior) return 0;
-  return p.calling === Calling.Ranger || p.calling === Calling.Mage ? 2 : 1;
-}
-const formationSpacing = 0.7;
-/** A slot for each resident around `to`, rows across the way they travel, in a fixed order. */
-function formationSlots(group: readonly Person[], to: Point): Map<number, Point> {
-  const slots = new Map<number, Point>();
-  if (!group.length) return slots;
-  const middle = scale(
-      group.reduce((sum, p) => add(sum, p.position), point()),
-      1 / group.length,
-    ),
-    heading = distance(middle, to) > 0.05 ? normalized(sub(to, middle)) : point(0, 1),
-    side = point(-heading.y, heading.x),
-    across = (p: Person) => p.position.x * side.x + p.position.y * side.y,
-    rows = [0, 1, 2]
-      .map((row) => group.filter((p) => formationRow(p) === row))
-      .filter((row) => row.length);
-  rows.forEach((row, r) => {
-    const along = ((rows.length - 1) / 2 - r) * formationSpacing;
-    // Left to right as they stand, so nobody crosses the line to reach a slot.
-    row
-      .slice()
-      .sort((a, b) => across(a) - across(b) || a.id - b.id)
-      .forEach((p, i) =>
-        slots.set(
-          p.id,
-          add(to, add(scale(heading, along), scale(side, (i - (row.length - 1) / 2) * formationSpacing))),
-        ),
-      );
-  });
-  return slots;
-}
 export function moveOrder(this: OrderTown, ids: number[], to: Point, attack: boolean): void {
-  const group = this.folk.filter((p) => canControl(p, this.controlFaction) && !beyondOrders(p) && ids.includes(p.id)),
-    slots = group.length > 1 ? formationSlots(group, to) : new Map<number, Point>();
-  for (const p of group) {
-    const slot = slots.get(p.id),
-      spot = slot && this.grid.walkable(slot) ? slot : slot ? this.grid.nearestWalkable(slot) : to;
-    if (!this.walkTo(p, this.grid.nearestWalkable(spot)) && !(slot && this.walkTo(p, this.grid.nearestWalkable(to))))
-      continue;
+  const destination = this.grid.nearestWalkable(to);
+  for (const p of this.folk) {
+    if (!ids.includes(p.id) || !canControl(p, this.controlFaction) || !this.walkTo(p, destination)) continue;
+    const disengaging = !attack && (p.activity === Activity.Fighting ||
+      (p.ordered && p.task === Activity.Moving && !p.aggressive)) ? p.foe : -1;
     this.setOrder(p, Activity.Moving);
+    p.foe = disengaging;
     p.aggressive = attack;
-    p.goal = { ...(p.path.length ? p.path[p.path.length - 1] : p.position) };
+    p.goal = { ...destination };
     p.activity = Activity.Moving;
     if (!p.moving()) this.arrive(p);
   }
@@ -424,6 +384,18 @@ export function orderRelax(this: OrderTown, ids: number[], id: number): boolean 
   }
   return any;
 }
+/** Complete the walking order after reaching the click or the free ground beside it. */
+export function finishMove(p: Person, now: number): void {
+  if (p.task !== Activity.Holding) p.autoMode = true;
+  p.trainingCalling = -1;
+  p.task = Activity.Idle;
+  p.taskSite = -1;
+  p.ordered = p.aggressive = false;
+  p.foe = -1;
+  p.activity = Activity.Holding;
+  p.path = [];
+  p.until = now + 2;
+}
 export function resumeOrder(this: OrderTown, p: Person): boolean {
   if (p.stressRecovery || p.faction !== this.controlFaction) return false;
   if (p.task === Activity.Idle) return false;
@@ -460,16 +432,7 @@ export function resumeOrder(this: OrderTown, p: Person): boolean {
         p.target = -1;
         if (!p.moving()) this.arrive(p);
       }
-    } else {
-      if (p.task !== Activity.Holding) p.autoMode = true;
-      p.trainingCalling = -1;
-    p.task = Activity.Idle;
-      p.taskSite = -1;
-      p.ordered = false;
-      p.aggressive = false;
-      wait();
-      p.until = this.time + 2;
-    }
+    } else finishMove(p, this.time);
     return true;
   }
   const foe = p.attackPerson < 0 ? this.creature(p.taskSite) : null;

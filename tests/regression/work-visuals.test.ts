@@ -11,8 +11,9 @@ import {
 import { WebCanvasAdapter } from '../../packages/native-renderer/src/webcanvas-adapter';
 import { WorldRendererState } from '../../packages/native-renderer/src/world-renderer-state';
 import { constructionIcon } from '../../packages/native-renderer/src/construction-icon';
+import { buildingIcon } from '../../packages/native-renderer/src/building-icon';
 import { damagePaint, updateBuildingDamage } from '../../packages/native-renderer/src/building-damage';
-import { riseAnimation } from '../../packages/native-renderer/src/building-assets';
+import { riseAnimation, structureModel } from '../../packages/native-renderer/src/building-assets';
 import { showEquipment } from '../../packages/native-renderer/src/person-equipment';
 import { PersonParts, personSprite } from '../../packages/native-renderer/src/world-sprites';
 import {
@@ -119,6 +120,34 @@ it('renders nonempty distinct road, paving, field and structure artwork for ever
     view.capture('construction-icons');
   } finally {
     view.dispose();
+  }
+});
+it('marks the lower right of the livestock artwork in wide build cards and square guide cards', () => {
+  for (const [width, height] of [[190, 41], [56, 54]]) {
+    for (const tool of [Tool.ChickenCoop, Tool.Cowshed]) {
+      const view = surface(width, height);
+      try {
+        const kind = toolStructure(tool)!,
+          plain = buildingIcon(structureModel(kind, 4), structureSpec(kind).size, width, height);
+        view.root.add(plain);
+        view.draw();
+        const before = view.target.pixels.slice(), right = width - plain.matrix[2], bottom = height - plain.matrix[5];
+        view.root.remove(plain).add(constructionIcon(tool, width, height));
+        view.draw();
+        let marked = 0;
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const at = (width * y + x) * 4;
+            if ([0, 1, 2].every(i => before[at + i] === view.target.pixels[at + i])) continue;
+            expect(x >= right - 25 && x <= right && y >= bottom - 25 && y <= bottom).toBe(true);
+            marked++;
+          }
+        }
+        expect(marked).toBeGreaterThan(120);
+      } finally {
+        view.dispose();
+      }
+    }
   }
 });
 it('adds exposed-surface cracks, missing material, rubble and critical smoke, and removes them after repair', () => {

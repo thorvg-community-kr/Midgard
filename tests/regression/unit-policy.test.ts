@@ -228,7 +228,7 @@ describe('resident automatic policy', () => {
     for(let i=0;i<600&&r.built<1;++i){town.advance(.1);if(p.activity===Activity.Roadwork&&other.activity===Activity.Roadwork)separated ||= distance(p.position,other.position)>.3;}
     expect(r.built).toBe(1);expect(separated).toBe(true);
   });
-  it('keeps a direct Move going past an active enemy; attack-move stops to fight it', () => {
+  it('keeps a melee settler moving past an enemy until given an attack-move order', () => {
     const town=fixture(),p=town.people()[0],destination=point(37,33);
     town.orderMove([p.id],destination);const foe=new Monster(88,-1,add(p.position,point(.5,0)));
     foe.animal=AnimalKind.Wolf;foe.angry=true;foe.health=1;foe.home={...foe.position};foe.provokedBy=p.id;town.animals.push(foe);

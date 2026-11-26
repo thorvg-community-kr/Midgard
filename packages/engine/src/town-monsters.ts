@@ -412,28 +412,29 @@ export function strike(this: CombatTown, p: Person, foe: Monster): void {
   });
   if (crit) this.emit(CombatCue.Crit, foe.position, { person: p.id, creature: foe.id, amount: lround(f(blow * 10)) });
 }
-/** Hold position: strike the nearest enemy within reach, never step toward one. */
-function holdGround(town: CombatTown, p: Person, dt: number): void {
-  const reach = reachOf(p);
-  let foe: Monster | null = null;
+/** Range to a visible enemy that can be struck from here. */
+function rangeToFoe(town: CombatTown, p: Person, m: Monster, reach: number): number {
+  if (m.health <= 0 || m.insideLair || m.pen >= 0 || (m.giant() && !m.angry)) return Infinity;
+  if (m.animal !== null && !(m.angry && animalSpec(m.animal).defends)) return Infinity;
+  const gap = distance(m.position, p.position);
+  return gap <= reach && town.world.revealed(m.position) ? gap : Infinity;
+}
+function fightInReach(town: CombatTown, p: Person, reach: number): boolean {
+  let foe: Monster | null = null, nearest = Infinity;
   for (const group of [town.beasts, town.animals])
     for (const m of group) {
-      if (m.health <= 0 || m.insideLair || (m.giant() && !m.angry)) continue;
-      if (m.animal !== null && !(m.angry && animalSpec(m.animal).defends)) continue;
-      const gap = distance(m.position, p.position);
-      if (gap > reach || !town.world.revealed(m.position)) continue;
-      if (!foe || gap < distance(foe.position, p.position) || (m.id === p.foe && gap <= distance(foe.position, p.position) + 0.3))
+      const gap = rangeToFoe(town, p, m, reach);
+      if (gap <= reach && (gap < nearest || (m.id === p.foe && gap <= nearest + 0.3))) {
         foe = m;
+        nearest = gap;
+      }
     }
+  if (!foe) return false;
   p.path = [];
-  if (!foe) {
-    p.foe = -1;
-    if (p.activity === Activity.Fighting) p.activity = Activity.Holding;
-    return;
-  }
   p.foe = foe.id;
   p.activity = Activity.Fighting;
   if (town.time >= p.ready) town.strike(p, foe);
+  return true;
 }
 // Threats interrupt an order without replacing its task/site. When combat ends,
 // the original move, resource or construction transaction resumes.
@@ -442,14 +443,26 @@ export function fight(this: CombatTown, p: Person, dt: number): void {
     p.faction !== this.controlFaction || p.health <= 0 ||
     p.activity === Activity.Expedition || p.activity === Activity.Leaving || p.crossingDoorway()
   ) return;
-  // The player's Move outranks self-defence: a unit told to go, goes. Attack-move
-  // (aggressive) and every other order still answer a threat.
-  if (p.ordered && (p.task === Activity.Moving || p.task === Activity.Tending) && !p.aggressive) {
+  if (p.ordered && !p.aggressive && (p.task === Activity.Moving || p.task === Activity.Tending)) {
+    if (p.task === Activity.Moving && !p.inside && shoots(p) && (p.moving() || p.activity === Activity.Fighting)) {
+      const reach = reachOf(p);
+      // A fresh Move during combat breaks contact with the current opponent before the next engagement.
+      const leaving = p.activity === Activity.Moving && p.foe >= 0 ? this.creatureTarget(p.foe) : null;
+      if (leaving && rangeToFoe(this, p, leaving, reach) <= reach) return;
+      if (fightInReach(this, p, reach)) return;
+    }
     p.foe = -1;
-    if (p.activity === Activity.Fighting) p.activity = Activity.Moving;
+    if (p.activity === Activity.Fighting) this.resumeOrder(p);
     return;
   }
-  if (p.holding) return holdGround(this, p, dt);
+  if (p.holding) {
+    p.path = [];
+    if (!fightInReach(this, p, reachOf(p))) {
+      p.foe = -1;
+      if (p.activity === Activity.Fighting) p.activity = Activity.Holding;
+    }
+    return;
+  }
   const dungeon = targetedDungeon(p);
   if (dungeon >= 0) return attackDungeon(this, p, dungeon, dt);
   const notice = this.raiding() ? 10 : 5;

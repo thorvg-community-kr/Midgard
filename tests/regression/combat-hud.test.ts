@@ -555,7 +555,7 @@ describe('commanding a few residents', () => {
       ui.dispose();
     }
   });
-  it('marks a holding resident in the panel and lays where the moving group will stand on the ground', () => {
+  it('marks a holding resident and draws one ground mark per shared or separate destination', () => {
     const ui = fixture();
     try {
       const { app, town } = ui,
@@ -574,9 +574,16 @@ describe('commanding a few residents', () => {
       commandGroundMarks(app);
       expect(layer.children).toHaveLength(1);
       const marks = layer.children[0] as SceneNode,
-        slots = marks.children.slice(4).filter((node) => node.alpha > 0);
-      // A dark disc and a brush rim for each of the two.
-      expect(slots).toHaveLength(4);
+        visible = () => marks.children.slice(4).filter((node) => node.alpha > 0);
+      // The group shares one dark disc and brush rim, including while someone stops to fight.
+      expect(visible()).toHaveLength(2);
+      a.activity = b.activity = Activity.Fighting;
+      a.path = b.path = [];
+      commandGroundMarks(app);
+      expect(visible()).toHaveLength(2);
+      town.orderMove([b.id], point(16, 20));
+      commandGroundMarks(app);
+      expect(visible()).toHaveLength(4);
       // Ground marks lie on the combat ground layer, under the selection rings and every figure.
       a.path = b.path = [];
       a.ordered = b.ordered = false;

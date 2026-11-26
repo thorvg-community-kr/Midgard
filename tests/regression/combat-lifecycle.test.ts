@@ -101,7 +101,7 @@ describe('combat completion and interrupted orders', () => {
                     expect(town.orderChop([p.id], 16 * 48 + 19)).toBe(true);
                 }
                 else
-                    // A plain Move ignores enemies; attack-move is the order that stops to fight.
+                    // Attack-move lets this settler interrupt the march to fight in melee.
                     town.orderAttackMove([p.id], point(23, 18));
                 p.ordered = direct;
                 const task = p.task, site = p.taskSite, goal = { ...p.goal }, foe = enemy(town, p);

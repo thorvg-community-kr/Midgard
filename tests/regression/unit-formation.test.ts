@@ -110,54 +110,50 @@ describe('hold position', () => {
   });
 });
 
-describe('group moves arrive in formation', () => {
-  it('puts blades in front, bards and clerics behind them, bows and staves at the back, 0.7 apart', () => {
-    const town = fixture(),
-      at = (dx: number, dy: number) => point(10 + dx, 10 + dy),
-      group = [
-        resident(town, at(0, 0), Calling.Ranger, 'bow'),
-        resident(town, at(0.6, 0), Calling.Warrior, 'sword'),
-        resident(town, at(1.2, 0), Calling.Cleric, 'mace'),
-        resident(town, at(1.8, 0), Calling.Warrior, 'sword'),
-        resident(town, at(2.4, 0), Calling.Mage, 'staff'),
-        resident(town, at(3, 0), Calling.Bard),
-      ],
-      to = point(30, 10.5);
-    town.orderMove(
-      group.map((p) => p.id),
-      to,
-    );
-    const goal = (p: Person) => p.path.at(-1)!,
-      ahead = (p: Person) => goal(p).x - to.x;
-    const [ranger, w1, cleric, w2, mage, bard] = group;
-    expect(Math.min(ahead(w1), ahead(w2))).toBeGreaterThan(Math.max(ahead(cleric), ahead(bard)));
-    expect(Math.min(ahead(cleric), ahead(bard))).toBeGreaterThan(Math.max(ahead(ranger), ahead(mage)));
-    expect(distance(goal(w1), goal(w2))).toBeCloseTo(0.7, 1);
-    expect(ahead(w1) - ahead(cleric)).toBeCloseTo(0.7, 1);
-    for (const p of group) expect(distance(goal(p), to)).toBeLessThan(1.5);
-    // The same order twice gives the same slots.
-    const first = group.map((p) => ({ ...goal(p) }));
-    town.orderMove(
-      group.map((p) => p.id),
-      to,
-    );
-    expect(group.map(goal)).toEqual(first);
+describe('move orders share the clicked destination', () => {
+  it.each(['orderMove', 'orderAttackMove'] as const)('%s gathers at one point in arrival order with room to stand', (order) => {
+    const town = fixture(), destination = point(26.4, 22.1);
+    town.scheduleAutomatic = () => false; // Observe the rally before any new settlement job.
+    const group = [
+      resident(town, point(22, 22), Calling.Mage, 'staff'),
+      resident(town, point(19, 21), Calling.Warrior, 'sword'),
+      resident(town, point(19, 23), Calling.Bard),
+      resident(town, point(19, 22), Calling.Settler, 'spear'),
+      resident(town, point(20, 21), Calling.Ranger, 'bow'),
+      resident(town, point(20, 23), Calling.Cleric, 'mace'),
+    ];
+    town[order](group.map(p => p.id), destination);
+    for (const p of group) {
+      expect(p.goal).toEqual(destination);
+      expect(p.path.at(-1)).toEqual(destination);
+    }
+    for (let i = 0; i < 150 && group.some(p => p.moving()); ++i) step(town, .1);
+    expect(group.every(p => !p.moving())).toBe(true);
+    // Whoever gets there first can stand on the click, irrespective of their weapon.
+    expect(distance(group[0].position, destination)).toBeLessThan(.04);
+    for (const [i, member] of group.entries()) {
+      expect(distance(member.position, destination)).toBeLessThan(1.5);
+      for (const other of group.slice(i + 1)) expect(distance(member.position, other.position)).toBeGreaterThan(.4);
+    }
   });
-  it('puts a spear in the front line with the blades, never among the bows', () => {
-    const town = fixture(),
-      group = [
-        resident(town, point(10, 10), Calling.Ranger, 'bow'),
-        resident(town, point(10.6, 10), Calling.Settler, 'spear'),
-        resident(town, point(11.2, 10), Calling.Warrior, 'sword'),
-      ],
-      to = point(30, 10);
-    town.orderMove(
-      group.map((p) => p.id),
-      to,
-    );
-    const [ranger, spear, blade] = group.map((p) => p.path.at(-1)!.x - to.x);
-    expect(spear).toBeCloseTo(blade, 3);
-    expect(spear).toBeGreaterThan(ranger);
+  it('keeps the shared click beyond a narrow pass and gathers on the far side', () => {
+    const town = fixture();
+    town.scheduleAutomatic = () => false;
+    for (let y = 0; y < town.world.height(); ++y)
+      if (y !== 20) town.world.at(22, y).terrain = Terrain.Water;
+    town.grid.rebuild(town.world, town.network, []);
+    const destination = point(26.5, 20.5);
+    const group = Array.from({ length: 14 }, (_, i) =>
+      resident(town, point(16 + i % 4, 18 + Math.floor(i / 4)), Calling.Settler));
+    town.orderMove(group.map(p => p.id), destination);
+    for (let i = 0; i < 250 && group.some(p => p.moving()); ++i) step(town, .1);
+    for (const [i, p] of group.entries()) {
+      expect(p.moving()).toBe(false);
+      expect(p.position.x).toBeGreaterThan(23);
+      expect(distance(p.position, destination)).toBeLessThan(1.6);
+      expect(p.goal).toEqual(destination);
+      for (const other of group.slice(i + 1)) expect(distance(p.position, other.position)).toBeGreaterThan(.4);
+    }
   });
   it('makes a spear thrust hand to hand: its blow is not a shot', () => {
     const town = fixture(),
@@ -353,4 +349,28 @@ describe('two skills per calling', () => {
     expect(loaded).toMatchObject({ abilityAuto2: 0, holding: true, abilityReadyAt2: w.abilityReadyAt2, cast: '', swingAt: -1 });
     expect(decodeTown(plain, (map) => new Town(map, 48, false, true)).person(w.id)!.holding).toBe(false);
   });
+});
+
+it('keeps the shared destination through a save while the archer stops to shoot', () => {
+  const town = fixture(), goal = point(25, 20);
+  const archer = resident(town, point(20, 20), Calling.Ranger, 'bow');
+  const guard = resident(town, point(19.5, 20), Calling.Warrior, 'sword');
+  archer.abilityAuto = archer.abilityAuto2 = 0;
+  const foe = monster(town, point(20, 22));
+  town.orderMove([guard.id, archer.id], goal);
+  step(town, 0.1);
+  expect(archer.activity).toBe(Activity.Fighting);
+  expect(foe.health).toBeLessThan(100);
+  expect(guard.activity).toBe(Activity.Moving);
+
+  const loaded = decodeTown(encodeTown(town), map => new Town(map, 48, false, true));
+  const party = [loaded.person(guard.id)!, loaded.person(archer.id)!];
+  for (const p of party) expect(p).toMatchObject({ goal, task: Activity.Moving, ordered: true, aggressive: false });
+  loaded.creature(foe.id)!.health = 0;
+  for (let i = 0; i < 150 && party.some(p => p.ordered); ++i) step(loaded, 0.1);
+  for (const p of party) {
+    expect(p.ordered).toBe(false);
+    expect(distance(p.position, goal)).toBeLessThan(0.9);
+  }
+  expect(distance(party[0].position, party[1].position)).toBeGreaterThan(0.08);
 });

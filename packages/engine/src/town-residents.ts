@@ -10,7 +10,8 @@ import { Point, point, add, sub, scale, rotated, distance } from './geometry';
 import { f32 as f } from './numeric';
 import { CampReceipt } from './camp-economy';
 import { CharacterPreset, applyCharacter } from './character-preset';
-import { sameFaction } from './faction';
+import { arrivalApproach, arrivalSpot } from './person-navigation';
+import { playerFaction, sameFaction } from './faction';
 export interface ResidentTown extends TownState {
   rallied(p: Person): boolean;
   camp(id?: number): Building | null;
@@ -171,8 +172,14 @@ export function walkingSpeed(this: ResidentTown, p: Person): number {
 export function walk(this: ResidentTown, p: Person, dt: number): void {
   let step = f(this.walkingSpeed(p) * f(dt));
   while (step > 0 && p.path.length) {
-    const next = p.path[0],
-      gap = distance(p.position, next);
+    let next = p.path[0];
+    if (this.controlFaction === playerFaction && p.path.length === 1 &&
+      p.task === Activity.Moving && p.activity === Activity.Moving && p.ordered &&
+      distance(p.position, next) <= arrivalApproach + step) {
+      next = arrivalSpot(this, p, next);
+      p.path[0] = next;
+    }
+    const gap = distance(p.position, next);
     if (gap <= step) {
       p.position = { ...next };
       p.path.shift();

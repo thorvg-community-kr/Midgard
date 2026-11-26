@@ -338,8 +338,16 @@ try {
       await page.touchscreen.tap(width * 0.52, height * 0.4);
       await frames(8);
       check(
-        'Tapping a destination issues Move once and keeps the group selected',
-        await page.evaluate(() => window.mobile.orders.length === 1 && window.mobile.game.chosen.length >= 2),
+        'Tapping a destination gives the selected group one common goal',
+        await page.evaluate(() => {
+          const { game, orders } = window.mobile;
+          if (orders.length !== 1 || game.chosen.length < 2) return false;
+          const point = game.town.grid.nearestWalkable(orders[0][1]);
+          return game.chosen.every(id => {
+            const goal = game.town.person(id).goal;
+            return Math.hypot(goal.x - point.x, goal.y - point.y) < 0.001;
+          });
+        }),
       );
       // Use the actual on-canvas Build flow, including its touch-accessible menu.
       await page.evaluate(() => {

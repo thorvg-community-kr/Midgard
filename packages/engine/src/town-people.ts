@@ -14,6 +14,7 @@ import { enter } from './town-residents';
 import { harvestDuration } from './work-timing';
 import { prepareFarmWork } from './farm-work';
 import { buildingWorkSpot } from './person-navigation';
+import { finishMove } from './unit-orders';
 import type { Town } from './town';
 import { resourceAmount, resourceBundle } from './construction-materials';
 export interface PeopleTown extends TownState {
@@ -218,6 +219,12 @@ export function arrive(this: PeopleTown, p: Person): void {
       if (p.role === Role.Resident && p.autoMode && p.job < 0) p.until = this.time + 1 + f(this.roll() * 2);
       break;
     case Activity.Moving:
+      // A walker who settled around an occupied point has finished. At the click itself keep the
+      // ordinary arrival phase: the settlement planner can claim its founder before idle work resumes.
+      if (p.ordered && p.task === Activity.Moving && distance(p.position, p.goal) > f(0.2)) {
+        finishMove(p, this.time);
+        break;
+      }
       p.activity = Activity.Holding;
       p.until = p.task !== Activity.Idle ? this.time : this.time + 10;
       break;

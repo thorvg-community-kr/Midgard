@@ -327,22 +327,6 @@ try {
   state = await snapshot();
   const id = (calling) => state.party.find((p) => p.calling === calling).id,
     [warriorId, rangerId, mageId, clericId, bardId] = [2, 3, 4, 5, 6].map(id);
-  const resume = async () => {
-    const now = await snapshot();
-    if (!now.paused) return;
-    if (now.controls.some((c) => c.id === 'memorial-close')) await click('memorial-close');
-    await page.keyboard.press('Space');
-    await frames(1, 0.001);
-  };
-  const fight = async (count, until) => {
-    for (let i = 0; i < count; ++i) {
-      await resume();
-      await frames(4, 0.25);
-      if (until && (await until())) return true;
-    }
-    return false;
-  };
-  const toScreen = (p) => page.evaluate((p) => loop.screen(p), p);
   // Group 1: the warrior and the bard hold; group 2: the ranger, the mage and the cleric who keeps them up.
   await select([warriorId]);
   await page.keyboard.press('Control+1');
@@ -371,25 +355,59 @@ try {
   state = await snapshot();
   assert(Math.hypot(state.camera.x - away.x, state.camera.y - away.y) > 50, '1 twice looks at group 1');
   await shot('control-groups');
-  const choke = await page.evaluate(() => {
-    const p = loop.member(2), at = loop.game.town.grid.nearestWalkable({ x: p.position.x + 2, y: p.position.y + 2 });
-    loop.look(at, 1.5);
-    return at;
+  // Start the march together. The preceding rescue can leave the two on different parts of the map.
+  await page.evaluate(() => {
+    const town = loop.game.town, warrior = loop.member(2), bard = loop.member(6);
+    town.orderStop([warrior.id, bard.id]);
+    bard.position = town.grid.nearestWalkable({ x: warrior.position.x + 0.6, y: warrior.position.y });
+    warrior.woundDays = 0;
+    for (const p of [warrior, bard]) p.health = p.rest = p.food = p.hydration = 1;
+    loop.look(warrior.position, 1.5);
   });
-  await frames(2, 0.001);
   await page.keyboard.press('1');
   await frames(2, 0.001);
   await settle();
-  // A right-click on open ground is the plain Move.
-  let at = await toScreen(choke);
-  await page.mouse.click(at.x, at.y, { button: 'right' });
-  await fight(20, () =>
-    page.evaluate(
-      (choke) =>
-        [loop.member(2), loop.member(6)].every((p) => !p.moving() && Math.hypot(p.position.x - choke.x, p.position.y - choke.y) < 2.5),
-      choke,
-    ),
-  );
+  const openDestination = () => page.evaluate(() => {
+    const game = loop.game, town = game.town, group = game.chosen.map(id => town.person(id));
+    for (const offset of [2, 3, 4]) {
+      for (const [dx, dy] of [[1, 1], [-1, 1], [1, -1], [-1, -1], [0, 1], [1, 0]]) {
+        const at = { x: group[0].position.x + dx * offset, y: group[0].position.y + dy * offset };
+        const screen = loop.screen(at);
+        if (screen.x < 120 || screen.x > 1160 || screen.y < 160 || screen.y > 560) continue;
+        if (!game.renderer.pick(screen) && town.grid.walkable(at) &&
+          group.every(p => town.grid.path(p.position, at).length)) return screen;
+      }
+    }
+    throw new Error('No visible open ground for the selected group');
+  });
+  const sharedGoal = () => page.evaluate(() => {
+    const g = loop.game, destination = g.town.grid.nearestWalkable(g.cursor);
+    return g.chosen.length > 1 && g.chosen.every(id => {
+      const p = g.town.person(id);
+      return Math.hypot(p.goal.x - destination.x, p.goal.y - destination.y) < 0.001;
+    });
+  });
+  const choke = await openDestination();
+  await page.mouse.click(choke.x, choke.y, { button: 'right' });
+  assert(await sharedGoal(), 'Right-click gives both members the same ground destination');
+  const arrival = await page.evaluate(async () => {
+    const { footBoxesOverlap } = await import('/packages/engine/src/person-collision.ts');
+    const town = loop.game.town, pair = [loop.member(2), loop.member(6)], goal = { ...pair[0].goal };
+    const reached = new Map();
+    for (let tick = 0; tick < 500 && reached.size < pair.length; tick++) {
+      town.advance(0.05);
+      for (const p of pair) {
+        if (!p.ordered && !p.moving() && !reached.has(p.id)) reached.set(p.id, {
+          distance: Math.hypot(p.position.x - goal.x, p.position.y - goal.y),
+          clear: !footBoxesOverlap(pair[0].position, pair[1].position),
+          at: { ...p.position },
+        });
+      }
+    }
+    return [...reached.values()];
+  });
+  assert.equal(arrival.length, 2, 'Both members arrive after the ground click');
+  assert(arrival.every(p => p.clear && p.distance < 1), `Group arrived with clear footing: ${JSON.stringify(arrival)}`);
   await page.keyboard.press('h');
   await frames(2, 0.001);
   state = await snapshot();
@@ -402,15 +420,35 @@ try {
   await select([mageId]);
   await click('skill-auto-burst');
   await click('skill-auto-frost');
-  // Group 2 issues an attack-move and both casters fire on the summoned horde.
+  // Recall the mixed group and give it a regular move with the right button.
   await page.keyboard.press('2');
+  await frames(1, 0.001);
+  await settle();
+  await page.evaluate(() => { loop.game.paused = true; });
+  const destination = await openDestination();
+  await page.mouse.click(destination.x, destination.y, { button: 'right' });
+  assert(await sharedGoal(), 'The ranger, mage and cleric share the exact cursor position');
+  const firedOnTheWay = await page.evaluate(() => {
+    const town = loop.game.town, archer = loop.member(3);
+    const goal = { ...archer.goal };
+    town.releaseMonster({ x: archer.position.x + 0.7, y: archer.position.y });
+    const foe = town.beasts.at(-1);
+    foe.angry = true;
+    archer.ready = town.clock();
+    town.advance(0.15);
+    const hit = town.hits().find(h => h.person === archer.id && h.ranged && h.creature === foe.id);
+    town.beasts = town.beasts.filter(m => m !== foe);
+    return !!hit && Math.hypot(archer.position.x - goal.x, archer.position.y - goal.y) > 1;
+  });
+  assert(firedOnTheWay, 'A bow user on a regular Move fires as soon as a hostile enters bow range');
+  // An aimed attack-move uses the same single ground destination.
   await page.keyboard.press('a');
-  const rally = await page.evaluate(() => loop.screen(loop.game.town.grid.nearestWalkable({
-    x: loop.member(4).position.x + 2, y: loop.member(4).position.y - 1,
-  })));
+  const rally = await openDestination();
   await page.mouse.click(rally.x, rally.y);
+  assert(await sharedGoal(), 'Attack-move gives the whole group one destination');
+  await page.evaluate(() => { loop.game.paused = false; });
   await frames(2, 0.05);
-  await shot('attack-move-formation');
+  await shot('attack-move-destination');
   await page.evaluate(() => {
     const t = loop.game.town, site = t.world.sites[gate];
     for (const [i, p] of t.folk.entries()) {

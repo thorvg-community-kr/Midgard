@@ -91,13 +91,11 @@ The standard map has eight hostile dungeons. The first is tuned for ten level-10
 
 ![A summoning circle appears around the collapsed Howling Cleft](public/docs/dungeon-siege.png)
 
-Move ignores the enemy, attack-move fights on the way, and a chosen target comes first. A group move arrives in formation, with blades in front and bows and staves behind. Hold stands its ground and never chases. Put settlers in control groups and fire each calling's two skills by hand or leave them on auto.
+Click the ground to move a group. Everyone heads for the same point and settles into open space around it. On the way, settlers with bows or staves stop to fire at enemies in range, then continue when their path is clear. Melee settlers keep walking. Use attack-move when you want the whole group to fight along the way. Hold keeps settlers in place. You can assign control groups and fire each calling's two skills by hand or leave them on auto.
 
 Physical attacks damage one enemy at a time, including a warrior's Whirl and a ranger's Volley. A mace can stagger its target. A mage's staff and Rune Burst can damage a cluster of enemies. Challenge, Frost Ring and the cleric's and bard's support skills can still affect a group.
 
-![A party is ordered to move, marks show where each will stand, and the party holds](.github/media/midgard-formation.gif)
-
-_The ground marks show where each fighter will stand after a group move._
+![The party moves toward a single mark on the ground, then holds](.github/media/midgard-formation.gif)
 
 A resident who falls in combat bleeds out unless an ally reaches them and kneels beside them in time. Seal every dungeon to win.
 

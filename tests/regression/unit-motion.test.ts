@@ -25,11 +25,14 @@ import {
   animateFoundry,
   animateProcessingWork,
   animateTrade,
+  buildingContact,
   clearWorkProps,
   tradeOf,
 } from '../../packages/native-renderer/src/work-motion';
 import { Structure } from '../../packages/engine/src/building-catalog';
 import { handOf } from '../../packages/native-renderer/src/person-arm';
+import { showEquipment } from '../../packages/native-renderer/src/person-equipment';
+import { workHand } from '../../packages/native-renderer/src/work-pieces';
 import {
   animateBenchCraft,
   animateClearing,
@@ -322,6 +325,17 @@ describe('outdoor work and meals', () => {
       animateClearing(parts, 'building', 'hammer', hit + 0.001);
       expect(parts.soilDust!.alpha).toBe(255);
       expect(parts.body!.matrix[2]).toBeGreaterThan(before);
+    }
+  });
+  it('places building dust at the mallet face, or at the fingers when working by hand', () => {
+    const parts = figure(), { period, impact } = hammerTiming;
+    for (const tool of ['hammer', null] as const) {
+      clearWorkProps(parts);
+      showEquipment(parts, tool, 'wood', false);
+      animateWork(parts, tool, impact, period, impact);
+      const hand = workHand(parts), hit = buildingContact(parts);
+      if (tool) expect(hit.x - hand.x).toBeGreaterThan(5);
+      else expect(hit).toEqual(hand);
     }
   });
   it('ties lifted materials to their job and clears the previous grip and props between jobs', () => {

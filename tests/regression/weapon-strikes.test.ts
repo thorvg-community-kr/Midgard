@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { Town } from '../../packages/engine/src/town';
 import { WorldMap } from '../../packages/engine/src/world-map';
 import { DungeonKind, Layer, Terrain, makeTile } from '../../packages/engine/src/world-types';
-import { Activity, Calling, Monster, Person, Race, Role } from '../../packages/engine/src/person';
+import { Activity, AnimalKind, Calling, Monster, Person, Race, Role } from '../../packages/engine/src/person';
 import { Building } from '../../packages/engine/src/town-models';
 import { Resources, Structure } from '../../packages/engine/src/building-catalog';
 import { point, type Point } from '../../packages/engine/src/geometry';
 import { StrikeKind, strikeOf } from '../../packages/engine/src/skill-catalog';
-import { itemCatalog } from '../../packages/engine/src/equipment';
+import { attackReach, itemCatalog } from '../../packages/engine/src/equipment';
 
 function fixture() {
   const map = new WorldMap();
@@ -126,6 +126,72 @@ describe('the weapon in hand shapes the blow', () => {
     target.position = at(near);
     town.fight(p, 0.05);
     expect(target.health).toBeLessThan(100);
+  });
+  it.each(['bow', 'staff'])('stops a Move to shoot with a %s and resumes when the target leaves reach', (weapon) => {
+    const town = fixture(), start = point(20, 20), goal = point(28, 20);
+    const p = fighter(town, start, Calling.Settler, weapon), reach = attackReach(p);
+    const target = foe(town, point(start.x + reach + 0.25, start.y));
+    town.orderMove([p.id], goal);
+    town.fight(p, 0.05);
+    expect(p.activity).toBe(Activity.Moving);
+    expect(target.health).toBe(100);
+    town.walk(p, 0.5);
+    const firingSpot = { ...p.position };
+    town.fight(p, 0.05);
+    expect(p.activity).toBe(Activity.Fighting);
+    expect(p.moving()).toBe(false);
+    expect(town.hits().at(-1)).toMatchObject({ creature: target.id, ranged: true });
+    expect(p.task).toBe(Activity.Moving);
+    expect(p.goal).toEqual(goal);
+    target.position = point(firingSpot.x, firingSpot.y + reach + 0.25);
+    town.fight(p, 0.05);
+    expect(p.activity).toBe(Activity.Moving);
+    expect(p.path.at(-1)).toEqual(goal);
+    expect(p.position).toEqual(firingSpot);
+  });
+  it('passes hidden enemies, sheltered monsters, peaceful giants and livestock during a ranged Move', () => {
+    const town = fixture(), p = fighter(town, point(20, 20), Calling.Settler, 'bow');
+    town.world.seen = [];
+    town.reveal(20, 20, 1);
+    const hidden = foe(town, point(22, 20));
+    const sheltered = foe(town, point(20.5, 20));
+    sheltered.insideLair = true;
+    const giant = foe(town, point(20.6, 20));
+    giant.race = Race.Giant;
+    giant.angry = false;
+    const cow = new Monster(town.nextMonster++, -1, point(20.7, 20));
+    cow.animal = AnimalKind.Cow;
+    cow.angry = true;
+    cow.pen = 1;
+    town.animals.push(cow);
+    town.orderMove([p.id], point(28, 20));
+    town.fight(p, 0.05);
+    expect(p.activity).toBe(Activity.Moving);
+    expect(town.hits()).toHaveLength(0);
+    town.reveal(22, 20, 1);
+    town.fight(p, 0.05);
+    expect(p.foe).toBe(hidden.id);
+  });
+  it('lets a shooting resident break contact with a fresh Move and engage again beyond the skirmish', () => {
+    const town = fixture(), start = point(22, 20), goal = point(31, 20);
+    const p = fighter(town, start, Calling.Ranger, 'bow'), reach = attackReach(p);
+    const oldFoe = foe(town, point(start.x - reach + 0.2, start.y));
+    town.orderMove([p.id], goal);
+    town.fight(p, 0.05);
+    expect(p.foe).toBe(oldFoe.id);
+    const firstHit = oldFoe.health;
+    town.orderMove([p.id], goal);
+    town.fight(p, 0.05);
+    expect(p.activity).toBe(Activity.Moving);
+    expect(p.moving()).toBe(true);
+    town.walk(p, 0.5);
+    const next = foe(town, point(p.position.x + reach - 0.1, p.position.y));
+    p.ready = town.clock();
+    town.fight(p, 0.05);
+    expect(p.foe).toBe(next.id);
+    expect(p.activity).toBe(Activity.Fighting);
+    expect(next.health).toBeLessThan(100);
+    expect(oldFoe.health).toBe(firstHit);
   });
   it('marks every bite with the monster’s swing time', () => {
     const town = fixture(),

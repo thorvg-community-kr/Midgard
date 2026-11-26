@@ -1,4 +1,4 @@
-// A formation moves outside a dungeon in Midgard. The inspector sends the fighters to attack,
+// A party moves outside a dungeon in Midgard. The inspector sends the fighters to attack,
 // its guardian and horde emerge, and an ally raises a fallen resident.
 import { bootGame, clickControl, recordGif, still, wants } from './capture-session.mjs';
 
@@ -55,7 +55,7 @@ async function stageParty(page) {
     media.party = t.folk.map(p => p.id);
     media.entrance = monsterEntrance(site);
     for (const [i, p] of t.folk.entries())
-      p.position = t.grid.nearestWalkable({ x: media.entrance.x + 1 + (i % 4) * 0.8, y: media.entrance.y + 1.5 + Math.floor(i / 4) });
+      p.position = t.grid.nearestWalkable({ x: media.entrance.x - 6 + (i % 4) * 0.8, y: media.entrance.y - 4.5 + Math.floor(i / 4) });
     media.hour(11);
     game.objectivesCollapsed = true;
     media.inspect = () => {
@@ -77,12 +77,12 @@ export async function captureArmy(session) {
     await stageParty(page);
     if (wants('expedition')) out.expedition = await still(page, 'expedition');
 
-    // Formation: a move order for the whole party, the marks of where each will stand, then Hold.
+    // The whole party moves toward one ground mark, then holds.
     const move = await page.evaluate(() => {
       const { E, game } = media,
         t = game.town,
         lead = t.person(media.party[0]).position,
-        spot = t.grid.nearestWalkable({ x: lead.x + 3, y: lead.y + 2 }),
+        spot = t.grid.nearestWalkable({ x: lead.x + 5, y: lead.y - 0.7 }),
         mid = { x: (spot.x + lead.x) / 2, y: (spot.y + lead.y) / 2 };
       media.view = mid;
       media.look(mid, 2);
@@ -90,6 +90,8 @@ export async function captureArmy(session) {
       game.selectPeople(media.party);
       game.prepare(E.Order.Move);
       media.frames(2, 0.001);
+      media.quiet();
+      game.noticeFeed.length = 0;
       return media.screen(spot);
     });
     if (wants('formation'))
@@ -105,7 +107,7 @@ export async function captureArmy(session) {
             media.game.pointerUp(at.x, at.y, 0);
           }
           if (i === Math.round(50 * media.rate)) {
-            if (!media.orders.holdPosition(media.game)) throw Error('The formation did not hold');
+            if (!media.orders.holdPosition(media.game)) throw Error('The party did not hold');
             media.heldAt = i;
           }
           media.look(media.view, 2);

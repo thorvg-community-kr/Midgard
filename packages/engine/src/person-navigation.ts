@@ -14,6 +14,46 @@ export function approachBasalt(town: Pick<Town, 'world' | 'grid' | 'walkTo'>, p:
   return sides.some((at) => town.grid.walkable(at) && town.walkTo(p, at));
 }
 
+// A resident standing at a rally point leaves shoulder room. The smaller foot box still fits narrow paths.
+const standingRoom = 0.48;
+export const arrivalApproach = 1.6;
+
+/** On the last stretch, use the closest free ground around an occupied destination. */
+export function arrivalSpot(town: TownState, person: Person, next: Point): Point {
+  const goal = person.goal, gap = distance(person.position, next);
+  const vicinity = standingRoom * (2 + Math.ceil(Math.sqrt(town.folk.length))) + arrivalApproach;
+  const occupants: Point[] = [];
+  for (const other of town.folk) {
+    if (other === person || other.inside || other.health <= 0 || other.crossingDoorway()) continue;
+    if (Math.abs(other.position.x - goal.x) > vicinity || Math.abs(other.position.y - goal.y) > vicinity) continue;
+    if (!other.moving()) {
+      occupants.push(other.position);
+      continue;
+    }
+    // Someone already arriving has first use of their spot. Through traffic keeps walking.
+    if (!other.ordered || other.task !== Activity.Moving || other.activity !== Activity.Moving || other.path.length !== 1) continue;
+    const end = other.path[0], remaining = distance(other.position, end);
+    if (remaining > arrivalApproach) continue;
+    if (distance(end, other.goal) > 0.001 || remaining < gap || (remaining === gap && other.id < person.id)) occupants.push(end);
+  }
+  const room = (at: Point) => occupants.every(p => distance(p, at) >= standingRoom - 0.001);
+  if (room(next)) return next;
+  // Search outward on the side the walker is actually coming from. A spot across a wall cannot serve this order.
+  const bearing = Math.atan2(person.position.y - goal.y, person.position.x - goal.x);
+  const rings = 1 + Math.ceil(Math.sqrt(occupants.length));
+  for (let ring = 1; ring <= rings; ++ring) {
+    const samples = 6 * ring;
+    for (let i = 0; i < samples; ++i) {
+      const turn = Math.ceil(i / 2) * (i % 2 ? 1 : -1) * 2 * Math.PI / samples;
+      const at = point(goal.x + standingRoom * ring * Math.cos(bearing + turn),
+        goal.y + standingRoom * ring * Math.sin(bearing + turn));
+      if (room(at) && town.grid.walkable(at) && town.grid.clear(goal, at, Infinity, true) &&
+        town.grid.clear(person.position, at, Infinity, true)) return at;
+    }
+  }
+  return person.position;
+}
+
 // Apply simultaneous lateral nudges after walking. They do not re-plan paths,
 // reverse forward progress, push through walls, or move a worker off a work target.
 export function separatePeople(town: TownState, dt: number): void {
@@ -62,7 +102,10 @@ export function separatePeople(town: TownState, dt: number): void {
         limits[index] = 0.8;
         continue;
       }
-      if (!footBoxesOverlap(a.position, b.position)) continue;
+      const marching = a.ordered && b.ordered && a.activity === Activity.Moving && b.activity === Activity.Moving &&
+        a.task === Activity.Moving && b.task === Activity.Moving && a.goal.x === b.goal.x && a.goal.y === b.goal.y;
+      const gap = marching ? distance(a.position, b.position) : 0;
+      if (marching ? gap >= standingRoom : !footBoxesOverlap(a.position, b.position)) continue;
       const delta = sub(a.position, b.position),
         forward = a.moving()
           ? normalized(sub(a.path[0], a.position))
@@ -72,7 +115,8 @@ export function separatePeople(town: TownState, dt: number): void {
       let side = point(-forward.y, forward.x);
       const cross = delta.x * side.x + delta.y * side.y;
       side = scale(side, Math.abs(cross) > 0.001 ? Math.sign(cross) : a.id < b.id ? 1 : -1);
-      const push = scale(side, Math.min(footSeparation(delta, side) * 0.5, Math.max(0, dt) * 0.4));
+      const separation = marching ? standingRoom - gap : footSeparation(delta, side);
+      const push = scale(side, Math.min(separation * 0.5, Math.max(0, dt) * 0.4));
       shifts[i] = add(shifts[i], push);
       shifts[j] = sub(shifts[j], push);
     }
