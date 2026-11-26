@@ -536,7 +536,7 @@ export function releaseMonster(this: CombatTown, at: Point): void {
 export function hurtGuest(this: CombatTown, p: Person, killed: boolean): void {
   if (p.role !== Role.Guest) return;
   this.changeRenown(this.settlementOf(p), killed ? -8 : f(-0.4));
-  if (killed) this.notify("A guest was killed: the settlement's renown suffers");
+  if (killed) this.notify('A guest was killed');
 }
 export function wreck(this: CombatTown, beast: Monster, dt: number): void {
   const breed = breedOf(this.world.dungeons()[beast.lair].kind),

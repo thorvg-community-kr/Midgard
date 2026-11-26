@@ -98,19 +98,19 @@ function altarReason(town: DevotionTown, id: number, personId = -1, checkFood = 
   if (!belongsToFaction(place, town.controlFaction)) return 'This altar belongs to another settlement.';
   const camp = town.camp(town.settlementOf(place));
   if (!camp?.built() || !sameFaction(camp, place)) return 'Complete a camp for this altar.';
-  if (place.devotionDueDay >= 0) return 'A resident is waiting for an available home.';
+  if (place.devotionDueDay >= 0) return 'Waiting for a home.';
   if (
     town.folk.some(
       (p) => p.id !== personId && p.health > 0 && p.task === Activity.Praying && p.taskSite === id,
     )
   )
-    return 'A resident is already preparing this altar.';
+    return 'The altar is in use.';
   // The cap first: a new home would not help while it holds.
   if (town.population() + reservedHomes(town, place, personId) >= altarCap(town)) return altarCapReason;
   const reserved = reservedHomes(town, place, personId, town.settlementOf(place));
   if (localResidents(town, place) + reserved >= localHousing(town, place))
-    return 'No free resident bed. Complete a home in this settlement.';
-  if (checkFood && town.stock(camp.id).food < offeringFood) return 'Need 4 food for the altar offering.';
+    return 'No free beds here.';
+  if (checkFood && town.stock(camp.id).food < offeringFood) return 'Need 4 food.';
   return '';
 }
 export function altarStatus(this: DevotionTown, id: number): AltarStatus {
@@ -130,8 +130,8 @@ export function altarOfferingReason(this: DevotionTown, id: number, offering: Re
   const place = this.building(id)!;
   if (!this.folk.some(p => canControl(p, this.controlFaction) && sameFaction(p, place) &&
     this.settlementOf(p) === this.settlementOf(place) && p.activity !== Activity.Expedition))
-    return 'An available resident must be present in this settlement.';
-  if (!this.stock(this.settlementOf(place)).covers(offering)) return 'The settlement does not have enough resources for this offering.';
+    return 'No settlers available here.';
+  if (!this.stock(this.settlementOf(place)).covers(offering)) return 'Not enough supplies.';
   return '';
 }
 export interface OfferingResult {
@@ -166,10 +166,7 @@ function createResident(town: DevotionTown, place: Building, extraPoints: number
   town.assignHomes();
   town.staff();
   town.recordReceipt(new CampReceipt(0n, village, new Resources(), 0, 0, 1));
-  const welcome = [born.name + ' joins the settlement', 'Level ' + born.level];
-  if (born.birthStrength) welcome.push('Strength +' + born.birthStrength);
-  if (born.birthVitality) welcome.push('Vitality +' + born.birthVitality);
-  town.notify(welcome.join(' · '));
+  town.notify(born.name + ' joins the settlement');
   ++town.changes;
   return born;
 }

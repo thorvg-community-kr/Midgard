@@ -16,7 +16,7 @@ import { itemCatalog } from '../../packages/engine/src/equipment';
 import { gearFields, gearFieldText, gearStats } from '../../packages/engine/src/gear-stats';
 import { Activity, Calling, activityName, callingName } from '../../packages/engine/src/person';
 import { goalBranchName, GoalBranch } from '../../packages/engine/src/settlement-progression';
-import { pressureNotice, raidWarning, RaidKind } from '../../packages/engine/src/raid-progression';
+import { raidWarning, RaidKind } from '../../packages/engine/src/raid-progression';
 
 describe('phrase book', () => {
   // Stand-in target text keeps this fixture free of any one language.
@@ -132,7 +132,7 @@ describe('Korean tables', () => {
   it('covers every goal, building, item, activity and calling', () => {
     for (const goal of goals) {
       known(goal.title);
-      known(goal.description);
+      if (goal.description) known(goal.description);
     }
     for (let kind = 0; kind < Structure.Count; ++kind) known(structureSpec(kind).name);
     for (const item of itemCatalog) {
@@ -147,8 +147,7 @@ describe('Korean tables', () => {
     for (const text of [
       'Complete Lumberyard',
       'Needs 6 residents',
-      pressureNotice(2),
-      pressureNotice(12),
+      'Camp #1 needs food for winter',
       raidWarning(RaidKind.Horde, 'Wolf Cave', 0),
       'Bjorn reached level 3!',
       '12 wood, 3 stone',

@@ -220,7 +220,7 @@ describe('mage tower rites', () => {
     const sunrise = dayCycle(town.yearFraction(), town.dayFraction()).sunrise;
     expect(town.wardUntil).toBeCloseTo((town.days + 1 + sunrise) * Town.secondsPerDay, 3);
     expect(town.stock().mana).toBe(20);
-    expect(town.notices).toContain('The mage tower raises a ward over the settlement until dawn');
+    expect(town.notices).toContain('Ward raised');
     expect(town.canPerformRite('ward', 0).reason).toBe('Already performed today');
     town.days += 1;
     town.time = town.days * Town.secondsPerDay + 1;
@@ -261,7 +261,7 @@ describe('mage tower rites', () => {
       [wounded.id, 30],
       [scratched.id, 40],
     ]);
-    expect(town.notices).toContain("The mage tower's mending eases 2 residents");
+    expect(town.notices).toContain("Healed 2 settlers");
     expect(town.canPerformRite('mending', 0).reason).toBe('Already performed today');
   });
 
@@ -365,7 +365,7 @@ describe('wages, boons and winter', () => {
     expect(forged.chronicle.weaponsForged).toBe(1);
   });
 
-  it('tells how much food the winter needs and warns once a day in autumn when short', () => {
+  it('shows winter food needs and warns a short camp at the start of autumn', () => {
     const town = settlement();
     for (let i = 0; i < 6; ++i) resident(town);
     town.days = 35;
@@ -377,12 +377,13 @@ describe('wages, boons and winter', () => {
       foodNeeded: Math.ceil((6 * 15) / economyRules.daysPerMeal),
       enough: false,
     });
+    town.days = 29;
     town.notices = [];
     town.newDay();
-    expect(town.days).toBe(36);
-    expect(town.notices.filter((n) => n.startsWith('Winter in 9 days:'))).toEqual([
-      'Winter in 9 days: 5 food stored or due, 24 needed. Farm, hunt or trade for food.',
-    ]);
+    expect(town.notices).toContain('Camp #1 needs food for winter');
+    town.notices = [];
+    town.newDay();
+    expect(town.notices).not.toContain('Camp #1 needs food for winter');
     town.stock().food = 24;
     expect(town.winterOutlook(0).enough).toBe(true);
     town.days = 50;

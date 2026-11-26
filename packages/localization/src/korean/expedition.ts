@@ -3,10 +3,6 @@ import type { Phrases } from '../phrases';
 /** Dungeon sieges and historical expedition messages. */
 export const expeditionPhrases: Phrases = {
   'Dungeon tier {0}': '던전 등급 {0}',
-  'Recommended: {0} fighters at level {1}': '권장 전력: 레벨 {1} 전투원 {0}명',
-  'Bring flint or stone weapons.': '부싯돌이나 돌 무기를 권장합니다.',
-  'Bring iron weapons.': '철 무기를 권장합니다.',
-  'Bring embersteel or frostwood weapons.': '잿불강이나 서리목 무기를 권장합니다.',
   'No settler is available to attack.': '지금 공격할 수 있는 정착민이 없습니다.',
   'Attack dungeon': '던전 공격',
   'No path to the dungeon': '던전까지 갈 수 있는 길이 없습니다',
@@ -14,7 +10,6 @@ export const expeditionPhrases: Phrases = {
   'Dungeon rises in {0}s': '던전 부활까지 {0}초',
   'The guardian is rising': '수호자가 깨어납니다',
   'Defeat the guardian and its brood before the dungeon rises again.': '던전이 부활하기 전에 수호자와 그 무리를 모두 처치하세요.',
-  'As the dungeon weakens, larger and stronger hordes emerge. The guardian leads the last wave. Defeat them all before the dungeon rises again.': '던전이 무너져 갈수록 더 강한 몬스터가 더 많이 쏟아져 나옵니다. 마지막 무리는 수호자가 이끕니다. 던전이 부활하기 전에 모두 처치하세요.',
   'Raiders pour out of this dungeon and march on the camp. Press Attack to send your fighters.': '이 던전에서 습격대가 쏟아져 나와 캠프로 향합니다. 공격을 누르면 전투원이 출발합니다.',
   'The falling stones push everyone back. The guardian and its brood will rise from the marked ground.': '무너진 돌이 주변 유닛을 밀어냅니다. 바닥에 새겨진 소환진에서 수호자와 그 무리가 나옵니다.',
   'When the guardian marks the ground, move your residents out of the ring before the blow lands.': '수호자가 땅에 원을 그리면 내려치기 전에 정착민을 원 밖으로 이동시키세요.',
@@ -27,7 +22,7 @@ export const expeditionPhrases: Phrases = {
   'Needs a mage tower, a guild and a sealed gate. Its standing stones draw more visitors to the settlement.': '마법사 탑과 길드, 봉인된 관문이 필요합니다. 선돌이 더 많은 방문객을 마을로 이끕니다.',
   'Seal a dungeon to make room for more residents.': '던전을 봉인하면 정착민을 더 맞이할 수 있습니다.',
   'Seal a dungeon': '던전 봉인',
-  'Mine iron veins with a stone pick or win ore by sealing a dungeon.': '돌 곡괭이로 철 광맥을 캐거나 던전을 봉인해 철광석을 얻습니다.',
+  "Ore for smelting iron.": "철을 제련하는 광석입니다.",
   'Dormant gate': '닫힌 관문',
   '{0} has opened': '관문 개방 · {0}',
   'A pack from {0} will raid Camp #{1} tonight': '오늘 밤 {0}의 몬스터 무리가 캠프 #{1}을 습격합니다',
@@ -37,8 +32,6 @@ export const expeditionPhrases: Phrases = {
   'Raiders from {0} march on Camp #{1}': '{0}의 습격대가 캠프 #{1}을 향해 출발했습니다',
   'At an open gate, choose a party and a floor. Destroy its dens and guardian to clear the floor.':
     '열린 관문에서 파티와 층을 고르세요. 그 층의 소굴을 모두 부수고 수호자를 쓰러뜨리면 돌파합니다.',
-  'The first raiders fall to a single blow. Later waves bring more enemies and their levels rise.':
-    '첫 습격의 적은 한 방에 쓰러집니다. 이후에는 더 많은 적이 몰려오고 레벨도 올라갑니다.',
   'Gather fighters at the camp named in the warning before nightfall. A manned watchtower can help defend it.':
     '해가 지기 전에 예고에 나온 캠프로 전투원을 모으세요. 사람이 배치된 망루도 방어를 돕습니다.',
   'Plan an expedition': '원정 준비하기',

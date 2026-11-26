@@ -57,21 +57,16 @@ export function swarmFrame(app: GameAppState, heard: readonly CombatEvent[]): vo
   for (const e of heard) {
     if (e.cue === CombatCue.DenDestroyed) {
       const left = town.realmActive() ? town.realmDens().length : town.dens().length,
-        count = swarmCount(app),
-        killer = town.person(e.person);
+        count = swarmCount(app);
       army.banners.push({
         title: left ? 'A den is destroyed' : 'The last den is destroyed',
-        detail:
-          town.chronicle.partiesLed === 1 && count && left === count.total - 1
-            ? 'Bring the party home to complete the optional goal.'
-            : (killer ? `${killer.name} struck the last blow. ` : '') +
-              (left ? `${left} of ${count?.total ?? left + 1} still ${left === 1 ? 'breeds' : 'breed'}.` : 'No more will climb out.'),
+        detail: `Dens ${left} of ${count?.total ?? left + 1}`,
         until: seconds + bannerSeconds,
       });
     } else if (e.cue === CombatCue.BroodBreak)
       army.banners.push({
         title: 'The brood breaks',
-        detail: `${e.amount} ${e.amount === 1 ? 'monster dies' : 'monsters die'} with their dens. The floor is clear.`,
+        detail: `Monsters slain: ${e.amount}`,
         until: seconds + bannerSeconds + 1,
       });
     else if (e.cue === CombatCue.Wave) {

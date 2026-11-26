@@ -54,7 +54,7 @@ function bodyRows(app: GameHudApp, entry: GuideEntry, width: number, lines: numb
   let rows = wrapped.get(key);
   if (!rows) {
     if (wrapped.size > 400) wrapped.clear();
-    rows = wrapText(app.context, paragraph(guideMoment(entry.key)?.text(app.town) ?? []), width, 12, lines);
+    rows = wrapText(app.context, paragraph(guideMoment(entry.key)?.text?.(app.town) ?? []), width, 12, lines);
     wrapped.set(key, rows);
   }
   return rows;
@@ -166,7 +166,7 @@ function logButton(app: GameHudApp): void {
     c.rect(badge, t.danger, 8);
     c.text(badge, unread > 9 ? '9+' : String(unread), t.accentText, 9, true, Align.Center);
   }
-  if (!app.touchMode) tooltip(c, 'guide-log-button', state.hovered, ['Log (F1)', 'Everything that has happened, to read again.']);
+  if (!app.touchMode) tooltip(c, 'guide-log-button', state.hovered, ['Log (F1)']);
 }
 /**
  * A building that has just come into the build menu: its picture, what it is for, what it costs, and a button
@@ -351,7 +351,8 @@ function measure(app: GameHudApp, entry: GuideEntry | NoticeRecord, inner: numbe
       rows = open ? all.slice(0, Math.max(1, Math.floor((room - head - 8) / 16) + 1)) : all.slice(0, 1);
     return { entry, rows, folds, open, height: head + (rows.length - 1) * 16 + 8 };
   }
-  if (!wanted) return { entry, rows: [], folds: true, open: false, height: head + 6 };
+  const folds = !!entry.at || entry.detail.length > 0 || bodyRows(app, entry, inner, 12).length > 0;
+  if (!folds || !wanted) return { entry, rows: [], folds, open: false, height: head + 6 };
   const fixed = head + entry.detail.length * 15 + (entry.at ? head + 6 : 0) + 12,
     rows = bodyRows(app, entry, inner, 12).slice(0, Math.max(1, Math.floor((room - fixed) / 16)));
   return { entry, rows, folds: true, open: true, height: fixed + rows.length * 16 };
@@ -411,14 +412,13 @@ function logPanel(app: GameHudApp, width: number): void {
   else c.control('guide-log', r, undefined, true, false);
   board(c, r, { header: 56 });
   c.text(new Rect(left, f32(r.y + 12), short ? 76 : f32(inner - 50), short ? 32 : 24), 'Log', t.accent, 17, true);
-  if (!short) c.text(new Rect(left, f32(r.y + 36), f32(inner - 50), 16), 'Everything that has happened, newest first.', t.muted, 11);
   const close = new Rect(f32(r.x + r.w - 12 - bh), f32(r.y + 10), bh, bh),
     closing = button(c, 'guide-log/close', close, '', () => toggleGuideLog(app), ButtonStyle.Quiet),
     ink = closing.hovered || closing.focused ? t.text : t.muted,
     m = f32(bh / 2 - 5);
   c.line(f32(close.x + m), f32(close.y + m), f32(close.x + bh - m), f32(close.y + bh - m), ink, f32(1.5));
   c.line(f32(close.x + bh - m), f32(close.y + m), f32(close.x + m), f32(close.y + bh - m), ink, f32(1.5));
-  let y = f32(r.y + (short ? 10 : 60));
+  let y = f32(r.y + (short ? 10 : 44));
   const prefX = short ? left + 80 : left, endX = short ? close.x - 8 : left + inner;
   const half = (endX - prefX - 8) / 2;
   button(c, 'guide-log/focus', new Rect(prefX, y, half, bh), prefs.focus ? 'Camera focus: On' : 'Camera focus: Off', () => setGuidePreference('focus', !prefs.focus), ButtonStyle.Default, true, undefined, prefs.focus, { fontSize: touch ? 13 : 11 });
@@ -430,7 +430,7 @@ function logPanel(app: GameHudApp, width: number): void {
     footer = f32(r.y + r.h - 12 - bh),
     room = f32(footer - 8 - y);
   if (!newest.length) {
-    for (const row of wrapText(c, 'Nothing yet. What happens is written here.', inner, 12, 4)) {
+    for (const row of wrapText(c, 'No entries yet.', inner, 12, 4)) {
       c.text(new Rect(left, y, inner, 17), row, t.muted, 12);
       y = f32(y + 17);
     }
@@ -457,11 +457,11 @@ function entryRow(app: GameHudApp, layout: EntryLayout, x: number, y: number, in
     look = app.touchMode ? 76 : 56,
     day = entry.day === null ? 'Earlier' : fill(line('Day {0}', entry.day)),
     titleWidth = f32(inner - trailing),
-    state = foldControl(app, layout, new Rect(x, y, inner, head), index),
-    ink = state.hovered || state.focused ? t.accent : t.text;
+    state = layout.folds ? foldControl(app, layout, new Rect(x, y, inner, head), index) : undefined,
+    ink = state?.hovered || state?.focused ? t.accent : t.text;
   c.text(new Rect(x, y, titleWidth, head), c.elideText(fill(titleOf(entry)), titleWidth, 13, true), ink, 13, true);
   c.text(new Rect(f32(x + inner - 82), y, 60, head), day, t.muted, 10, false, Align.End);
-  foldMark(app, f32(x + inner - 12), f32(y + head / 2), layout.open, state.hovered || state.focused ? t.accent : t.muted);
+  if (layout.folds) foldMark(app, f32(x + inner - 12), f32(y + head / 2), layout.open, ink);
   let row = f32(y + head);
   for (const text of rows) {
     c.text(new Rect(x, row, inner, 16), text, t.text, 12);

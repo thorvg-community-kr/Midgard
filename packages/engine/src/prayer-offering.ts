@@ -19,11 +19,11 @@ export const offeringBonus = (offering: Resources): number =>
 
 export function offeringReason(offering: Resources): string {
   if (resourceKeys.some((key) => !Number.isSafeInteger(offering[key]) || offering[key] < 0))
-    return 'Offering amounts must be whole, nonnegative numbers.';
+    return 'Invalid amount.';
   if (resourceKeys.some((key) => !offeringKeys.includes(key as OfferingKey) && offering[key] !== 0))
-    return 'Only water, bones, gold, food and stone can be offered.';
-  if (offering.food < offeringFood) return 'Need 4 food for the altar offering.';
-  if (offeringTotal(offering) > maxOfferingGoods) return 'The altar holds up to 16 goods.';
+    return 'Choose an offering from the list.';
+  if (offering.food < offeringFood) return 'Need 4 food.';
+  if (offeringTotal(offering) > maxOfferingGoods) return 'Offer up to 16 goods.';
   return '';
 }
 

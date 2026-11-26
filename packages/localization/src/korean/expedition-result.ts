@@ -28,8 +28,6 @@ export const expeditionResultPhrases: Phrases = {
   'Came home empty-handed': '빈손으로 돌아왔습니다',
   'Spoils brought home: {0}': '가져온 전리품: {0}',
   'Spoils lost: {0}': '잃은 전리품: {0}',
-  'The time, the slain and the levels gained are not known across a load.':
-    '불러온 게임에서는 걸린 시간, 쓰러뜨린 수, 오른 레벨을 알 수 없습니다.',
   'Floor {0} of {1}': '{1}층 중 {0}층',
   '1 level gained': '레벨 1 상승',
   '{0} levels gained': '레벨 {0} 상승',

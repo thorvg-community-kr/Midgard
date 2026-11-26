@@ -6,7 +6,7 @@ export const godsPhrases: Phrases = {
   Thor: '토르',
   'Thor has come to Midgard': '토르가 미드가르드에 왔습니다',
   'Thor leaves Midgard': '토르가 미드가르드를 떠납니다',
-  'Thor, god of thunder. A guest who hunts monsters by night.': '천둥의 신 토르. 밤이면 괴물을 사냥하는 손님입니다.',
+  'God of thunder.': '천둥의 신.',
   'Thor comes to Midgard': '토르가 미드가르드에 오다',
   'Thor, the god of thunder, has come to stay a few nights. He is a guest: he takes no orders, and no monster can harm him.':
     '천둥의 신 토르가 며칠 밤 머물러 왔습니다. 그는 손님이라 명령을 받지 않으며, 어떤 괴물도 그를 해치지 못합니다.',

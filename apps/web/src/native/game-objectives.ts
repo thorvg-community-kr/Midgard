@@ -72,14 +72,15 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
   this.questsAnimating = celebrating || (fresh && !this.reducedMotion());
   if (this.questsAnimating) c.requestAnimationFrame();
   else if (fresh) c.requestFrameAt(this.questNewAt + questRules.fresh);
-  const collapsed = compact ? !this.mobileQuestsExpanded : this.objectivesCollapsed,
+  const unusedHintHeight = goals[current]?.description ? 0 : 35,
+    collapsed = compact ? !this.mobileQuestsExpanded : this.objectivesCollapsed,
     header = this.touchMode ? 44 : 38,
     // Opened on a small touch screen it keeps left of the order rail.
     rail = compact ? orderRail(this, width, height) : null,
     w = Math.min(compact && collapsed ? 164 : 292, f32(width - (compact ? 76 : 24)), rail && !rail.beside ? f32(rail.bounds.x - 20) : Infinity),
     y = Math.min(top, f32(height - 60)),
     branchShift = this.touchMode && core < 0 ? 26 : 0,
-    preferred = 210 + branchShift,
+    preferred = 210 + branchShift - unusedHintHeight,
     expanded = compact
       ? Math.min(preferred, height - y - 12)
       : clamp(f32(f32(this.dockBounds.y - y) - 24), 38, preferred),
@@ -175,12 +176,11 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
   c.clip(bounds.inset(6), () => {
     if (current === goals.length) {
       c.text(new Rect(left, f32(y + 49), f32(w - 28), 25), 'Settlement saga complete', t.success, 14, true);
-      c.text(new Rect(left, f32(y + 79), f32(w - 28), 24), 'Every quest has been fulfilled.', t.muted, 11);
       return;
     }
     const goal = goals[current];
-    if (core >= 0) c.text(new Rect(left, f32(y + 42), f32(w - 28), 16), fresh ? 'New quest' : 'Current quest', t.accent, 9, true);
-    else {
+    if (core >= 0 && fresh) c.text(new Rect(left, f32(y + 42), f32(w - 28), 16), 'New quest', t.accent, 9, true);
+    if (core < 0) {
       const tab = f32(f32(w - 28) / branches.length);
       branches.forEach((branch, index) => {
         const done = !open.includes(branch),
@@ -253,10 +253,7 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
           const lacking = unsourcedMaterial(this.town, site);
           if (lacking !== null) {
             warn = true;
-            status =
-              lacking === Product.Stone
-                ? 'No rock in sight: send a resident out to explore'
-                : 'No trees in sight: send a resident out to explore';
+            status = lacking === Product.Stone ? 'No rock in sight' : 'No trees in sight';
           }
         }
       }
@@ -276,18 +273,18 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
       if (this.town.roads().roads().length) status = 'Laying road ' + Math.trunc(f32(progress * 100)) + '%';
     }
     c.text(
-      new Rect(left, f32(bodyY + 127), f32(w - 28), 18),
+      new Rect(left, f32(bodyY + 127 - unusedHintHeight), f32(w - 28), 18),
       c.elideText(status, f32(w - 28), 10),
       warn ? t.danger : waiting ? t.accent : t.text,
       10,
     );
     const displayed = c.animate('quests/progress/' + current, clamp(progress, 0, 1), 0.2);
-    meter(c, new Rect(left, f32(bodyY + 149), f32(w - 28), 7), displayed, t.accent);
-    if (expanded < 200 + branchShift || !action) return;
+    meter(c, new Rect(left, f32(bodyY + 149 - unusedHintHeight), f32(w - 28), 7), displayed, t.accent);
+    if (expanded < 200 + branchShift - unusedHintHeight || !action) return;
     button(
       c,
       'quest-action/' + current,
-      new Rect(left, f32(bodyY + (this.touchMode ? 160 : 171)), f32(w - 28), this.touchMode ? 44 : 29),
+      new Rect(left, f32(bodyY + (this.touchMode ? 160 : 171) - unusedHintHeight), f32(w - 28), this.touchMode ? 44 : 29),
       action.label,
       action.run,
       ButtonStyle.Primary,

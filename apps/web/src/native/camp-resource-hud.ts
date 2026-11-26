@@ -37,8 +37,8 @@ export function winterOutlookLine(town: Town, village?: number): WinterLine | nu
   return {
     text:
       days > 0
-        ? `Winter in ${days} ${days === 1 ? 'day' : 'days'} · food ${have} of ${outlook.foodNeeded} needed`
-        : `Winter · food ${have} of ${outlook.foodNeeded} needed until spring`,
+        ? `Winter in ${days} ${days === 1 ? 'day' : 'days'} · Food forecast ${have} / ${outlook.foodNeeded}`
+        : `Winter · Food forecast ${have} / ${outlook.foodNeeded}`,
     short: !outlook.enough,
   };
 }

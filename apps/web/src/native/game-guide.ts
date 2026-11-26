@@ -298,19 +298,16 @@ function fire(app: GuideApp, moment: GuideMoment, spot: GuideSpot, now: number):
   const s = app.guide,
     town = app.town;
   town.told.push(moment.key);
-  for (const text of spot.fold ?? []) {
-    const index = town.notices.indexOf(text);
-    if (index >= 0) town.notices.splice(index, 1);
-  }
   const entry: GuideEntry = {
     key: moment.key,
     day: town.days + 1,
     at: spot.at ? { ...spot.at } : null,
     about: spot.about ?? [],
     detail: spot.detail ?? [],
-    seen: s.logOpen,
+    seen: !moment.card || s.logOpen,
   };
   s.log.push(entry);
+  if (!moment.card) return;
   if (guidePreferences().cards) s.queue.push(entry);
   else if (!s.glide) present(app, entry, now);
 }
@@ -387,7 +384,7 @@ export function unlockOf(entry: GuideEntry): Tool | null {
  */
 export function announceUnlock(app: Pick<GuideApp, 'guide' | 'town'>, tool: Tool): boolean {
   if (!guidePreferences().cards) return false;
-  // Roads come with the camp, whose own card tells of them.
+  // The road quest opens with the camp and gives the drawing instruction.
   if (tool === Tool.Road) return true;
   const s = app.guide,
     key = unlockPrefix + tool;

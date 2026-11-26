@@ -264,7 +264,7 @@ describe('construction supply', () => {
     // No rock on this map and no stone in store: there is nothing to build with yet.
     expect(town.orderBuild([p.id], target.id)).toBe(true);
     run(town, 20);
-    const told = () => town.notices.filter((text) => text === 'No stone in sight for the Tent: explore to find some');
+    const told = () => town.notices.filter((text) => text === 'No stone in sight for the Tent');
     expect(told()).toHaveLength(1);
     // The builder is free for other work rather than stuck on an order that cannot advance.
     expect(p.ordered).toBe(false);

@@ -20,7 +20,7 @@ function announceShortage(town: Town, id: number): void {
     if (told.has(`${id}:${lacking}`)) return;
     told.add(`${id}:${lacking}`);
     const material = lacking === Product.Stone ? 'stone' : 'wood';
-    town.notify(`No ${material} in sight for the ${structureSpec(site.kind).name}: explore to find some`);
+    town.notify(`No ${material} in sight for the ${structureSpec(site.kind).name}`);
 }
 /** The requested road owns its clearing, supply and prerequisite-road work. */
 export function hasUnfinishedRoadwork(town: Town, person: Person): boolean {

@@ -32,7 +32,7 @@ export function unitOrders(app: GameHudApp): OrderButton[] {
       glyph: 'build',
       label: 'Build',
       key: 'B',
-      lines: ['Build', 'Choose a building for the selected residents to raise.'],
+      lines: ['Build', 'Choose a building.'],
       run: () => app.openUnitBuild(),
       active: false,
     },
@@ -43,7 +43,7 @@ export function unitOrders(app: GameHudApp): OrderButton[] {
       key: 'A',
       lines: [
         'Attack-move',
-        'Walk to the point you click and fight whatever they meet. Click an enemy to make it everyone’s first target.',
+        'Fight on the way to the destination.',
       ],
       run: () => app.prepare(Order.Attack),
       active: app.pending === Order.Attack,
@@ -55,7 +55,7 @@ export function unitOrders(app: GameHudApp): OrderButton[] {
       key: 'H',
       lines: [
         'Hold position',
-        'Drop what they are doing and stand on this spot: strike whatever comes into reach and never chase. Skills on auto still fire. Any other order ends it.',
+        'Defend this spot.',
       ],
       run: () => holdPosition(app),
       active: allHolding(app.town, app.chosen),
@@ -69,7 +69,7 @@ export function unitOrders(app: GameHudApp): OrderButton[] {
       key: '',
       lines: [
         'Move',
-        'Walk to the point you click and ignore enemies on the way. A group arrives in formation: blades in front, bows and staves behind.',
+        'Choose a destination.',
       ],
       run: () => app.prepare(Order.Move),
       active: app.pending === Order.Move,
@@ -79,7 +79,7 @@ export function unitOrders(app: GameHudApp): OrderButton[] {
       glyph: 'work',
       label: 'Work',
       key: '',
-      lines: ['Work', 'Fell, mine, build, mend or tend what you tap next.'],
+      lines: ['Work', 'Choose a work site.'],
       run: () => app.prepare(Order.Work),
       active: app.pending === Order.Work,
     });

@@ -36,18 +36,8 @@ export function skillTooltip(group: SkillSlotGroup, slot: number, touch: boolean
     return lines;
   }
   if (group.holders.length > 1) lines.push(`${group.ready} of ${group.holders.length} ready.`);
-  else if (a.auto) lines.push('Used on its own when it helps.');
-  if (group.locked.length) lines.push(`${group.locked.length} more get it at level ${spec.level}.`);
-  const ground = spec.aim === SkillAim.Ground;
-  lines.push(
-    touch
-      ? ground
-        ? 'Tap, then tap the ground where it should land.'
-        : 'Tap to use it for every selected resident of this calling who has it ready.'
-      : ground
-        ? `${key}: hold to see where it lands under the cursor, release to cast. Or click here, then the ground.`
-        : `${key}: every selected resident who has it ready uses it.`,
-  );
+  if (spec.aim === SkillAim.Ground)
+    lines.push(touch ? 'Tap the ground to aim.' : `Hold ${key} to aim, release to cast.`);
   return lines;
 }
 function skillButton(app: GameHudApp, entry: CallingSkills, slot: number, r: Rect, compact: boolean): void {
@@ -119,8 +109,7 @@ function skillButton(app: GameHudApp, entry: CallingSkills, slot: number, r: Rec
 function autoToggle(app: GameHudApp, entry: CallingSkills, slot: number, r: Rect): void {
   const c = app.context,
     group = entry.slots[slot],
-    a = group.ability,
-    id = 'skill-auto-' + a.id,
+    id = 'skill-auto-' + group.ability.id,
     ids = group.holders.map((p) => p.id),
     on = group.holders.length > 0 && group.auto,
     state = button(
@@ -135,12 +124,7 @@ function autoToggle(app: GameHudApp, entry: CallingSkills, slot: number, r: Rect
       on,
       { fontSize: 11 },
     );
-  const who = group.holders.length === 1 ? `${group.holders[0].name} uses` : `The ${group.holders.length} who have it use`;
-  tooltip(c, id, state.hovered, [
-    on ? 'Auto-use is on' : 'Auto-use is off',
-    on ? `${who} ${a.name} on their own when it helps.` : `${a.name} waits for your order.`,
-    'Every skill starts on auto. Turn it off to time it by hand.',
-  ]);
+  tooltip(c, id, state.hovered, [on ? 'Turn off auto-use' : 'Turn on auto-use']);
 }
 /** One button with an auto toggle beside it. */
 function skillPair(app: GameHudApp, entry: CallingSkills, slot: number, r: Rect, compact: boolean): number {
@@ -197,7 +181,6 @@ function callingTabs(app: GameHudApp, groups: readonly CallingSkills[], focus: C
     tooltip(c, id, state.hovered, [
       callingLabel(g),
       g.slots.map((slot) => `${slot.ability.name}: ${slot.holders.length ? `${slot.ready}/${slot.holders.length} ready` : `level ${slot.spec.level}`}`).join('  ·  '),
-      app.touchMode ? 'Tap to show their skills.' : 'Click or press Tab to show their skills. Q and W still fire for everyone selected.',
     ]);
     x = f32(x + w + 6);
   });
@@ -217,7 +200,7 @@ export function skillCard(app: GameHudApp, area: Rect): void {
         used = skillPair(app, focus, slot, new Rect(area.x, y, w, h), false),
         left = f32(area.x + used + 10),
         room = f32(area.x + area.w - left),
-        text = group.holders.length ? group.ability.description : `Comes at level ${group.spec.level}. ${group.ability.description}`;
+        text = group.ability.description;
       if (room > 80)
         wrapText(c, text, room, 10, 2).forEach((row, i) =>
           c.text(new Rect(left, f32(y + (h - 30) / 2 + i * 14), room, 15), row, t.muted, 10),

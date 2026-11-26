@@ -333,7 +333,7 @@ describe('the altar cap', () => {
     const fallen = town.folk.at(-1)!;
     fallen.health = 0;
     fallen.downedAt = town.clock();
-    expect(town.altarOfferingReason(1, defaultOffering())).toContain('No free resident bed');
+    expect(town.altarOfferingReason(1, defaultOffering())).toBe('No free beds here.');
     // A paid promise in a different settlement holds one of the faction's remaining spots.
     const camp = new Building(town.nextId++, Structure.Camp, point(21, 24), 0, 0);
     camp.village = camp.id;
@@ -376,9 +376,9 @@ describe('the offering words in Korean', () => {
       offeringReason(new Resources(0, 0, 0, 20)), offeringReason(new Resources(0, 0, 0, -1)),
     ];
     for (const line of lines) expect(hasHangul(korean.translate(line)), line).toBe(true);
-    const welcome = korean.translate('Runa joins the settlement · Level 4 · Strength +1 · Vitality +2');
+    const welcome = korean.translate('Runa joins the settlement');
     expect(welcome).toContain('Runa');
     expect(welcome).not.toMatch(/joins|Level|Strength|Vitality/);
-    expect(welcome.match(/\d+/g)).toEqual(['4', '1', '2']);
+    expect(korean.translate('Stat points: 3')).toContain('3');
   });
 });

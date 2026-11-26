@@ -713,14 +713,13 @@ describe('outdoor dungeon combat in Korean', () => {
     expectKorean([
       'Raiders pour out of this dungeon and march on the camp. Press Attack to send your fighters.',
       'No settler is available to attack.',
-      'As the dungeon weakens, larger and stronger hordes emerge. The guardian leads the last wave. Defeat them all before the dungeon rises again.',
       `Defenders pour out of ${name}.`,
       'The falling stones push everyone back. The guardian and its brood will rise from the marked ground.',
-      `${name} has fallen. A guardian is gathering its horde.`,
-      `Defeat the guardian and every defender before ${name} rises again.`,
+      `${name} has collapsed.`,
+      `A guardian has emerged from ${name}.`,
       `${name} has risen again.`,
-      'Dungeon tier 3', 'Hostile · Strength 1.5', 'Recommended: 5 fighters at level 4', 'Defenders left: 4', 'Dungeon rises in 37s', 'Attack dungeon',
-      'Bring flint or stone weapons.', 'Bring iron weapons.', 'Bring embersteel or frostwood weapons.',
+      `${name} sealed (1/8)`,
+      'Dungeon tier 3', 'Hostile · Strength 1.5', 'Defenders left: 4', 'Dungeon rises in 37s', 'Attack dungeon',
     ], new Set([name]));
   });
 });

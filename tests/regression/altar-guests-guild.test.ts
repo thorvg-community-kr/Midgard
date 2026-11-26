@@ -263,7 +263,7 @@ describe('altar prayer and immediate residents', () => {
     town.tick(0);
     const [first, other] = town.people();
     expect(town.orderPrayAtAltar([first.id], altar.id)).toBe(true);
-    expect(town.prayerReason(other.id, second.id)).toContain('No free resident bed');
+    expect(town.prayerReason(other.id, second.id)).toBe('No free beds here.');
     // A legacy saved offering still holds its home until arrival is possible.
     town.orderStop([first.id]);
     altar.devotionDueDay = town.days;

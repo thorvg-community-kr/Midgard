@@ -259,6 +259,10 @@ function nextSerial(town: Town): bigint {
   for (const e of town.combatEvents()) if (e.serial >= next) next = e.serial + 1n;
   return next;
 }
+export function woundStatus(days: number): string {
+  const left = Math.ceil(days);
+  return left === 1 ? 'Wounded · 1 day' : `Wounded · ${left} days`;
+}
 export function downedTitle(names: string[]): string {
   return names.length === 1
     ? `${names[0]} is down`
@@ -323,7 +327,7 @@ export function combatFrame(app: CombatFrameApp, seconds: number): void {
     const first = downed[0];
     state.autoPause = {
       title: downedTitle(downed.map((p) => p.name)),
-      detail: `${first.name} bleeds out unless an ally kneels beside them in time.`,
+      detail: `Send an ally to help ${first.name}.`,
       at: { ...first.position },
       person: first.id,
       creature: -1,
@@ -332,7 +336,7 @@ export function combatFrame(app: CombatFrameApp, seconds: number): void {
     const site = town.map().dungeons()[town.realmActive() ? town.realmGate : guardian.lair];
     state.autoPause = {
       title: `The guardian of ${site ? worldName(town.map().destination(site)) : 'this world'} is roused`,
-      detail: 'Its slam is marked on the ground before it lands: move away.',
+      detail: 'Avoid the marked ground.',
       at: { ...guardian.position },
       person: -1,
       creature: guardian.id,
@@ -396,7 +400,7 @@ function guardianStatus(app: GameHudApp, width: number, y: number, guardian: Mon
   if (windup) {
     c.text(
       new Rect(f32(x + 12), f32(y + 24), f32(w - 24), 16),
-      `Winding up a slam: move away! (${Math.max(0, guardian.windupUntil - clock).toFixed(1)} s)`,
+      `Slam in ${Math.max(0, guardian.windupUntil - clock).toFixed(1)} s`,
       faded(t.danger, 170 + 85 * pulse),
       11,
       true,
@@ -425,19 +429,13 @@ function autoPauseBanner(app: GameHudApp, width: number, y: number): number {
     { x, w } = column(width),
     bh = app.touchMode ? 44 : 26,
     detail = wrapText(c, pause.detail, f32(w - 24), 11, 2),
-    h = 61 + detail.length * 15 + bh,
+    h = 43 + detail.length * 15 + bh,
     r = new Rect(x, y, w, h),
     downed = pause.person >= 0;
   c.control('auto-pause', r, undefined, true, false);
   board(c, r, { trim: downed ? t.danger : t.accent, trimWidth: 2 });
   c.text(new Rect(f32(x + 12), f32(y + 6), f32(w - 24), 20), c.elideText(pause.title, f32(w - 24), 14, true), downed ? t.danger : t.accent, 14, true);
   detail.forEach((row, i) => c.text(new Rect(f32(x + 12), f32(y + 28 + i * 15), f32(w - 24), 15), row, t.text, 11));
-  c.text(
-    new Rect(f32(x + 12), f32(y + 30 + detail.length * 15), f32(w - 24), 16),
-    'Paused. You can give orders while paused.',
-    t.muted,
-    11,
-  );
   const half = f32(f32(w - 32) / 2),
     target = downed ? app.town.person(pause.person) : app.town.creature(pause.creature);
   button(
@@ -546,7 +544,7 @@ function downedAlerts(app: GameHudApp, width: number, y: number): void {
     meter(c, bar, left / total, t.danger);
     tooltip(c, id, s.hovered, [
       `${p.name} is bleeding out`,
-      'Click to look and select the nearest ally who can help, then right-click the body to revive.',
+      'Select a rescuer.',
     ]);
   });
   if (hurt.length > shown.length)

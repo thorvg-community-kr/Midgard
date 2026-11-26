@@ -180,7 +180,7 @@ const tool = (
     stationLevel: 3,
     cost: Resources.from({ wood, stone, ironIngot: 1 }),
     seconds: 12,
-    description: 'An iron-headed tool, made at a workbench fitted for iron.',
+    description: 'An iron-headed tool.',
   });
 // Wooden tools: whittled at a first workbench from wood and a little stone, no gold.
 const woodenTool = (
@@ -204,7 +204,7 @@ const woodenTool = (
     workshop: Structure.Workbench,
     cost: new Resources(0, wood, stone),
     seconds: 6,
-    description: 'A wooden tool, made at a workbench.',
+    description: 'A wooden tool.',
   });
 // Stone tools: a stone head lashed to a haft, once the workbench has been upgraded.
 const stoneTool = (
@@ -222,18 +222,18 @@ const stoneTool = (
   tier: 2,
   stationLevel: 2,
   seconds: 9,
-  description: 'A stone-headed tool, made at an upgraded workbench.',
+  description: 'A stone-headed tool.',
 });
 const shovelText =
-    'Digs: lays and mends roads and breaks in new fields.',
+    'Digs roads and fields.',
   sickleText = "Helps a farmer harvest ripe crops.",
-  spearText = 'A long thrusting weapon: its point runs on through one enemy behind its target.';
+  spearText = 'A long thrusting spear.';
 const smithText = [
   '',
-  'A wooden weapon, made at the smithy.',
-  'A weapon with a stone head or edge, made at an upgraded smithy.',
-  'Forged from a smelted ingot at the smithy.',
-  'Refitted at the smithy with material from the foundry.',
+  'A wooden weapon.',
+  'A stone weapon.',
+  'Forged iron.',
+  'Reinforced at the forge.',
 ];
 /** A smithy weapon of `tier`; the smithy must be at that level, the wielder at `level`. */
 const weapon = (
@@ -267,9 +267,9 @@ const smithLevels = [1, 1, 3, 5, 7],
   smithSeconds = [8, 8, 12, 16, 20];
 const shieldText = [
   '',
-  'A round board shield for the free hand. Not with a spear, a bow or a staff.',
-  'A board shield studded with stone. Not with a spear, a bow or a staff.',
-  'An iron-rimmed shield. Not with a spear, a bow or a staff.',
+  'A round wooden shield.',
+  'A stone-studded shield.',
+  'An iron-rimmed shield.',
 ];
 const shield = (id: string, name: string, material: ItemMaterial, tier: number, block: number, weight: number, cost: Resources) =>
   entry(id, name, {
@@ -344,17 +344,17 @@ export const itemCatalog: readonly ItemSpec[] = [
   entry('cut-stone', 'Cut stone', { product: Product.CutStone }),
   entry('gold', 'Gold', { product: Product.Goods }),
   entry('mana', 'Mana', { product: Product.Mana }),
-  entry('bones', 'Bones', { product: Product.Bones, description: 'Bones from hunts and fallen monsters can be offered to Odin or worked at the foundry.' }),
-  entry('hides', 'Hides', { product: Product.Hides, description: 'Tough skins from hunts and fallen brutes. A smith cuts them into boots.' }),
-  entry('iron-ore', 'Iron ore', { product: Product.IronOre, description: 'Mine iron veins with a stone pick or win ore by sealing a dungeon.' }),
-  entry('cinder-ore', 'Cinder ore', { product: Product.CinderOre, description: 'Mine the dark veins on volcanic ground with an iron pick.' }),
-  entry('frostwood', 'Frostwood', { product: Product.Frostwood, description: 'Fell a frostwood spruce on frozen ground with a stone axe.' }),
+  entry('bones', 'Bones', { product: Product.Bones, description: 'Bones for offerings and crafting.' }),
+  entry('hides', 'Hides', { product: Product.Hides, description: 'Tough hides for boots.' }),
+  entry('iron-ore', 'Iron ore', { product: Product.IronOre, description: 'Ore for smelting iron.' }),
+  entry('cinder-ore', 'Cinder ore', { product: Product.CinderOre, description: 'Ore from volcanic ground.' }),
+  entry('frostwood', 'Frostwood', { product: Product.Frostwood, description: 'Timber from frozen forests.' }),
   refinedMaterial('iron-ingot', 'Iron ingot', Product.IronIngot, Resources.from({ ironOre: 2, wood: 1 }), 6,
-    'Smelt mountain ore for iron tools and arms.'),
+    'Iron for tools and weapons.'),
   refinedMaterial('bound-frostwood', 'Bound frostwood', Product.BoundFrostwood, Resources.from({ frostwood: 2, bones: 1 }), 8,
-    'Bind frostwood with bone glue for bows, staves and snow boots.'),
+    'Bound wood for winter gear.'),
   refinedMaterial('embersteel', 'Embersteel', Product.Embersteel, Resources.from({ ironIngot: 1, cinderOre: 2, bones: 2 }), 10,
-    'Temper iron with cinder ore and bone charcoal for stronger edges.'),
+    'Tempered steel.'),
   woodenTool('wooden-axe', 'Wooden axe', 'axe', ['woodcutting'], 1, 3, 0),
   woodenTool('wooden-pick', 'Wooden pick', 'pickaxe', ['mining'], 1, 3, 1),
   woodenTool('wooden-mallet', 'Wooden mallet', 'hammer', ['construction', 'crafting'], 1, 3, 0),
@@ -446,7 +446,7 @@ export const itemCatalog: readonly ItemSpec[] = [
   {
     ...armor('embersteel-boots', 'Embersteel boots', 'feet', 0.06, 6, Resources.from({ embersteel: 3, hides: 2 }), 'embersteel'),
     workshop: Structure.Weaponsmith, stationLevel: 3, attribute: 'dexterity', walkBonus: 0.18, snowGrip: 0.5, lavaProof: true, seconds: 16,
-    description: 'Embersteel soles cross lava at full pace and keep the grip of snow boots.',
+    description: 'Embersteel soles for lava and snow.',
   },
   armor('gloves', 'Work gloves', 'hands', 0.03, 1, new Resources(2, 1, 0, 1)),
   armor('cloak', 'Travel cloak', 'accessory', 0.04, 1, new Resources(3, 1, 0, 2)),

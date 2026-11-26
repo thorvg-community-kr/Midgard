@@ -1,7 +1,7 @@
 [
   {
     "name": "Camp",
-    "description": "A timber camp shelters five. Build it well away from other camps. With twelve residents it becomes a palisade fort.",
+    "description": "Shelter for the first settlers.",
     "size": 1,
     "cost": {
       "gold": 0,
@@ -34,7 +34,7 @@
   },
   {
     "name": "Tent",
-    "description": "A first shelter for two. Once full, in a settlement of six, it becomes a cottage.",
+    "description": "A canvas shelter.",
     "size": 1,
     "cost": {
       "gold": 0,
@@ -67,7 +67,7 @@
   },
   {
     "name": "Cottage",
-    "description": "A timber-framed home for four. Once full, in a town of fourteen, it becomes a townhouse.",
+    "description": "A timber home.",
     "size": 1,
     "cost": {
       "gold": 0,
@@ -102,7 +102,7 @@
   },
   {
     "name": "Townhouse",
-    "description": "Two storeys. In a town of twenty-four, four huddled together merge into a manor.",
+    "description": "A two-storey home.",
     "size": 1,
     "cost": {
       "gold": 0,
@@ -137,7 +137,7 @@
   },
   {
     "name": "Manor",
-    "description": "A noble household with its own tower.",
+    "description": "A house with its own tower.",
     "size": 2,
     "cost": {
       "gold": 0,
@@ -170,7 +170,7 @@
   },
   {
     "name": "Market stalls",
-    "description": "Traders' tents. Staff them to grow a market hall.",
+    "description": "A place to trade.",
     "size": 2,
     "cost": {
       "gold": 0,
@@ -203,7 +203,7 @@
   },
   {
     "name": "Market hall",
-    "description": "A covered hall. Fully staffed, it becomes a grand bazaar.",
+    "description": "A covered market.",
     "size": 2,
     "cost": {
       "gold": 0,
@@ -236,7 +236,7 @@
   },
   {
     "name": "Grand bazaar",
-    "description": "Caravans from distant lands trade here.",
+    "description": "Caravans trade here.",
     "size": 2,
     "cost": {
       "gold": 0,
@@ -269,7 +269,7 @@
   },
   {
     "name": "Farmhouse",
-    "description": "Farmers work nearby fields. Each crop needs water and yields food at harvest.",
+    "description": "Grow grain in nearby fields.",
     "size": 1,
     "cost": {
       "gold": 0,
@@ -302,7 +302,7 @@
   },
   {
     "name": "Lumberyard",
-    "description": "Woodcutters fell the trees around it and carry the logs in. Felled woods grow back slowly.",
+    "description": "Cut timber from nearby trees.",
     "size": 1,
     "cost": {
       "gold": 0,
@@ -335,7 +335,7 @@
   },
   {
     "name": "Quarry",
-    "description": "Stonecutters. Needs rocky ground close by.",
+    "description": "Quarry nearby stone.",
     "size": 1,
     "cost": {
       "gold": 0,
@@ -368,7 +368,7 @@
   },
   {
     "name": "Well",
-    "description": "Supplies water for drinking, crops and livestock. A well draws more near a lake or river.",
+    "description": "Draw fresh water.",
     "size": 1,
     "cost": {
       "gold": 0,
@@ -401,7 +401,7 @@
   },
   {
     "name": "Storehouse",
-    "description": "Room for 300 more of each wood, stone, food and water. What does not fit is lost.",
+    "description": "Store settlement supplies.",
     "size": 2,
     "cost": {
       "gold": 0,
@@ -434,7 +434,7 @@
   },
   {
     "name": "Altar of Odin",
-    "description": "Welcome a resident with 4 food and a free bed. Extra offerings can add Strength or Vitality. Opens the Cleric calling at the guild.",
+    "description": "Welcome new settlers.",
     "size": 1,
     "cost": {
       "gold": 0,
@@ -467,7 +467,7 @@
   },
   {
     "name": "Mage tower",
-    "description": "Draws mana from the ley lines. Opens the Mage calling at the guild and staves at the smithy.",
+    "description": "Gather mana.",
     "size": 1,
     "cost": {
       "gold": 0,
@@ -502,7 +502,7 @@
   },
   {
     "name": "Portal",
-    "description": "A ring of standing stones humming with mana. Guests of every people step through it, far more often and with fuller purses.",
+    "description": "A gateway for travellers.",
     "size": 2,
     "cost": {
       "gold": 0,
@@ -537,7 +537,7 @@
   },
   {
     "name": "Tavern",
-    "description": "Guests pay for ale, songs and dice. A visit eases fatigue. Opens the Bard calling at the guild.",
+    "description": "A place for ale and music.",
     "size": 1,
     "cost": {
       "gold": 0,
@@ -570,7 +570,7 @@
   },
   {
     "name": "Hostel",
-    "description": "Three beds for paying travellers. Guests stay temporarily and never become residents. Earning 40 gold makes this an inn.",
+    "description": "Lodging for travellers.",
     "size": 2,
     "cost": {
       "gold": 0,
@@ -603,7 +603,7 @@
   },
   {
     "name": "Inn",
-    "description": "Six beds for paying temporary guests. Earning 150 gold more makes it a grand inn.",
+    "description": "Lodging for travellers.",
     "size": 2,
     "cost": {
       "gold": 0,
@@ -636,7 +636,7 @@
   },
   {
     "name": "Grand inn",
-    "description": "Ten beds, a stable and a hall for paying temporary guests.",
+    "description": "Lodging for travellers.",
     "size": 2,
     "cost": {
       "gold": 0,
@@ -669,7 +669,7 @@
   },
   {
     "name": "Guild",
-    "description": "Residents from level 3 can change callings here for free. Train eight different residents to grow a guild hall.",
+    "description": "Train settlers in a new calling.",
     "size": 2,
     "cost": {
       "gold": 0,
@@ -702,7 +702,7 @@
   },
   {
     "name": "Guild hall",
-    "description": "Residents from level 3 can change callings here for free.",
+    "description": "Train settlers in a new calling.",
     "size": 2,
     "cost": {
       "gold": 0,
@@ -735,7 +735,7 @@
   },
   {
     "name": "Chapel",
-    "description": "A house of prayer. Choose its faith to calm the faithful; new residents are born only at an altar.",
+    "description": "A place of worship.",
     "size": 2,
     "cost": {
       "gold": 0,
@@ -768,7 +768,7 @@
   },
   {
     "name": "Smithy",
-    "description": "A forge and an anvil where residents make weapons, shields and armor, one at a time. Upgrade it for stone, then iron.",
+    "description": "Forge weapons and armor.",
     "size": 1,
     "cost": {
       "gold": 0,
@@ -803,7 +803,7 @@
   },
   {
     "name": "Armorer",
-    "description": "An old armorer\u2019s forge. Smithies make armor now.",
+    "description": "An old forge.",
     "size": 1,
     "cost": {
       "gold": 0,
@@ -838,7 +838,7 @@
   },
   {
     "name": "Apothecary",
-    "description": "Potions and salves: staffed, the wounded heal faster, and adventurers buy here.",
+    "description": "Treat the wounded.",
     "size": 1,
     "cost": {
       "gold": 0,
@@ -871,7 +871,7 @@
   },
   {
     "name": "Palisade fort",
-    "description": "The camp grown into a stockade. With twenty residents it is rebuilt in stone.",
+    "description": "A fortified camp.",
     "size": 3,
     "cost": {
       "gold": 0,
@@ -906,7 +906,7 @@
   },
   {
     "name": "Stone keep",
-    "description": "Walls of stone. With twenty-six residents the realm raises a castle.",
+    "description": "A stone stronghold.",
     "size": 3,
     "cost": {
       "gold": 0,
@@ -974,7 +974,7 @@
   },
   {
     "name": "Torch",
-    "description": "A small road torch that lights the way.",
+    "description": "Lights the road.",
     "size": 0.25,
     "cost": {
       "gold": 0,
@@ -1007,7 +1007,7 @@
   },
   {
     "name": "Sawmill",
-    "description": "Workers saw two logs into one plank. Advanced construction needs finished timber.",
+    "description": "Saw logs into planks.",
     "size": 1.4,
     "cost": {
       "gold": 0,
@@ -1040,7 +1040,7 @@
   },
   {
     "name": "Stoneworks",
-    "description": "Workers dress two rough stones into one cut stone for advanced construction.",
+    "description": "Dress rough stone.",
     "size": 1.4,
     "cost": {
       "gold": 0,
@@ -1073,7 +1073,7 @@
   },
   {
     "name": "Timber store",
-    "description": "Stores 240 additional logs and planks. A depot for timber deliveries.",
+    "description": "Store logs and planks.",
     "size": 1.2,
     "cost": {
       "gold": 0,
@@ -1106,7 +1106,7 @@
   },
   {
     "name": "Granary",
-    "description": "Stores 240 additional food. Residents can collect meals here.",
+    "description": "Store food.",
     "size": 1.2,
     "cost": {
       "gold": 0,
@@ -1139,7 +1139,7 @@
   },
   {
     "name": "Stone store",
-    "description": "Stores 240 additional rough and cut stone. A depot for stone deliveries.",
+    "description": "Store rough and cut stone.",
     "size": 1.2,
     "cost": {
       "gold": 0,
@@ -1172,7 +1172,7 @@
   },
   {
     "name": "Watchtower",
-    "description": "Shoots nearby raiders and hostile monsters. Opens the Ranger calling at the guild and bows at the smithy.",
+    "description": "Guards the settlement.",
     "size": 1,
     "cost": {
       "gold": 0,
@@ -1205,7 +1205,7 @@
   },
   {
     "name": "Training yard",
-    "description": "Opens the Warrior calling at the guild and spears at the smithy.",
+    "description": "A place for weapons practice.",
     "size": 2,
     "cost": {
       "gold": 0,
@@ -1238,7 +1238,7 @@
   },
   {
     "name": "Runestone",
-    "description": "A carved stone that names the fallen. While one stands, the settlement grieves its dead less.",
+    "description": "Remembers the fallen.",
     "size": 0.8,
     "cost": {
       "gold": 0,
@@ -1271,7 +1271,7 @@
   },
   {
     "name": "Workbench",
-    "description": "An open-air bench where residents make tools and a pack basket, one at a time. Upgrade it for stone, then iron tools.",
+    "description": "Make tools and pack baskets.",
     "size": 0.8,
     "cost": {
       "gold": 0,
@@ -1304,7 +1304,7 @@
   },
   {
     "name": "Foundry",
-    "description": "Smelt mountain ore and bind frostwood with bones. Choose a material: the nearest free resident makes it for the village stores.",
+    "description": "Refine crafting materials.",
     "size": 1.4,
     "cost": {
       "gold": 0,
@@ -1338,7 +1338,7 @@
   },
   {
     "name": "Chicken coop",
-    "description": "Feed and water hens each day. Collect their eggs for food.",
+    "description": "Collect eggs.",
     "size": 2,
     "cost": {
       "gold": 0,
@@ -1371,7 +1371,7 @@
   },
   {
     "name": "Cowshed",
-    "description": "Feed and water cows each day. Collect their milk for food.",
+    "description": "Collect milk.",
     "size": 2,
     "cost": {
       "gold": 0,

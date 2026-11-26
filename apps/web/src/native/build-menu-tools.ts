@@ -17,13 +17,13 @@ export const toolInfo: readonly ToolInfo[] = [
   {
     label: 'Select',
     key: 'Q',
-    hint: 'Click or drag to select units. Right-click their own housing with units selected to rest. Right-click gives a contextual order.',
+    hint: 'Click or drag to select settlers.',
   },
-  { label: 'Road', key: 'D', hint: 'Hold and draw a road in one stroke. Release to build; Esc cancels.' },
+  { label: 'Road', key: 'D', hint: 'Drag to lay a road.' },
   {
     label: 'Pave',
     key: 'P',
-    hint: 'Click a laid road to pave it with stone: people walk faster on cobbles.',
+    hint: 'Choose a road to pave.',
   },
   // No longer offered: the Farm tool lays a farmhouse and its fields.
   { label: 'Field', key: '', hint: '' },
@@ -32,7 +32,7 @@ export const toolInfo: readonly ToolInfo[] = [
   {
     label: 'Farm',
     key: 'F',
-    hint: 'Drag an area: the farmhouse is raised in a corner and the rest is its field. Beside a farm of yours, an area is one more field.',
+    hint: 'Draw a field.',
   },
   { label: 'Wood', key: 'L', hint: '' },
   { label: 'Quarry', key: 'Z', hint: '' },
@@ -43,7 +43,7 @@ export const toolInfo: readonly ToolInfo[] = [
   { label: 'Inn', key: 'I', hint: '' },
   { label: 'Guild', key: 'U', hint: '' },
   { label: 'Chapel', key: 'G', hint: '' },
-  { label: 'Smithy', key: 'B', hint: 'Residents make weapons, shields and armor here, one at a time.' },
+  { label: 'Smithy', key: 'B', hint: 'Forge weapons and armor.' },
   { label: 'Armor', key: '', hint: '' },
   { label: 'Potion', key: 'O', hint: '' },
   { label: 'Altar', key: 'H', hint: '' },
@@ -59,10 +59,10 @@ export const toolInfo: readonly ToolInfo[] = [
   { label: 'Tower', key: '', hint: '' },
   { label: 'Yard', key: '', hint: '' },
   { label: 'Runestone', key: '', hint: '' },
-  { label: 'Workbench', key: '', hint: 'Residents make tools here, one at a time.' },
+  { label: 'Workbench', key: '', hint: 'Make tools and pack baskets.' },
   { label: 'Foundry', key: '', hint: '' },
-  { label: 'Chicken coop', key: '', hint: 'Draw a pasture for hens. A larger pasture holds more hens.' },
-  { label: 'Cowshed', key: '', hint: 'Draw a pasture for cows. A larger pasture holds more cows.' },
+  { label: 'Chicken coop', key: '', hint: 'Draw a pasture for hens.' },
+  { label: 'Cowshed', key: '', hint: 'Draw a pasture for cows.' },
 ];
 export interface BuildGroup {
   name: string;

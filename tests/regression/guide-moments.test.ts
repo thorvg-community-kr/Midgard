@@ -1,3 +1,4 @@
+import { raidWarning, RaidKind } from '../../packages/engine/src/raid-progression';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Town } from '../../packages/engine/src/town';
 import { WorldMap } from '../../packages/engine/src/world-map';
@@ -130,7 +131,7 @@ describe('first-time moments', () => {
     expect(h.keys().slice(0, 2)).toEqual(['opening', 'built:Camp']);
     town.awaiting = false;
     h.step();
-    expect(h.game.guide.card?.entry.key).toBe('built:Camp');
+    expect(h.game.guide.card).toBeNull();
   });
   it('tells of a gate only when it first stands in view, and leaves the camera where the player put it', () => {
     const { town, h } = newGame(),
@@ -177,20 +178,27 @@ describe('first-time moments', () => {
     expect(h.keys().filter((k) => k === key)).toHaveLength(1);
     expect(h.keys().length).toBe(logged);
   });
-  it('folds the first crafting notices into the guide and leaves later ones as notices', () => {
+  it('leaves the raid warning in the feed without opening a combat tutorial', () => {
+    const { town, h } = newGame();
+    town.awaiting = false;
+    const warning = raidWarning(RaidKind.Pack, 'The Howling Cleft', 0);
+    town.notify(warning);
+    h.step();
+    expect(town.notices).toContain(warning);
+    expect(h.game.guide.log.find(entry => entry.key === 'raid')?.seen).toBe(true);
+    expect(h.game.guide.card).toBeNull();
+    expect(h.game.guide.queue).toEqual([]);
+  });
+  it('records crafting quietly and leaves the result in the notice feed', () => {
     const { town, people, h } = newGame();
     town.notices.length = 0;
     town.notify('Askr crafted Wooden axe');
-    town.notify('Wooden axe in hand · Fells trees faster');
     h.step();
-    expect(town.notices).toEqual([]);
+    expect(town.notices).toEqual(['Askr crafted Wooden axe']);
     const craft = h.game.guide.log.find((e) => e.key === 'craft');
-    expect(craft?.detail).toEqual(['Askr crafted Wooden axe']);
     expect(craft?.at).toEqual(people[0].position);
-    expect(h.game.guide.log.find((e) => e.key === 'equip')?.detail).toEqual(['Wooden axe in hand · Fells trees faster']);
-    town.notify('Embla crafted Wooden pick');
-    h.step();
-    expect(town.notices).toEqual(['Embla crafted Wooden pick']);
+    expect(craft?.seen).toBe(true);
+    expect(h.game.guide.queue.some((entry) => entry.key === 'craft')).toBe(false);
   });
   it('keeps what was told across a save, and a loaded game repeats none of it', () => {
     const { town, people, h } = newGame();
@@ -236,20 +244,20 @@ describe('first-time moments', () => {
 describe('the camera', () => {
   const target = point(30, 20),
     aim = project(target.x, target.y);
-  /** A new game past its opening, with the tree felled far from the view. */
-  function felled(busy: (h: ReturnType<typeof harness>, people: Person[]) => void) {
+  /** A new game past its opening, with a new farm far from the view. */
+  function builtFarm(busy: (h: ReturnType<typeof harness>, people: Person[]) => void) {
     const { town, people, h } = newGame();
     town.awaiting = false;
     h.game.guide.queue = [];
     h.game.guide.card = null;
     busy(h, people);
-    fell(town, people[0], TreeWorkKind.Fall, target);
+    town.placed.push(new Building(town.nextId++, Structure.Farm, target, 0, 0));
     h.step();
     return { town, h };
   }
   it('eases to the place over about 0.6 s when the player is not busy', () => {
-    const { h } = felled(() => {});
-    expect(h.game.guide.card?.entry.key).toBe('wood');
+    const { h } = builtFarm(() => {});
+    expect(h.game.guide.card?.entry.key).toBe('built:Farm');
     expect(h.game.guide.card?.looked).toBe(true);
     h.run(0.3);
     expect(h.game.camera.x).not.toBe(aim.x);
@@ -275,9 +283,9 @@ describe('the camera', () => {
       },
     ],
   ])('stays with the player while %s and offers Look instead', (_, busy) => {
-    const { h } = felled(busy);
+    const { h } = builtFarm(busy);
     const before = { x: h.game.camera.x, y: h.game.camera.y };
-    expect(h.game.guide.card?.entry.key).toBe('wood');
+    expect(h.game.guide.card?.entry.key).toBe('built:Farm');
     expect(h.game.guide.card?.looked).toBe(false);
     expect(h.game.guide.card?.entry.at).toEqual(target);
     h.game.cues.length = 0;
@@ -285,7 +293,7 @@ describe('the camera', () => {
     expect({ x: h.game.camera.x, y: h.game.camera.y }).toEqual(before);
   });
   it('does not move with camera focus turned off', () => {
-    const { h } = felled(() => setGuidePreference('focus', false));
+    const { h } = builtFarm(() => setGuidePreference('focus', false));
     expect(h.game.guide.card?.looked).toBe(false);
     h.run(1);
     expect([h.game.camera.x, h.game.camera.y]).toEqual([0, 0]);
@@ -293,7 +301,7 @@ describe('the camera', () => {
 });
 
 describe('the selection', () => {
-  /** A new game past its opening with nothing selected, the camp's own note put away. */
+  /** A new game past its opening with nothing selected. */
   function settled() {
     const world = newGame();
     world.town.awaiting = false;
@@ -304,14 +312,14 @@ describe('the selection', () => {
   }
   const farm = (town: Town) => town.placed.push(new Building(town.nextId++, Structure.Farm, point(20, 14), 0, 0));
   const down = (town: Town, p: Person, at: Point = p.position) => town.emit(CombatCue.Downed, at, { person: p.id });
-  it('is laid on the thing a note introduces: the waiting founders, then the first camp', () => {
+  it('selects the waiting founders and leaves them selected when the camp is recorded', () => {
     const { town, h } = newGame();
     expect(h.app.chosen).toEqual([0, 1]);
     town.awaiting = false;
     h.step();
-    expect(h.game.guide.card?.entry.key).toBe('built:Camp');
-    expect(h.app.selected).toBe(0);
-    expect(h.app.chosen).toEqual([]);
+    expect(h.game.guide.card).toBeNull();
+    expect(h.app.selected).toBe(-1);
+    expect(h.app.chosen).toEqual([0, 1]);
   });
   it('is left alone by a first deed, which introduces no thing', () => {
     const { town, people, h } = settled();
@@ -325,7 +333,7 @@ describe('the selection', () => {
       h.step();
       expect(h.game.guide.log.find((e) => e.key === key)?.about, key).toEqual([]);
     }
-    expect(h.game.guide.card?.entry.key).toBe('wood');
+    expect(h.game.guide.card).toBeNull();
     expect(h.app.chosen).toEqual([]);
     expect(h.app.selected).toBe(-1);
   });
@@ -390,7 +398,7 @@ describe('the selection', () => {
 });
 
 describe('cards and the log', () => {
-  it('shows one card at a time; of a burst the first shows and the newest three wait, and the log keeps all', () => {
+  it('records routine milestones without queuing cards or taking attention from a new farm', () => {
     const { town, people, h } = newGame();
     town.awaiting = false;
     h.step();
@@ -407,12 +415,12 @@ describe('cards and the log', () => {
     h.step();
     const fired = h.keys().slice(before);
     expect(fired).toEqual(['wood', 'stone', 'craft', 'monster', 'kill', 'level', 'built:Farm']);
-    expect(h.game.guide.card?.entry.key).toBe('wood');
-    expect(h.game.guide.queue.map((e) => e.key)).toEqual(['kill', 'level', 'built:Farm']);
+    expect(h.game.guide.card?.entry.key).toBe('built:Farm');
+    expect(h.game.guide.queue).toEqual([]);
     expect(h.game.guide.log.at(-1)?.day).toBe(town.days + 1);
     dismissGuideCard(h.game);
     h.step();
-    expect(h.game.guide.card?.entry.key).toBe('kill');
+    expect(h.game.guide.card).toBeNull();
   });
   it('lets a card go after its time, and holds the next while the downed banner speaks', () => {
     const { town, people, h } = newGame();
@@ -439,7 +447,8 @@ describe('cards and the log', () => {
     h.step();
     expect(h.keys()).toContain('wood');
     expect(h.game.guide.card).toBeNull();
-    expect(guideUnread(h.game.guide)).toBe(h.keys().length);
+    expect(guideUnread(h.game.guide)).toBe(1);
+    expect(h.game.guide.log.find(e => e.key === 'wood')?.seen).toBe(true);
   });
   it('remembers the two settings in the browser', () => {
     const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage'),
@@ -469,7 +478,7 @@ describe('words', () => {
       lines = new Set<string>();
     for (const moment of guideMoments) {
       lines.add(fill(moment.title));
-      for (const text of moment.text(town)) lines.add(fill(text));
+      for (const text of moment.text?.(town) ?? []) lines.add(fill(text));
     }
     setLocale('KR');
     for (const text of lines) {
@@ -483,8 +492,6 @@ describe('words', () => {
       'Guide',
       'Log',
       'Log (F1)',
-      'Everything that has happened, to read again.',
-      'Everything that has happened, newest first.',
       'Got it',
       'Look',
       'Day 3',
@@ -496,7 +503,7 @@ describe('words', () => {
       'Newer',
       'Older',
       'Earlier',
-      'Nothing yet. What happens is written here.',
+      'No entries yet.',
       'Askr joins the settlement',
       'Askr used Challenge',
       'Askr learned Whirl',

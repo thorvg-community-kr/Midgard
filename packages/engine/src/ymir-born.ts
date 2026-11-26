@@ -3,7 +3,6 @@ export const designedWorldSeed = 5;
 // After Voluspa 17-18: Odin and his brothers found two trees on the shore (an ash and an elm), without breath
 // or fate, and gave them life. The statue on the founding shore and the altar are Odin's. What the player
 // reads says only "two trees".
-export const birthNotice = "Askr and Embla wake before Odin's statue: two trees he gave breath";
 export interface Founder {
   name: string;
   past: string;

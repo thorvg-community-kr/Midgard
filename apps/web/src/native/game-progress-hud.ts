@@ -11,21 +11,11 @@ import {
 } from '../../../../packages/engine/src/settlement-progression';
 import { Structure, Product, structureSpec } from '../../../../packages/engine/src/building-catalog';
 import type { Building } from '../../../../packages/engine/src/town-models';
-import { Activity, Role, callingName, type Person } from '../../../../packages/engine/src/person';
+import { Activity, Role, callingName } from '../../../../packages/engine/src/person';
 import { distance, project } from '../../../../packages/engine/src/geometry';
 import { f32 } from '../../../../packages/engine/src/numeric';
 import { canControl, isPlayerBuilding } from '../../../../packages/engine/src/faction';
-import {
-  equipmentSlots,
-  equippedItem,
-  carriedTools,
-  isCraftStation,
-  itemSpec,
-  workItem,
-  type ItemSpec,
-  type WorkKind,
-} from '../../../../packages/engine/src/equipment';
-import { gearEffect } from '../../../../packages/engine/src/gear-stats';
+import { isCraftStation, itemSpec } from '../../../../packages/engine/src/equipment';
 import type { Town } from '../../../../packages/engine/src/town';
 import { marketTier } from '../../../../packages/engine/src/economy-rules';
 import { Boon, boon, boonOfWorld, boonName, boonText, boonsHeld } from '../../../../packages/engine/src/gate-boons';
@@ -69,7 +59,6 @@ const menuTools = (): Tool[] => buildMenuGroups.flatMap((group) => group.tools);
 /** Call once per HUD frame. A new or loaded town is read silently. */
 export function trackUnlocks(app: GameHudApp): void {
   const town = app.town;
-  trackGearUse(app);
   if (app.unlockTown !== town) {
     app.unlockTown = town;
     app.unlockKnown = new Set(menuTools().filter((tool) => toolAvailable(town, tool)));
@@ -126,40 +115,6 @@ export function freshMark(app: GameHudApp, bounds: Rect, tag: boolean): void {
   c.rect(r, t.danger, 6);
   c.text(r, 'New', t.accentText, 8, true, Align.Center);
 }
-// The first time a piece of gear does its work, say what it changed.
-const gearSeen = new WeakMap<Town, Set<string>>();
-function gearAtWork(p: Person): ItemSpec | null {
-  if (p.moving()) return null;
-  const kind: WorkKind | null =
-    p.activity === Activity.Felling
-      ? 'woodcutting'
-      : p.activity === Activity.Mining
-        ? 'mining'
-        : p.activity === Activity.Building || p.activity === Activity.Roadwork
-          ? 'construction'
-          : p.activity === Activity.Crafting
-            ? 'crafting'
-            : null;
-  return kind ? workItem(p, kind) : null;
-}
-/** A new or loaded town counts the gear already in hand as seen. */
-export function trackGearUse(app: GameHudApp): void {
-  const town = app.town;
-  let seen = gearSeen.get(town);
-  if (!seen) {
-    seen = new Set();
-    for (const p of town.people())
-      for (const item of [...carriedTools(p), ...equipmentSlots.map((slot) => equippedItem(p, slot))]) if (item) seen.add(item.id);
-    gearSeen.set(town, seen);
-  }
-  for (const p of town.people()) {
-    const item = canControl(p) ? gearAtWork(p) : null;
-    if (!item || seen.has(item.id)) continue;
-    seen.add(item.id);
-    town.notify(`First use of the ${item.name} · ${gearEffect(item)}`);
-  }
-}
-
 // Quests: one useful action per goal, or none.
 export interface QuestAction {
   label: string;
@@ -634,16 +589,6 @@ export function progressInspector(app: GameHudApp, building: Building | null, ga
     if (lacking === null) return;
     out.y = f32(out.y + 4);
     textLine(app, out, lacking === Product.Stone ? 'No rock in sight' : 'No trees in sight', app.theme.danger, 12, true);
-    wrappedLines(
-      app,
-      out,
-      lacking === Product.Stone
-        ? 'Send a resident out to explore. Builders break grey rock by hand, faster with a wooden pick; a quarry needs a road.'
-        : 'Send a resident out to explore. Builders fell trees by hand, faster with a wooden axe.',
-      app.theme.muted,
-      11,
-      3,
-    );
     return;
   }
   if (isCraftStation(building.kind)) stationRows(app, building, out, recipes);

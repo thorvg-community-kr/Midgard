@@ -20,8 +20,7 @@ import { Terrain, type Tile } from './world-types';
 import { add, sub, scale, point, rotated, distance, type Point } from './geometry';
 import { f32 as f, lround, hash01 } from './numeric';
 import { livestockBatches } from './ranch-cycle';
-import { pressureNotice } from './raid-progression';
-import { gateActive, updateGateOpenings } from './gate-progression';
+import { updateGateOpenings } from './gate-progression';
 import { expectedCrops } from './farm-work';
 import { economyRules, swornCalling } from './economy-rules';
 import { coverDeposits } from './mining';
@@ -178,28 +177,14 @@ export function newDay(this: EconomyTown): void {
     this.notify(
       seasonName(date.season) + (date.season === Season.Spring ? ` of year ${date.year}` : '') + ' begins',
     );
-  if (before.season !== date.season && date.season === Season.Autumn)
-    this.notify('Winter is one season away: fields will lie fallow and game will thin. Store food.');
-  if (before.season !== date.season && date.season === Season.Winter)
-    this.notify('Game is scarce in winter.');
-  if (before.season === Season.Autumn && date.season === Season.Autumn)
+  if (before.season !== date.season && date.season === Season.Autumn) {
     for (const village of this.villages) {
       if (village.faction !== this.controlFaction || !this.population(village.camp)) continue;
-      const outlook = this.winterOutlook(village.camp);
-      if (!outlook.enough)
-        this.notify(
-          `Winter in ${outlook.daysToWinter} days: ${outlook.foodStored + outlook.harvestExpected} food stored or due, ${outlook.foodNeeded} needed. Farm, hunt or trade for food.`,
-        );
+      if (!this.winterOutlook(village.camp).enough)
+        this.notify(`Camp #${village.camp + 1} needs food for winter`);
     }
-  updateGateOpenings(this);
-  if (
-    this.days % 7 === 0 &&
-    this.camp() &&
-    this.world.dungeons().some((_, index) => gateActive(this, index))
-  ) {
-    const notice = pressureNotice(this.days / 7);
-    if (notice) this.notify(notice);
   }
+  updateGateOpenings(this);
   this.regrow();
   this.settleGuests();
   this.assignHomes();
@@ -252,7 +237,7 @@ export function store(this: EconomyTown, gain: Resources, village: number): void
   this.credit(accepted, village);
   if (spoiled && ledger.spoiledDay !== this.days) {
     ledger.spoiledDay = this.days;
-    this.notify('The stores are full: build a suitable depot or storehouse');
+    this.notify('The stores are full');
   }
 }
 /** 3 gold, +1 for every five levels above the first, +1 for a sworn calling. */

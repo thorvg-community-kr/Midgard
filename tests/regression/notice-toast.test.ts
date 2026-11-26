@@ -240,14 +240,14 @@ describe('the notices on screen', () => {
       ui.dispose();
     }
   });
-  const body = (words: unknown[]) => words.map(String).filter((text) => text.startsWith('A felled tree gives wood.'));
+  const body = (words: unknown[]) => words.map(String).filter((text) => text.startsWith('Select the dungeon'));
   it('opens the log folded, and a press on a title unfolds its body and folds it again', () => {
     const ui = screen();
     try {
-      ui.app.guide.log.push(told('wood', true));
+      ui.app.guide.log.push(told('gate', true));
       toggleGuideLog(ui.app);
       ui.drawLog(1);
-      expect(ui.words()).toContain('The first tree is down');
+      expect(ui.words()).toContain('A hostile dungeon');
       expect(body(ui.words())).toHaveLength(0);
       expect(ui.folds()).toHaveLength(1);
       ui.press(ui.folds()[0][1]);
@@ -269,12 +269,12 @@ describe('the notices on screen', () => {
   it('opens with an explanation not yet read unfolded', () => {
     const ui = screen();
     try {
-      ui.app.guide.log.push(told('kill', true), told('wood', false));
+      ui.app.guide.log.push(told('kill', true), told('gate', false));
       toggleGuideLog(ui.app);
       ui.drawLog(1);
       expect(body(ui.words())).toHaveLength(1);
       expect(ui.words()).toContain('The first kill');
-      expect(ui.words().map(String).filter((text) => text.startsWith('Defeating a monster gives experience'))).toHaveLength(0);
+      expect(ui.folds()).toHaveLength(1);
     } finally {
       ui.dispose();
     }

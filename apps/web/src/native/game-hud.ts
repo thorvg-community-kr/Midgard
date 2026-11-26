@@ -28,8 +28,6 @@ import {
   isSeat,
   isLodging,
   isOutfitter,
-  rentOf,
-  priceOf,
   faithName,
   describe,
 } from '../../../../packages/engine/src/building-catalog';
@@ -65,7 +63,7 @@ import { guideHud } from './game-guide-panel';
 import { orderRail, unitOrderRail } from './unit-orders-card';
 import { groupTabs } from './control-groups';
 import { aimPrompt, currentAim } from './skill-commands';
-import { attackDungeon, gateKindName, partyRecommendation, siegeLesson } from './dungeon-attack';
+import { attackDungeon, gateKindName } from './dungeon-attack';
 import { dungeonChallenge, dungeonStatus } from '../../../../packages/engine/src/dungeon-siege';
 import { gateActive } from '../../../../packages/engine/src/gate-progression';
 const tools = toolInfo;
@@ -152,16 +150,6 @@ export function hud(this: GameHudApp, width: number, height: number): void {
       13,
     );
   else if (currentAim(this)) strip(c, aimPrompt(this), line, t.ink, 13);
-  if (!this.touchMode && width > 640 && !this.town.camp()) {
-    const hintX = 16,
-      hintWidth = Math.max(1, f32(f32(width - hintX) - 316)),
-      hint = 'Found a camp (C) on explored ground.';
-    let y = f32(f32(this.skyBounds.y + this.skyBounds.h) + 10);
-    for (const row of wrap(c, hint, f32(hintWidth - 28), 11, 2)) {
-      strip(c, row, new Rect(hintX, y, hintWidth, 20), t.ink, 11, false);
-      y = f32(y + 24);
-    }
-  }
   noticeToast(this, width, height, guided ? 28 : 0, right);
   const questTop = this.touchMode ? touchHudTop(width, this.timeExpanded) : width < 900 ? 104 : 64;
   const overDock = this.touchMode && height < 500 && this.mobileQuestsExpanded;
@@ -272,10 +260,10 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
       textRow(severalCamps ? `${spec.name} #${building.id + 1}` : spec.name, t.text, 17, true);
     }
     if (building.faction > 0)
-      textRow(`Neutral settlement #${building.faction} · inspection only`, t.accent, 12, true);
+      textRow(`Neutral settlement #${building.faction}`, t.accent, 12, true);
     if (building.built() && building.health < 1)
       textRow(
-        `Damaged: ${Math.trunc(f32(building.health * 100))}%  -  builders will mend it`,
+        `Damaged · ${Math.trunc(f32(building.health * 100))}%`,
         t.danger,
         12,
         true,
@@ -286,24 +274,10 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
       textRow(`Under construction: ${Math.trunc(f32(building.progress * 100))}%`, t.accent, 13, true);
       textRow('On site: ' + describe(building.materials.delivered), t.text, 12);
       textRow('Required: ' + describe(building.materials.required), t.muted, 12);
-      const source = this.town.constructionSupplyCamp(building.id);
-      textRow(
-        source >= 0 ? 'Road supply: Camp #' + (source + 1) : 'Gather locally and carry materials here',
-        t.muted,
-        11,
-      );
     }
     if (spec.residents) textRow(`Homes ${spec.residents} people`, t.text);
-    if (rentOf(building.kind)) {
-      const owner = this.town.person(building.owner);
-      textRow(
-        owner
-          ? `Owned by ${owner.name}`
-          : `Let for ${rentOf(building.kind)} gold a day per resident; sells for ${priceOf(building.kind)}`,
-        owner ? t.accent : t.muted,
-        12,
-      );
-    }
+    const owner = this.town.person(building.owner);
+    if (owner) textRow(`Owned by ${owner.name}`, t.accent, 12);
     if (spec.beds) textRow(`Beds for ${spec.beds} guests`, t.text);
     if (hasProfiles(building)) {
       y = f32(y + 4);
@@ -311,14 +285,12 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
       profileRows(this, building, profiles);
       y = profiles.y;
     }
-    if (building.kind === Structure.WoodStore) textRow('Keeps 240 more logs and planks', t.text);
-    if (building.kind === Structure.Granary) textRow('Keeps 240 more food; meals served here', t.text);
-    if (building.kind === Structure.StoneStore) textRow('Keeps 240 more rough and cut stone', t.text);
-    if (spec.storage) textRow(`Keeps ${spec.storage} more of wood, stone, food and water`, t.text);
+    if (building.kind === Structure.WoodStore) textRow('Timber storage +240', t.text);
+    if (building.kind === Structure.Granary) textRow('Food storage +240', t.text);
+    if (building.kind === Structure.StoneStore) textRow('Stone storage +240', t.text);
+    if (spec.storage) textRow(`Storage +${spec.storage}`, t.text);
     if (isLodging(building.kind) || building.kind === Structure.Tavern || (isOutfitter(building.kind) && spec.jobs > 0))
       textRow(`Earned ${building.earned} gold from guests`, t.muted, 12);
-    if (building.kind === Structure.Guild || building.kind === Structure.GuildHall)
-      textRow(`${building.trainingCount} residents trained`, t.muted, 12);
     if (building.kind === Structure.Chapel && building.built()) {
       const peoples = ['humans', 'elves', 'dwarves', 'beastfolk'];
       textRow(`${faithName(building.faith)}: draws ${peoples[building.faith]}`, t.accent, 12, true);
@@ -350,13 +322,11 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
       textRow(hens ? `Hens ${count} / ${capacity}` : `Cows ${count} / ${capacity}`, t.text, 13, true);
       const village = this.town.settlementOf(building), stock = this.town.stock(village);
       const dailyFeed = count * pen.feed, dailyWater = count * pen.water;
-      textRow(`Daily ration · ${dailyFeed} food, ${dailyWater} water`, t.muted, 12);
-      if (!building.workers) textRow('Assign a worker to bring animals here.', t.accent, 12);
-      else if (!count && (stock.food < pen.feed || stock.water < pen.water))
-        textRow('Store food and water so the keeper can bring an animal.', t.accent, 12);
-      else if (!count) textRow(hens ? 'The keeper looks for wild chickens.' : 'The keeper looks for wild cows.', t.muted, 12);
-      if (stock.food < dailyFeed || stock.water < dailyWater)
-        textRow('The stores need food and water to feed every animal.', t.accent, 12);
+      if (count) textRow(`Daily ration · ${dailyFeed} food, ${dailyWater} water`, t.muted, 12);
+      if (!building.workers) textRow('Assign a keeper.', t.accent, 12);
+      else if (stock.food < Math.max(pen.feed, dailyFeed) || stock.water < Math.max(pen.water, dailyWater))
+        textRow('Short of feed or water.', t.accent, 12);
+      else if (!count) textRow(hens ? 'Looking for chickens' : 'Looking for cows', t.muted, 12);
       const storage = produceCapacity(building);
       textRow(hens ? `Eggs in nest ${building.storedProduce} / ${storage}` : `Milk in pails ${building.storedProduce} / ${storage}`,
         building.storedProduce ? t.success : t.muted, 12);
@@ -419,8 +389,8 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
         const plots = this.town.fields().filter(field => servesField(building, field));
         for (const field of plots)
           textRow(`${fieldStatus(this.town, field)} · ${field.acres()} acres`, t.muted, 12);
-        if (!plots.length) textRow('Draw a field beside this farmhouse.', t.muted, 12);
-        else if (!building.workers) textRow('Assign a worker to start production.', t.muted, 12);
+        if (!plots.length) textRow('Draw a field nearby.', t.muted, 12);
+        else if (!building.workers) textRow('Assign a worker.', t.muted, 12);
       } else if (spec.product === Product.Wood) {
         let standing = 0;
         const map = this.town.map();
@@ -437,23 +407,13 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
               standing = f32(standing + map.at(x, y).trees);
         textRow(
           standing
-            ? `Fells nearby trees: ${standing} left in reach`
-            : 'No trees left in reach; they grow back slowly',
+            ? `Nearby trees: ${standing}`
+            : 'No nearby trees',
           standing ? t.success : t.danger,
           12,
         );
-      } else if (spec.product === Product.Planks || spec.product === Product.CutStone)
-        textRow(
-          spec.product === Product.Planks
-            ? '2 logs → 1 plank / 24 worker seconds'
-            : '2 stone → 1 cut stone / 30 worker seconds',
-          t.success,
-          12,
-        );
-      else if (spec.product === Product.Stone)
-        textRow('Miners gather stone from nearby deposits.', t.muted, 12);
-      else if (!output.empty()) textRow(`Makes ${describe(output)} a day`, t.success, 12);
-      else if (spec.product !== Product.None && !building.workers) textRow('Assign a worker to start production.', t.muted, 12);
+      } else if (!output.empty()) textRow(`Makes ${describe(output)} a day`, t.success, 12);
+      else if (spec.product !== Product.None && !building.workers) textRow('Assign a worker.', t.muted, 12);
     }
     const footerWidth = station && building.built() ? Math.max(1, fullWidth - stationPagerWidth(this.touchMode) - 8) : fullWidth;
     const footer: InspectorRows = { rows: [], left, inner: footerWidth, top, y: 0 };
@@ -464,7 +424,7 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
     progressInspector(this, building, -1, progress, recipes);
     y = progress.y;
     const growth = this.town.growthStatus(building);
-    if (growth.grows) {
+    if (growth.grows && growth.days > 0) {
       y = f32(y + 4);
       textRow('Grows into ' + growth.next, t.accent, 13, true);
       const at = y,
@@ -474,9 +434,6 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
       });
       y = f32(y + 18);
       textRow(`${growth.days} / ${growth.needed} days`, t.muted, 12);
-      if (growth.reason)
-        for (const line of wrap(c, growth.reason, inner, 12, 2))
-          textRow(line, growth.ready ? t.muted : t.danger, 12);
     }
     footer.top = f32(top + y);
     rows.push(...footer.rows);
@@ -491,7 +448,7 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
     if (site.kind === DungeonKind.Return) {
       for (const line of wrap(
         c,
-        'The way back to Midgard. Gather the whole party here, then choose Go home. After the guardian falls the way opens from anywhere.',
+        'Return to Midgard.',
         inner,
         12,
       ))
@@ -499,7 +456,7 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
     } else if (site.kind === DungeonKind.GiantHall) {
       for (const line of wrap(
         c,
-        'Neutral stone giants live on the eastern coast. They leave their hall by day and return at dusk. They retaliate only when attacked.',
+        'Home of the stone giants.',
         inner,
         12,
       ))
@@ -508,18 +465,13 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
       const gate = this.selectedDungeon;
       const { phase, remaining, creatures } = dungeonStatus(this.town, gate);
       if (phase === 'standing') {
-        if (challenge) {
-          for (const recommendation of partyRecommendation(challenge))
-            for (const line of wrap(c, recommendation, inner, 12)) textRow(line, t.accent, 12, true);
-        }
         if (!gateActive(this.town, gate)) textRow('Dormant gate', t.muted, 12);
-        for (const line of wrap(c, siegeLesson, inner, 12, Infinity)) textRow(line, t.muted, 12);
         const at = y;
         rows.push(() => button(c, 'gate-attack', new Rect(left, top + at + 2, Math.min(inner, 220), this.touchMode ? 44 : 28),
           'Attack', () => attackDungeon(this, gate), ButtonStyle.Primary));
         y += this.touchMode ? 52 : 36;
       } else if (phase === 'sealed') {
-        textRow('Sealed: no raid leaves this gate', t.success, 12, true);
+        textRow('Sealed', t.success, 12, true);
       } else if (phase === 'summoning') {
         textRow('The guardian is rising', t.danger, 13, true);
       } else {

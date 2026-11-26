@@ -49,7 +49,7 @@ Open a resident’s Craft tab to order their own equipment. Their Guild tab list
   </tr>
 </table>
 
-The founding quests lead the way: a camp, a workbench and wooden tools, a smithy, a first weapon and a shield, then homes, a field and Odin's altar, before the Trade, Arms, Faith and Saga branches open. The first time something important happens, a guide card explains it and keeps it in a log you can reread (`F1`). A landmark is explained only once it is actually in view.
+The founding quests lead the way: a camp, a workbench and wooden tools, a smithy, a first weapon and a shield, then homes, a field and Odin's altar, before the Trade, Arms, Faith and Saga branches open. A short guide card introduces a landmark when it comes into view. The Log (`F1`) keeps discoveries, milestones and notices.
 
 ![A guide card explains a gate to another world as the founders stand before it](.github/media/midgard-guide.png)
 

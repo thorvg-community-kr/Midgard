@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dungeonThreat, pressureNotice, raidMight, raidMuster, raidShape, RaidKind, seatVolley, siegeMonsterLevel, threatWeeks } from '../../packages/engine/src/raid-progression';
+import { dungeonThreat, raidMight, raidMuster, raidShape, RaidKind, seatVolley, siegeMonsterLevel, threatWeeks } from '../../packages/engine/src/raid-progression';
 import { decodeTown, encodeTown } from '../../packages/engine/src/save-game';
 import { MonsterRank } from '../../packages/engine/src/combat-events';
 import { applyMonsterBalance, raidRewardHealth, rankRules } from '../../packages/engine/src/monster-ranks';
@@ -46,31 +46,23 @@ describe('weekly dungeon pressure', () => {
     // Fortifying the seat must never make the raids themselves worse.
     expect({ ...dungeonThreat(14, point(), [keep]), tier: 0 }).toEqual(dungeonThreat(14, point(), [camp]));
   });
-  it('bounds both swarm size and strength, and says so each week', () => {
+  it('bounds both swarm size and strength', () => {
     const castle = new Building(0, Structure.Castle, point(), 0, 0),
       cap = dungeonThreat(threatWeeks * 7, point(), [castle]);
     expect(dungeonThreat(700, point(), [castle]).count).toBe(12);
     expect(dungeonThreat(700, point(), [castle])).toEqual({ ...cap, week: 100 });
     expect(cap.health).toBeGreaterThan(dungeonThreat(threatWeeks * 7 - 1, point(), [castle]).health);
-    expect(pressureNotice(2)).toBe('Week 2: raiders grow stronger. Seal a gate to end its raids.');
-    expect(pressureNotice(threatWeeks)).toContain('largest hordes');
-    expect(pressureNotice(threatWeeks + 1)).toBe('');
   });
-  it('announces weekly pressure from an active gate even beyond the fog and stops after sealing', () => {
+  it('keeps the weekly strength increase out of the notice feed', () => {
     const town = new Town(5, 32, false),
       camp = new Building(0, Structure.Camp, town.map().camp(), 0, 0);
     camp.village = 0;
     town.placed.push(camp);
     town.foundSettlement(0);
-    for (const site of town.map().dungeons()) site.discovered = false;
     town.days = 6;
     town.notices = [];
     town.newDay();
-    expect(town.notices.some((text) => text.startsWith('Week 1:'))).toBe(true);
-    town.depth = town.map().dungeons().map(() => 3);
-    town.days = 13;
-    town.newDay();
-    expect(town.notices.some((text) => text.startsWith('Week 2:'))).toBe(false);
+    expect(town.notices.some((text) => text.startsWith('Week 1:'))).toBe(false);
   });
   it('lets a fortified seat shoot hard enough to matter', () => {
     const town = new Town(5, 32, false),

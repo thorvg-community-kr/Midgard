@@ -41,7 +41,7 @@ export const skills: readonly SkillSpec[] = [
   {
     id: 'challenge',
     name: 'Challenge',
-    description: 'Nearby monsters turn on the warrior for a while; the warrior takes less damage meanwhile.',
+    description: 'Draw nearby enemies to the warrior.',
     calling: Calling.Warrior,
     slot: 0,
     level: 1,
@@ -56,7 +56,7 @@ export const skills: readonly SkillSpec[] = [
   {
     id: 'whirl',
     name: 'Whirl',
-    description: 'Turn and strike one nearby enemy with a heavy blow.',
+    description: 'Strike one enemy with a heavy blow.',
     calling: Calling.Warrior,
     slot: 1,
     level: secondSkillLevel,
@@ -71,7 +71,7 @@ export const skills: readonly SkillSpec[] = [
   {
     id: 'aimed',
     name: 'Aimed Shot',
-    description: 'One heavy shot at the nearest enemy in range; breaks a wind-up.',
+    description: 'Interrupt an enemy with a shot.',
     calling: Calling.Ranger,
     slot: 0,
     level: 1,
@@ -86,7 +86,7 @@ export const skills: readonly SkillSpec[] = [
   {
     id: 'volley',
     name: 'Volley',
-    description: 'Loose a volley of arrows at one distant enemy.',
+    description: 'Loose arrows at one enemy.',
     calling: Calling.Ranger,
     slot: 1,
     level: secondSkillLevel,
@@ -101,7 +101,7 @@ export const skills: readonly SkillSpec[] = [
   {
     id: 'burst',
     name: 'Rune Burst',
-    description: 'A rune circle lands after a moment, hitting every monster inside for heavy damage.',
+    description: 'Strike enemies inside a rune circle.',
     calling: Calling.Mage,
     slot: 0,
     level: 1,
@@ -116,7 +116,7 @@ export const skills: readonly SkillSpec[] = [
   {
     id: 'frost',
     name: 'Frost Ring',
-    description: 'A ring of frost in the distance: enemies caught in it move and strike slower for a while.',
+    description: 'Slow enemies inside a frost ring.',
     calling: Calling.Mage,
     slot: 1,
     level: secondSkillLevel,
@@ -131,7 +131,7 @@ export const skills: readonly SkillSpec[] = [
   {
     id: 'mend',
     name: 'Mend',
-    description: 'Heals the most hurt ally nearby, or gets a downed ally up at once.',
+    description: 'Heal or revive an ally.',
     calling: Calling.Cleric,
     slot: 0,
     level: 1,
@@ -146,7 +146,7 @@ export const skills: readonly SkillSpec[] = [
   {
     id: 'sanctuary',
     name: 'Sanctuary',
-    description: 'Hallows the ground around the cleric for a while: allies inside mend steadily and the downed do not bleed out.',
+    description: 'Protect and heal nearby allies.',
     calling: Calling.Cleric,
     slot: 1,
     level: secondSkillLevel,
@@ -161,7 +161,7 @@ export const skills: readonly SkillSpec[] = [
   {
     id: 'rally',
     name: 'Rallying Verse',
-    description: 'Nearby allies strike harder and walk faster for a while.',
+    description: 'Strengthen nearby allies.',
     calling: Calling.Bard,
     slot: 0,
     level: 1,
@@ -176,7 +176,7 @@ export const skills: readonly SkillSpec[] = [
   {
     id: 'dirge',
     name: 'Dirge',
-    description: 'Nearby enemies lose heart for a while: their blows land softer and they move slower.',
+    description: 'Weaken nearby enemies.',
     calling: Calling.Bard,
     slot: 1,
     level: secondSkillLevel,

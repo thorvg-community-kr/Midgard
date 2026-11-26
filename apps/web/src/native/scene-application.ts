@@ -238,17 +238,7 @@ export class SceneApplication implements Application {
       const low = this.touchInput && height < 500 && width >= 470,
         narrow = width < 680,
         titleCenter = f(width * (low ? 0.28 : narrow ? 0.5 : 0.8)),
-        titleWidth = Math.min(520, low ? width * 0.44 : narrow ? width - 36 : f(width * f(0.36))),
-        tagline = 'A WORLD WAITING FOR YOUR STORY',
-        taglineSize = Math.min(12, (12 * (titleWidth - 8)) / this.overlay.textWidth(tagline, 12, true));
-      this.overlay.text(
-        new Rect(f(titleCenter - titleWidth / 2), low ? height * 0.34 - 28 : f(height * f(0.17)), titleWidth, 28),
-        tagline,
-        { r: 205, g: 217, b: 207, a: 255 },
-        taglineSize,
-        true,
-        Align.Center,
-      );
+        titleWidth = Math.min(520, low ? width * 0.44 : narrow ? width - 36 : f(width * f(0.36)));
       drawTitleWordmark(this.overlay, titleCenter, low ? height * 0.34 : f(height * f(0.22)), titleWidth);
       const subject = this.titlePlay?.subject();
       if (subject) {

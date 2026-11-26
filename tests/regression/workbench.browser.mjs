@@ -341,9 +341,7 @@ try {
   }
   const name = (await page.evaluate((id) => probe.founder(id), crafter)).name;
   const said = await page.evaluate(() => probe.history.slice());
-  const taken = said.indexOf(`${name} crafted Wooden axe`),
-    inHand = said.indexOf('Wooden axe in the pack · Felling efficiency +1 · Attack as a weapon +1 · Two-handed');
-  assert(taken >= 0 && inHand > taken, JSON.stringify(said));
+  assert(said.includes(`${name} crafted Wooden axe`), JSON.stringify(said));
   assert.equal((await page.evaluate((id) => probe.founder(id), crafter)).held.includes('wooden-axe'), true);
   await page.evaluate((id) => probe.advance(120, () => !probe.town.person(id).craftItem), second);
   const later = await page.evaluate((id) => {

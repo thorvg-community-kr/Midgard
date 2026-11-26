@@ -50,7 +50,7 @@ export class ResidentPresetPanel {
       this.rows = listResidentPresets();
     } catch {
       this.rows = [];
-      this.message('Could not open saved looks in this browser.', true);
+      this.message('Could not load presets.', true);
     }
   }
   use(code: string): boolean {
@@ -73,7 +73,7 @@ export class ResidentPresetPanel {
       this.name.cursor = 0;
       this.message('Preset saved.');
     } catch {
-      this.message('Could not save this preset. You can still copy its code.', true);
+      this.message('Save failed. Copy the code instead.', true);
     }
   }
   remove(): void {
@@ -98,7 +98,7 @@ async function copyCode(app: GameAppState, panel: ResidentPresetPanel): Promise<
   } catch {
     if (app.prayer?.presets !== panel || panel.tab !== 'code') return;
     // A native selectable field also works in browsers without clipboard permission.
-    window.prompt(translate('Select and copy your appearance code.'), code);
+    window.prompt(translate('Copy your appearance code.'), code);
   }
 }
 
@@ -263,7 +263,7 @@ function looksPage(app: GameAppState, p: ResidentPresetPanel, r: Rect): void {
   if (!p.rows.length) {
     c.text(
       new Rect(r.x, y, r.w, rowH),
-      saved ? 'No saved looks yet.' : 'No customized residents in this settlement.',
+      saved ? 'No saved looks yet.' : 'No custom looks yet.',
       t.muted,
       13,
     );

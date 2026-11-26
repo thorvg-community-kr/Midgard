@@ -193,7 +193,7 @@ function inventoryPanel(app: GameHudApp, p: Person, panel: Rect, statsLeft: numb
         const chosen = app.inventorySelected > 0 ? itemSpec(p.inventory[app.inventorySelected - 1]?.item ?? '') : null;
         if (chosen && chosen.category !== 'tool' && chosen.slots.includes(slot)) {
           if (!app.town.equipItem(p.id, app.inventorySelected, slot))
-            app.status = equipBlock(p, chosen, slot) || 'This item does not fit that slot or requires a higher level';
+            app.status = equipBlock(p, chosen, slot) || 'Cannot equip here';
         }
       },
       item && p.equipment[slot] === app.inventorySelected ? ButtonStyle.Primary : ButtonStyle.Default,

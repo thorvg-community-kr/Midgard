@@ -192,7 +192,7 @@ function updateOfferingAmount(app: GameAppState, state: PrayerDialog, key: Offer
 function creationProblem(state: PrayerDialog): string {
   return (
     state.town.altarOfferingReason(state.altar, state.offering) ||
-    (state.draft.name.value.trim() ? '' : 'Give your resident a name.')
+    (state.draft.name.value.trim() ? '' : 'Enter a name.')
   );
 }
 
@@ -203,7 +203,7 @@ function createResident(app: AltarApp, state: PrayerDialog): void {
   if (creationProblem(state)) return;
   const { born } = app.town.offerAtAltar(state.altar, state.offering, state.draft.identity());
   if (!born) {
-    state.error = 'The offering could not be completed. No resources were consumed.';
+    state.error = 'Offering failed.';
     return;
   }
   closePrayer.call(app);
@@ -416,8 +416,7 @@ export function renderPrayer(this: AltarApp, width: number, height: number): voi
     );
   if (state.presets) {
     renderResidentPresets(this, state.presets, body);
-    const status = state.presets.notice ||
-      (state.presets.tab === 'saved' ? 'Saved looks stay in this browser.' : '');
+    const status = state.presets.notice;
     if (status)
       c.text(
         new Rect(x, footY, innerW, short ? 18 : 23),
@@ -458,13 +457,7 @@ export function renderPrayer(this: AltarApp, width: number, height: number): voi
       14,
       true,
     );
-    const stats =
-      bonus === 0
-        ? '1 random stat point'
-        : bonus === 1
-          ? '1 base point · 1 extra point'
-          : `1 base point · ${bonus} extra points`;
-    c.text(new Rect(stage.x, readY + 22, colW, 18), stats, t.accent, 12, true);
+    c.text(new Rect(stage.x, readY + 22, colW, 18), `Stat points: ${1 + bonus}`, t.accent, 12, true);
     materialRows(this, state, rows, available);
     if (wide && rows.h > 315)
       c.text(

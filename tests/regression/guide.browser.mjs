@@ -299,29 +299,26 @@ try {
     await page.mouse.move(5, 400);
     await ui.shot('02-gate-in-view');
 
-    // 3. The first tree: the wait ends with the order, the card says where the wood goes.
+    // 3. The first tree: the wait ends with the order, gathering is recorded quietly.
     assert.ok(await page.evaluate(() => probe.fell()), 'a founder fells a tree');
     s = await ui.state();
     assert.ok(s.told.includes('wood'), JSON.stringify(s));
     assert.ok(!s.told.includes('opening') || s.card !== 'opening');
-    assert.ok(await page.evaluate(() => probe.until('wood')), 'the tree card shows');
-    await ui.clear();
+    assert.ok(!s.queue.includes('wood') && s.card !== 'wood');
     await ui.shot('03-first-tree');
 
     // 4. The first building: the camp.
     assert.ok(await page.evaluate(() => probe.foundCamp()), 'the camp is built');
-    assert.ok(await page.evaluate(() => probe.until('built:Camp')), 'the camp card shows');
-    await ui.clear();
+    s = await ui.state();
+    assert.ok(s.log.includes('built:Camp') && !s.queue.includes('built:Camp') && s.card !== 'built:Camp');
     await ui.shot('04-first-building');
 
-    // 5. The first crafted gear: the notice becomes the card's own line instead of a second toast.
+    // 5. The first crafted gear is recorded without an extra guide card.
     const shop = await page.evaluate(() => probe.craft());
     assert.ok(shop, 'a wooden axe is crafted');
     s = await ui.state();
     assert.ok(s.told.includes('craft'), JSON.stringify(s));
-    assert.ok(!s.notices.some((n) => / crafted Wooden axe$/.test(n)), 'the crafting notice was folded');
-    assert.ok(await page.evaluate(() => probe.until('craft')), 'the crafting card shows');
-    await ui.clear();
+    assert.ok(!s.queue.includes('craft') && s.card !== 'craft');
     await ui.shot('05-first-craft');
 
     // 6. In Korean: a monster comes and falls.
@@ -329,10 +326,9 @@ try {
     assert.ok(await page.evaluate(() => probe.monster()), 'the founders kill the monster');
     s = await ui.state();
     assert.ok(s.told.includes('monster') && s.told.includes('kill'), JSON.stringify(s));
-    assert.ok(await page.evaluate(() => probe.until('kill')), 'the kill card shows');
+    assert.ok(!s.queue.includes('kill') && s.card !== 'kill');
     await ui.frames(4);
-    await ui.clear();
-    await ui.shot('06-korean-kill-card');
+    await ui.shot('06-korean-first-kill');
     await page.evaluate(() => probe.korean(false));
 
     // 7. The log: F1 opens it, newest first, with a Look per placed entry.

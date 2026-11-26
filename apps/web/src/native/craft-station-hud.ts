@@ -300,8 +300,7 @@ export function stationRows(app: GameHudApp, station: Building, out: InspectorRo
     const level = stationLevel(station),
       next = stationStep(station.kind, level + 1),
       name = structureSpec(station.kind).name;
-    if (!next) line(level >= topLevel(station.kind) ? 'Highest level: everything here can be made' : '', t.muted, 10);
-    else {
+    if (next) {
       for (const text of wrapText(c, `Next level makes ${next.opens}`, inner, 10, 2)) line(text, t.text, 10);
       // The nearest free resident does the work; the player does not pick one.
       const crafter = town.stationUpgrader(station.id),
@@ -335,9 +334,6 @@ export function stationRows(app: GameHudApp, station: Building, out: InspectorRo
       out.y = f32(out.y + 32);
     }
   }
-  if (station.kind === Structure.Foundry)
-    for (const words of wrapText(c, 'Find iron and frostwood on snowy ground, cinder ore on volcanic ground and bones on fallen monsters.', inner, 11, 4))
-      line(words, t.muted, 11);
   if (working) {
     const at = out.y,
       share = town.craftShare(working),
@@ -375,7 +371,6 @@ export function stationRows(app: GameHudApp, station: Building, out: InspectorRo
     });
     out.y = f32(out.y + 30);
   }
-  if (working || waiting.length) line('Nothing is spent until the item is done.', t.muted, 10);
   out.y = f32(out.y + 4);
   drawStationRecipes(app, station, recipes, out.y);
   out.y = Math.max(out.y, recipes.y);

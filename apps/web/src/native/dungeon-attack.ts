@@ -1,4 +1,4 @@
-import { dungeonAttackProblem, type dungeonChallenge, dungeonWeaponTier, targetedDungeon } from '../../../../packages/engine/src/dungeon-siege';
+import { dungeonAttackProblem, targetedDungeon } from '../../../../packages/engine/src/dungeon-siege';
 import { equippedItem } from '../../../../packages/engine/src/equipment';
 import { canControl } from '../../../../packages/engine/src/faction';
 import { Activity } from '../../../../packages/engine/src/person';
@@ -11,16 +11,6 @@ import { controllableIds } from './game-control';
 
 export const gateKindName = (kind: DungeonKind): string =>
   ['Cave', 'Crypt', 'Rift portal', 'Ruined tower', 'Coastal giant hall', 'Rift'][kind] ?? '';
-const suggestedWeapons = {
-  stone: 'Bring flint or stone weapons.',
-  iron: 'Bring iron weapons.',
-  regional: 'Bring embersteel or frostwood weapons.',
-};
-export function partyRecommendation({ tier, level, partySize }: ReturnType<typeof dungeonChallenge>): string[] {
-  return [`Recommended: ${partySize} fighters at level ${level}`, suggestedWeapons[dungeonWeaponTier(tier)]];
-}
-export const siegeLesson = 'As the dungeon weakens, larger and stronger hordes emerge. The guardian leads the last wave. Defeat them all before the dungeon rises again.';
-
 interface AttackApp extends Pick<GameAppState, 'town' | 'chosen' | 'selectedDungeon' | 'dungeonAttackers' | 'status' | 'cues'> {
   selectPeople(ids: readonly number[]): void;
 }

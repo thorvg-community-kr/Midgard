@@ -948,9 +948,7 @@ it('keeps an altar draft across editor visits and applies it once with the final
     expect(ui.app.heardChosen).toEqual([born.id]);
     expect(ui.app.prayer).toBeNull();
     expect(ui.app.residentArrival?.person).toBe(born.id);
-    expect(ui.town.notices.at(-1)).toContain('Runa joins the settlement · Level 4');
-    if (born.birthStrength) expect(ui.town.notices.at(-1)).toContain('Strength +' + born.birthStrength);
-    if (born.birthVitality) expect(ui.town.notices.at(-1)).toContain('Vitality +' + born.birthVitality);
+    expect(ui.town.notices.at(-1)).toBe('Runa joins the settlement');
     ui.draw(() => {});
   } finally {
     closePrayer.call(ui.app);
@@ -958,7 +956,7 @@ it('keeps an altar draft across editor visits and applies it once with the final
     ui.dispose();
   }
 });
-it('previews class stats and lets a trained resident choose a different open profession', () => {
+it('previews a calling and lets a trained resident choose a different open profession', () => {
   const ui = fixture();
   try {
     const { guild } = civicTown(ui.town),
@@ -976,8 +974,7 @@ it('previews class stats and lets a trained resident choose a different open pro
     draw();
     expect(ui.app.inspectorCalling).toBe(Calling.Ranger);
     expect(resident.calling).toBe(Calling.Settler);
-    // A class preview does not conjure a bow or add weapon damage.
-    expect(ui.labels.mock.calls.some((call) => String(call[1]).includes('Reach 0.9'))).toBe(true);
+    expect(ui.labels.mock.calls.some((call) => call[1] === 'Fights with a bow.')).toBe(true);
     expect(ui.town.power(resident)).toBe(1);
     const action = ui.controls.mock.calls.find((call) => call[0] === 'guild-train')!;
     expect(action[3]).toBe(true);

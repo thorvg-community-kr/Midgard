@@ -130,7 +130,6 @@ function profile(app: GameHudApp, b: Building, p: Person, r: Rect): void {
   c.text(new Rect(f32(r.x + 2), f32(face.y + 68), f32(r.w - 4), 13), c.elideText(second, f32(r.w - 4), 9), t.muted, 9, false, Align.Center);
   const lines = [`${p.name}, ${callingName(p.calling)}, level ${p.level}`, stateWords[state]];
   if (p.woundDays > 0) lines.push('Wounded');
-  lines.push('Click to select and look');
   tooltip(c, id, hover.hovered, lines);
 }
 function freeBed(app: GameHudApp, r: Rect): void {

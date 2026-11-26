@@ -45,7 +45,7 @@ function digitOf(e: KeyPress): number {
 export function selectFighters(app: GroupApp): boolean {
   const ids = fightersAtHand(app.town).map((p) => p.id);
   if (!ids.length) {
-    app.status = 'No fighter is free: the warriors, rangers, mages, clerics and bards are busy or indoors';
+    app.status = 'No fighters available.';
     return false;
   }
   app.selectPeople(ids);

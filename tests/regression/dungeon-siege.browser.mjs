@@ -233,9 +233,7 @@ try {
     assert.equal(picked.selected, picked.gate, JSON.stringify({ touch, gate, picked }));
     assert.deepEqual(await page.evaluate(() => probe.snapshot().selected), []);
     const inspection = await page.evaluate(() => probe.visibleLabels());
-    assert.match(inspection.join(' '), /Recommended: 10 fighters at level 10/);
-    assert.match(inspection.join(' '), /larger and stronger hordes/);
-    assert.match(inspection.join(' '), /Defeat them all before the dungeon rises again\./);
+    assert(!inspection.some(text => text.includes('Recommended:')));
     assert(!inspection.some(text => text.includes('Dungeon health')));
     assert(inspection.includes('Attack'), 'The dungeon inspector shows an Attack button');
     await control('gate-attack');

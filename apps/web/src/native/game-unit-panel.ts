@@ -20,7 +20,7 @@ import { skillCard, skillCardHeight } from './skill-card';
 import { orderLegend, railBeside, railGutter, titleTile, titleTileControl, titleTileWidth } from './unit-orders-card';
 import { groupsOf } from './control-groups';
 import { openWorkbench, workPace, workbenchTip } from './game-equipment-panel';
-import { tooltip } from './game-combat-hud';
+import { tooltip, woundStatus } from './game-combat-hud';
 
 /** With a mouse an aimed order folds the panel to its title row: the view is free and the lit order still shows. */
 export const aimFolded = (app: GameHudApp): boolean =>
@@ -162,10 +162,10 @@ export function personPanel(this: GameHudApp, panel: Rect): void {
     );
     const action =
       p.downedAt >= 0 && p.health > -0.5
-        ? `Downed: bleeds out in ${Math.ceil(this.town.bleedOutLeft(p))} s unless an ally kneels beside them`
+        ? `Bleeding out · ${Math.ceil(this.town.bleedOutLeft(p))} s`
         : controlReason(p) ||
           (p.holding
-            ? 'Holding position: strikes what comes into reach, never chases'
+            ? 'Holding position'
             : (p.moving() ? 'On the way: ' : '') + activityName(p.activity) + workPace(p));
     if (p.downedAt >= 0) c.requestFrameAt(c.time() + 0.5);
     c.text(
@@ -177,7 +177,7 @@ export function personPanel(this: GameHudApp, panel: Rect): void {
     const home = this.town.building(p.role === Role.Guest ? p.bed : p.home);
     const detail =
       p.woundDays > 0
-        ? `Wounded: health stays low for ${Math.ceil(p.woundDays)} more ${Math.ceil(p.woundDays) === 1 ? 'day' : 'days'}`
+        ? woundStatus(p.woundDays)
         : p.carrying
           ? 'Carrying ' + describe(resourceBundle(p.carriedProduct, p.carrying))
           : home

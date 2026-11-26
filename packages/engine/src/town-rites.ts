@@ -21,19 +21,19 @@ export function rites(this: TownState): Rite[] {
     {
       id: 'ward',
       name: 'Ward',
-      description: 'Monster blows against residents near the settlement land softer until dawn.',
+      description: 'Protects settlers until dawn.',
       mana: economyRules.wardMana,
     },
     {
       id: 'mending',
       name: 'Mending',
-      description: 'Every standing resident regains health, and lasting wounds heal sooner.',
+      description: 'Heals wounded settlers.',
       mana: economyRules.mendingMana,
     },
     {
       id: 'farsight',
       name: 'Farsight',
-      description: 'Reveals the nearest gate not yet found.',
+      description: 'Reveals a hidden dungeon.',
       mana: economyRules.farsightMana,
     },
   ];
@@ -97,7 +97,7 @@ export function performRite(this: Town, id: string, village: number): boolean {
       start = Math.floor(this.time / day) * day,
       sunrise = dayCycle(this.yearFraction(), this.dayFraction()).sunrise * day;
     this.wardUntil = start + sunrise > this.time ? start + sunrise : start + day + sunrise;
-    this.notify('The mage tower raises a ward over the settlement until dawn');
+    this.notify('Ward raised');
   } else if (id === 'mending') {
     let mended = 0;
     for (const p of residents(this, village)) {
@@ -110,10 +110,10 @@ export function performRite(this: Town, id: string, village: number): boolean {
       if (p.health > before)
         this.emit(CombatCue.Heal, p.position, { person: p.id, amount: Math.round((p.health - before) * 100) });
     }
-    this.notify(`The mage tower's mending eases ${mended} ${mended === 1 ? 'resident' : 'residents'}`);
+    this.notify(`Healed ${mended} ${mended === 1 ? 'settler' : 'settlers'}`);
   } else {
     const site = this.world.dungeons()[nearestHiddenGate(this, village)];
-    this.notify('Farsight shows a gate beyond the fog');
+    this.notify('Farsight revealed a dungeon');
     this.reveal(site.origin.x + 1, site.origin.y + 1, economyRules.farsightRadius);
   }
   ++this.changes;

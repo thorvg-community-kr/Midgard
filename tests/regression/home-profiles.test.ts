@@ -275,7 +275,6 @@ describe('who lives here, in the inspector', () => {
       'Away beyond a gate',
       'Downed',
       'Wounded',
-      'Click to select and look',
       'Lv 3 · Warrior',
       'Bo, Warrior, level 3',
     ])

@@ -8,7 +8,7 @@ import { windowBackdrop } from './hud-window';
 import type { GameHudApp } from './game-hud-contract';
 import { callingName, type Person } from '../../../../packages/engine/src/person';
 import { combatRules } from '../../../../packages/engine/src/combat-events';
-import { combatHints, pickPartyMember, recallParty, wrapText } from './game-combat-hud';
+import { pickPartyMember, recallParty, woundStatus, wrapText } from './game-combat-hud';
 import { swarmCount, swarmLine } from './swarm-hud';
 
 /** Status and the way home for the party that is beyond a gate. */
@@ -26,22 +26,19 @@ export function realmPanel(this: GameHudApp, width: number, height: number): voi
     loot = this.town.realmLoot,
     w = Math.min(300, f32(width - 24)),
     inner = f32(w - 24),
-    scouting = this.town.chronicle.partiesLed === 1,
-    denDown = scouting && this.town.realmDens().length < this.town.realmDenTotal(),
-    header = scouting ? 54 : 34,
+    header = 34,
     collapsed = this.realmCollapsed || compact,
     reason = wrapText(
       c,
-      !leave.ok ? leave.reason : leave.cost.empty() ? 'The way home is open' : 'The portal can pull the party home',
+      leave.ok ? '' : leave.reason,
       inner,
       10,
       3,
     ),
     leftLine = leave.ok && left.length ? `Go home leaves behind: ${left.map((p) => p.name).join(', ')}` : '',
-    hints = this.touchMode ? [] : combatHints,
     body = collapsed
       ? 0
-      : 44 + party.length * rowHeight + 18 + reason.length * 14 + (leftLine ? 14 : 0) + 10 + 40 + (hints.length ? 6 + hints.length * 13 : 0),
+      : 44 + party.length * rowHeight + 18 + reason.length * 14 + (leftLine ? 14 : 0) + 10 + 40,
     top = f32(f32(this.skyBounds.y + this.skyBounds.h) + (compact ? 52 : 34)),
     bounds = new Rect(12, top, w, Math.min(header + body, f32(this.dockBounds.y - top - 8)));
   if (bounds.h < header) return;
@@ -64,10 +61,6 @@ export function realmPanel(this: GameHudApp, width: number, height: number): voi
       () => (this.realmCollapsed = !this.realmCollapsed),
       ButtonStyle.Quiet,
     );
-  if (scouting)
-    c.text(new Rect(bounds.x + 12, top + 31, inner, 18),
-      denDown ? 'Optional goal · Bring the party home' : 'Optional goal · Destroy one den and return alive',
-      denDown ? t.success : t.accent, 10, true);
   if (collapsed) {
     const count = swarmCount(this);
     if (count)
@@ -128,11 +121,7 @@ export function realmPanel(this: GameHudApp, width: number, height: number): voi
       ButtonStyle.Primary,
       leave.ok,
     );
-    y = f32(y + 34);
-    for (const hint of hints) {
-      c.text(new Rect(left, y, inner, 13), c.elideText(hint, inner, 9), t.muted, 9);
-      y = f32(y + 13);
-    }
+
   });
 }
 const rowHeight = 22;
@@ -193,11 +182,11 @@ function partyFrame(app: GameHudApp, p: Person, r: Rect): void {
   const lines = [
     `${p.name}, ${callingName(p.calling)}, level ${p.level}`,
     downed
-      ? `Downed: bleeds out in ${Math.ceil(town.bleedOutLeft(p))} s. Select an ally and right-click the body to revive.`
+      ? `Bleeding out · ${Math.ceil(town.bleedOutLeft(p))} s`
       : `Health ${Math.round(p.health * 100)}%`,
   ];
   if (p.woundDays > 0)
-    lines.push(`Wounded: health stays low for ${Math.ceil(p.woundDays)} more ${Math.ceil(p.woundDays) === 1 ? 'day' : 'days'}`);
+    lines.push(woundStatus(p.woundDays));
   if (!downed && p.holding) lines.push('Holding position');
   if (!downed)
     for (const skill of skills)
@@ -208,7 +197,6 @@ function partyFrame(app: GameHudApp, p: Person, r: Rect): void {
             ? `${skill.name} is ready`
             : `${skill.name} in ${Math.ceil(skill.remaining)} s`,
       );
-  lines.push('Click to select; click twice to look.');
   c.deferOverlay(
     (area, controls) => {
       const anchor = controls.find((control) => control.id === id)?.bounds;
@@ -269,7 +257,7 @@ export function sagaBanner(this: GameHudApp, width: number, height: number): voi
     t = this.theme,
     won = state === Saga.Victory,
     w = Math.min(440, f32(width - 24)),
-    bounds = new Rect((width - w) / 2, (height - 168) / 2, w, 168),
+    bounds = new Rect((width - w) / 2, (height - 148) / 2, w, 148),
     seals = sealProgress(this.town);
   const close = () => { this.sagaDismissed = true; };
   windowBackdrop(c, new Rect(0, 0, width, height), bounds, 'saga-banner', 'saga-continue', close);
@@ -282,16 +270,12 @@ export function sagaBanner(this: GameHudApp, width: number, height: number): voi
     true,
     Align.Center,
   );
-  const lines = won
-    ? [`All ${seals.total} gates to the other worlds are sealed.`, `Day ${this.town.days + 1}. The saga is complete.`]
-    : ['No resident is left alive.', `${seals.sealed} of ${seals.total} gates were sealed by day ${this.town.days + 1}.`];
-  lines.forEach((line, index) =>
-    c.text(new Rect(bounds.x, f32(bounds.y + 58 + index * 20), w, 18), line, t.text, 12, false, Align.Center),
-  );
+  c.text(new Rect(bounds.x, bounds.y + 58, w, 18),
+    `Day ${this.town.days + 1} · Dungeons sealed ${seals.sealed} / ${seals.total}`, t.text, 12, false, Align.Center);
   button(
     c,
     'saga-continue',
-    new Rect(f32(bounds.x + f32(w / 2) - 80), f32(bounds.y + 112), 160, this.touchMode ? 44 : 34),
+    new Rect(f32(bounds.x + f32(w / 2) - 80), f32(bounds.y + 90), 160, this.touchMode ? 44 : 34),
     won ? 'Keep playing' : 'Keep watching',
     close,
     ButtonStyle.Primary,

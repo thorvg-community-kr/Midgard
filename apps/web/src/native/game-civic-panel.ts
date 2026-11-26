@@ -1,6 +1,5 @@
 import { Rect, ButtonStyle, button, type Color } from '../../../../packages/native-ui/src';
 import { Structure, structureSpec } from '../../../../packages/engine/src/building-catalog';
-import { guildLevel } from '../../../../packages/engine/src/progression-rules';
 import { Activity, callingName } from '../../../../packages/engine/src/person';
 import {
   isPlayerResident,
@@ -8,8 +7,6 @@ import {
   canControl,
   buildingControlReason,
 } from '../../../../packages/engine/src/faction';
-import { reachOf } from '../../../../packages/engine/src/town-monsters';
-import { copyNative } from '../../../../packages/engine/src/native-copy';
 import { personPortrait, moodOf } from '../../../../packages/native-renderer/src/person-portrait';
 import { portraitBackdrop } from '../../../../packages/native-renderer/src/portrait-background';
 import type { Building } from '../../../../packages/engine/src/town-models';
@@ -39,7 +36,7 @@ export function civicInspector(this: GameHudApp, building: Building, panel: Rect
   line(9, structureSpec(building.kind).name, t.text, 17, true);
   line(
     compact ? 30 : 34,
-    `Change calling from level ${guildLevel} · ${building.trainingCount} residents trained`,
+    `${building.trainingCount} residents trained`,
     t.muted,
     compact ? 10 : 12,
   );
@@ -136,24 +133,14 @@ export function civicInspector(this: GameHudApp, building: Building, panel: Rect
     );
   }
   if (person && option) {
-    // Preview only the class field; health, level and equipment remain this resident's.
-    const preview = copyNative(person);
-    preview.calling = option.calling;
-    line(
-      compact ? 162 : 202,
-      `Power ${this.town.power(preview).toFixed(1)} · Reach ${reachOf(preview).toFixed(1)} · Vitality ${preview.vitalityMultiplier().toFixed(1)}x`,
-      t.accent,
-      compact ? 10 : 12,
-      true,
-    );
-    if (!compact) line(226, option.description, t.muted, 11);
+    line(compact ? 162 : 202, option.description, t.muted, 11);
     const training = person.task === Activity.Training && person.taskSite === building.id;
     const reason = option.reason;
     line(
       compact ? 179 : 251,
       training
         ? `New calling · ${callingName(person.trainingCalling)}`
-        : reason || 'Free training · Keeps level and equipment',
+        : reason,
       reason && person.calling !== option.calling && !training ? t.danger : t.muted,
       compact ? 9 : 11,
     );

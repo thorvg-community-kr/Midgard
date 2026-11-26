@@ -756,7 +756,6 @@ describe('Korean for the smithy', () => {
       'Bryn is making it',
       'Everyone has one',
       'Nobody is free to make it',
-      'Wooden axe in the pack · Felling efficiency +1 · Attack as a weapon +1 · Two-handed',
       'Block +24 · Off hand',
       'Defence +12',
       'Melee attack +3 · STR scaling +5 · DEX scaling +2',

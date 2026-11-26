@@ -259,10 +259,7 @@ function wakeButton(app: GameHudApp, width: number): void {
       : new Rect(Math.max(12 + size + 8, f(app.skyBounds.x - size - 6)), 12, size, size),
     state = button(c, 'wake-everyone', r, '', () => app.wakeEveryone());
   hudGlyph(c, 'wake', f(r.x + r.w / 2), f(r.y + r.h / 2 + (state.lift ?? 0)), state.hovered ? t.text : t.accent);
-  tooltip(c, 'wake-everyone', state.hovered && !app.touchMode, [
-    'Wake everyone',
-    'Resting residents come outside and resume their orders.',
-  ]);
+  tooltip(c, 'wake-everyone', state.hovered && !app.touchMode, ['Wake everyone']);
 }
 export function calendarDetails(this: GameHudApp, width: number): void {
   if (!this.skyHovered || this.touchMode) return;

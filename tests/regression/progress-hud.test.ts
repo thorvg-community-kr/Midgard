@@ -23,7 +23,7 @@ import { commandCard, inspector, buildMenuBounds, buildGroups, openGroups } from
 import { objectives } from '../../apps/web/src/native/game-objectives';
 import { calendarDetails } from '../../apps/web/src/native/game-sky-hud';
 import { winterOutlookLine } from '../../apps/web/src/native/camp-resource-hud';
-import { trackUnlocks, trackGearUse, freshGroup } from '../../apps/web/src/native/game-progress-hud';
+import { trackUnlocks, freshGroup } from '../../apps/web/src/native/game-progress-hud';
 import { setGuidePreference } from '../../apps/web/src/native/guide-preferences';
 import { unlockOf } from '../../apps/web/src/native/game-guide';
 import { questRules } from '../../apps/web/src/native/game-objectives';
@@ -292,7 +292,6 @@ describe('quest panel', () => {
         expect.arrayContaining([
           `${carrier.name} is making Wooden axe · 50%`,
           `${near.name} waits to make Wooden hoe`,
-          'Nothing is spent until the item is done.',
         ]),
       );
       // Each order can be called off: the worker's, each waiting one's, and on the recipe row it started from.
@@ -339,7 +338,7 @@ describe('quest panel', () => {
       town.resourceNearby = () => false;
       questPanel(ui);
       expect(ui.words()).toEqual(
-        expect.arrayContaining(['No rock in sight: send a resident out to explore', 'Scout for stone']),
+        expect.arrayContaining(['No rock in sight', 'Scout for stone']),
       );
       const move = vi.spyOn(town, 'orderMove');
       ui.click(`quest-action/${goal}`);
@@ -361,29 +360,15 @@ describe('quest panel', () => {
       ui.dispose();
     }
   });
-  it('announces the first use of each tool with what it changed, once, and stays silent on load', () => {
-    const town = settlement(),
-      ui = fixture(town),
-      p = resident(town);
+  it('keeps tool effects in the inventory when a settler starts work', () => {
+    const town = settlement(), ui = fixture(town), p = resident(town);
     try {
-      trackGearUse(ui.app);
+      trackUnlocks(ui.app);
       expect(addInventory(p, 'wooden-axe')).toBe(true);
       expect(town.equipItem(p.id, 1, 'tool1')).toBe(true);
-      trackGearUse(ui.app);
-      expect(town.notices).toEqual([]);
       p.activity = Activity.Felling;
-      trackGearUse(ui.app);
-      trackGearUse(ui.app);
-      expect(town.notices).toEqual(['First use of the Wooden axe · Felling efficiency +1 · Attack as a weapon +1 · Two-handed']);
-      // A loaded town reads the gear already in use silently.
-      const loaded = settlement(),
-        q = resident(loaded);
-      addInventory(q, 'wooden-pick');
-      loaded.equipItem(q.id, 1, 'tool1');
-      q.activity = Activity.Mining;
-      ui.app.town = loaded;
-      trackGearUse(ui.app);
-      expect(loaded.notices).toEqual([]);
+      trackUnlocks(ui.app);
+      expect(town.notices).toEqual([]);
     } finally {
       ui.dispose();
     }
@@ -762,16 +747,16 @@ describe('inspectors', () => {
       ui.dispose();
     }
   });
-  it('shows the military school unlocks on each building without a staffing control', () => {
+  it('describes each military building without a list of unlocks or a staffing control', () => {
     const town = settlement(), ui = fixture(town);
     try {
-      for (const [kind, calling, weapon] of [[Structure.Watchtower, 'Ranger', 'bows'], [Structure.TrainingYard, 'Warrior', 'spears']] as const) {
+      for (const kind of [Structure.Watchtower, Structure.TrainingYard]) {
         const school = facility(town, kind, 1);
         school.progress = 1;
         inspect(ui, school);
         const text = ui.words().join(' ');
-        expect(text).toContain(calling);
-        expect(text).toContain(weapon);
+        expect(text).toContain(structureSpec(kind).description);
+        expect(text).not.toMatch(/opens|Ranger|Warrior|bows|spears/i);
         expect(text).not.toMatch(/assign a worker|Workers [0-9]/i);
       }
     } finally {
@@ -801,11 +786,9 @@ describe('inspectors', () => {
       gift = boonOfWorld(town.map().destination(town.map().dungeons()[index]));
     try {
       inspect(ui, null, index);
-      const { tier, level, partySize } = dungeonChallenge(town, index);
+      const { tier } = dungeonChallenge(town, index);
       expect(ui.words().join(' ')).toContain(`Dungeon tier ${tier}`);
-      expect(ui.words().join(' ')).toContain(`Recommended: ${partySize} fighters at level ${level}`);
-      expect(ui.words().join(' ')).toContain('Bring flint or stone weapons.');
-      expect(ui.words().join(' ')).toContain('larger and stronger hordes');
+      expect(ui.words().join(' ')).not.toMatch(/Recommended:|Bring flint|larger and stronger hordes/);
       expect(ui.words().join(' ')).not.toContain('Dungeon health');
       expect(ui.words()).toContain(`Sealing grants the boon of ${boonName(gift)}`);
       expect(ui.words()).toContain('Attack');
@@ -837,7 +820,7 @@ describe('winter outlook', () => {
       town.days = 35;
       town.stock().food = 5;
       const need = Math.ceil((6 * 15) / economyRules.daysPerMeal);
-      expect(winterOutlookLine(town, 0)).toEqual({ text: `Winter in 10 days · food 5 of ${need} needed`, short: true });
+      expect(winterOutlookLine(town, 0)).toEqual({ text: `Winter in 10 days · Food forecast 5 / ${need}`, short: true });
       ui.app.skyHovered = true;
       ui.app.skyBounds = new Rect(332, 12, 360, 36);
       const labels = vi.spyOn(ui.context, 'text');
@@ -845,9 +828,9 @@ describe('winter outlook', () => {
       const line = labels.mock.calls.find(([, text]) => text.startsWith('Winter in 10 days'));
       expect(line?.[2]).toEqual(ui.app.theme.danger);
       ui.draw(() => ui.app.campResources.drawStores(ui.context, ui.app.theme, town, 0, new Rect(10, 10, 336, 242)));
-      expect(ui.words()).toContain(`Winter in 10 days · food 5 of ${need} needed`);
+      expect(ui.words()).toContain(`Winter in 10 days · Food forecast 5 / ${need}`);
       town.days = 50;
-      expect(winterOutlookLine(town, 0)?.text).toMatch(/^Winter · food 5 of \d+ needed until spring$/);
+      expect(winterOutlookLine(town, 0)?.text).toMatch(/^Winter · Food forecast 5 \/ \d+$/);
     } finally {
       ui.dispose();
     }

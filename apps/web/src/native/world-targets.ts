@@ -59,10 +59,10 @@ export function refreshHoveredTarget(app: GameCommandApp): void {
 
 export const landmarkDescription = (id: number): string =>
   [
-    'Odin, the Allfather. An ancient stone statue beside the founding shore.',
-    'Fire Mountain. A volcanic landmark with lava flows and a smoking crater.',
-    'Hvergelmir. The deep northern spring from which the rivers flow.',
-    'Thor, god of thunder. A guest who hunts monsters by night.',
+    'A statue of the Allfather.',
+    'Smoke rises from the crater.',
+    'The northern source of the rivers.',
+    'God of thunder.',
   ][id] ?? '';
 
 export function worldTarget(app: GameCommandApp, ref: WorldObjectRef): WorldTarget | null {

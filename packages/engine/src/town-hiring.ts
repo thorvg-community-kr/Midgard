@@ -20,7 +20,7 @@ export function recruitmentOffers(this: TownState, _village = -1): HireOffer[] {
   return [];
 }
 export function recruitmentReason(this: TownState, _offer: HireOffer): string {
-  return 'Guests visit for a while. Prepare food and a free bed to welcome a resident at the altar.';
+  return 'Welcome new settlers at the altar.';
 }
 export function hireGuest(this: TownState, _key: string): boolean {
   return false;
@@ -42,12 +42,12 @@ export interface TrainingTown extends TownState {
   trainingReason(personId: number, guildId: number, calling: Calling): string;
 }
 const professions: readonly { calling: Calling; description: string }[] = [
-  { calling: Calling.Warrior, description: 'Draws foes away from allies and strikes one enemy with a heavy blow.' },
-  { calling: Calling.Ranger, description: 'Interrupts heavy blows and concentrates arrows on one enemy.' },
-  { calling: Calling.Mage, description: 'Strikes groups with runes and slows them with frost.' },
-  { calling: Calling.Cleric, description: 'Heals the wounded and revives fallen allies.' },
-  { calling: Calling.Bard, description: 'Songs rally allies and weaken nearby foes.' },
-  { calling: Calling.Settler, description: 'Return to the Settler calling.' },
+  { calling: Calling.Warrior, description: 'Defends allies in close combat.' },
+  { calling: Calling.Ranger, description: 'Fights with a bow.' },
+  { calling: Calling.Mage, description: 'Wields runes and frost.' },
+  { calling: Calling.Cleric, description: 'Tends wounded allies.' },
+  { calling: Calling.Bard, description: 'Supports allies with song.' },
+  { calling: Calling.Settler, description: 'Return to settlement work.' },
 ];
 function guild(place: Building | null): place is Building {
   return (

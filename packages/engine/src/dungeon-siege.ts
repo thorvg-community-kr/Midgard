@@ -134,7 +134,7 @@ function collapse(town: AttackTown, gate: number, siege: DungeonSiege) {
   ++town.chronicle.partiesLed;
   town.chronicle.largestParty = Math.max(town.chronicle.largestParty, fighters);
   town.emit(CombatCue.Slam, center, { gate, radius: siegeRules.blastRadius });
-  town.notify(`${site.name} has fallen. A guardian is gathering its horde.`);
+  town.notify(`${site.name} has collapsed.`);
   ++town.changes;
 }
 export function attackDungeon(town: AttackTown, p: Person, gate: number, dt: number): void {
@@ -222,7 +222,7 @@ function summon(town: TownState, gate: number, siege: DungeonSiege, challenge: D
   }
   if (last) {
     town.emit(CombatCue.SiegeHorde, at, { gate, creature: siege.guardian, amount: count });
-    town.notify(`Defeat the guardian and every defender before ${site.name} rises again.`);
+    town.notify(`A guardian has emerged from ${site.name}.`);
   } else {
     town.notify(`Defenders pour out of ${site.name}.`);
   }
@@ -259,8 +259,7 @@ function seal(town: RewardTown, gate: number, siege: DungeonSiege) {
     town.rewardExperience(p, experienceForLevels(Math.min(p.level, level), 5), true);
   }
   const { sealed, total } = sealProgress(town);
-  town.notify(sealed === total ? `${site.name} is sealed. Every gate is closed: Midgard is safe!`
-    : `${site.name} is sealed for good (${sealed} of ${total} gates closed)`);
+  town.notify(`${site.name} sealed (${sealed}/${total})`);
 }
 export function advanceSieges(town: RewardTown) {
   for (let gate = 0; gate < town.sieges.length; ++gate) {

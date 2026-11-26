@@ -36,7 +36,6 @@ import {
   type EquipmentSlot,
   type ItemSpec,
 } from './equipment';
-import { gearEffect } from './gear-stats';
 
 function activeHarvestDuration(person: Person): number {
   return !person.moving() &&
@@ -762,12 +761,8 @@ export function advanceCrafting(this: Town, p: Person, dt: number): void {
   if (item.category === 'weapon' && item.tier >= 3) ++this.chronicle.weaponsForged;
   ++this.changes;
   this.finishCraftOrder(p);
-  if (item.category === 'tool') {
-    if (order.kind === 'make') this.notify(`${item.name} in the pack · ${gearEffect(item)}`);
-  } else if (order.kind === 'make' && item.category !== 'resource' && takeUpCrafted(this, p, item.id)) {
-    const label = item.slots.includes('feet') ? `${item.name} worn` : `${item.name} in hand`;
-    this.notify(`${label} · ${gearEffect(item)}`);
-  }
+  if (order.kind === 'make' && item.category !== 'tool' && item.category !== 'resource')
+    takeUpCrafted(this, p, item.id);
 }
 /** The station shows its new level: a new look rising from the old one, as a chapel's faith does. */
 function raiseStation(town: Town, station: Building, level: number): void {

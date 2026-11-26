@@ -372,10 +372,10 @@ describe('owned equipment, personal inventory and crafting', () => {
     expect(town.stock().stone).toBe(before.stone);
     expect(town.stock().gold).toBe(before.gold);
     expect(person.autoMode).toBe(true);
-    // The new axe works from the pack at once, and the notice says what it changed.
+    // The new axe works from the pack at once.
     expect(person.equipment.tool1).toBe(-1);
     expect(workItem(person, 'woodcutting')?.id).toBe('wooden-axe');
-    expect(town.notices.slice(-2)).toEqual(['Craftsperson crafted Wooden axe', 'Wooden axe in the pack · Felling efficiency +1 · Attack as a weapon +1 · Two-handed']);
+    expect(town.notices.at(-1)).toBe('Craftsperson crafted Wooden axe');
   });
   it('provides a recipe for every wearable and tool: the first make new, each better one from the make below', () => {
     const places = fixture(true),

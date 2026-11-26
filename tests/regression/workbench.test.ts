@@ -140,10 +140,7 @@ describe('crafting at the bench', () => {
     }
     expect(worked).toBeGreaterThan(100);
     expect(workItem(a, 'woodcutting')?.id).toBe('wooden-axe');
-    expect(town.notices.slice(-2)).toEqual([
-      'Asa crafted Wooden axe',
-      'Wooden axe in the pack · Felling efficiency +1 · Attack as a weapon +1 · Two-handed',
-    ]);
+    expect(town.notices.at(-1)).toBe('Asa crafted Wooden axe');
     expect(town.craftingAt(bench.id)).toBeNull();
   });
   it('lets one resident work it at a time; the next waits beside it and starts when it is free', () => {

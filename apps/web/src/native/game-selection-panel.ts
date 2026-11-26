@@ -1,6 +1,5 @@
 import { canLeadAnimal, herdLeader, livestockKind } from '../../../../packages/engine/src/livestock';
 import { AnimalKind } from '../../../../packages/engine/src/person';
-import { Product } from '../../../../packages/engine/src/building-catalog';
 import { harvestAmount, harvestName, harvestNeeds, harvestProduct } from '../../../../packages/engine/src/harvest-material';
 import { productItem } from '../../../../packages/engine/src/equipment';
 import type { Paint } from '@thorvg/webcanvas';
@@ -81,10 +80,8 @@ export function worldObjectPanel(this: GameHudApp, panel: Rect): void {
     if (target.kind === 'tree' || target.kind === 'rock') {
       const map = this.town.map(), x = target.id % map.width(), y = Math.floor(target.id / map.width());
       const product = harvestProduct(map, x, y, target.kind === 'rock');
-      detail = harvestNeeds(product, target.kind === 'rock' && target.id === map.basaltCell) || (target.kind === 'tree' ? 'A wood resource. Right-click to gather; inspect any selected object below.' : 'A stone resource. Right-click to mine.');
+      detail = harvestNeeds(product, target.kind === 'rock' && target.id === map.basaltCell);
     }
-    if (target.kind === 'building')
-      detail = 'Open the building inspector for construction, residents and services.';
     c.text(
       new Rect(panel.x + 16, panel.y + 70, panel.w - 32, 22),
       c.elideText(detail, panel.w - 32, 11),
@@ -153,12 +150,10 @@ export function worldObjectPanel(this: GameHudApp, panel: Rect): void {
     const housed = animal.pen >= 0, led = !!herdLeader(this.town, animal);
     const canLead = !housed && !led && livestockKind(kind) && this.town.people().some(p => canLeadAnimal(this.town, p, animal));
     text(35, housed ? 'Livestock' : led ? 'Leading livestock' : animal.angry ? (spec.defends ? 'Defending itself' : 'Fleeing') : 'Neutral animal', t.accent);
-    const husbandry = kind === AnimalKind.Chicken ? 'Lays eggs in the nest.' : 'Gives milk each day.';
-    text(58, housed || canLead || led ? husbandry : 'Food +' + spec.food + ' when hunted', t.muted);
     if (!animal.angry) {
       const health = Math.max(0, Math.min(1, f32(animal.health / spec.health)));
-      text(79, 'Health ' + Math.ceil(f32(health * 100)) + '%', t.muted, 11);
-      meter(c, new Rect(f32(left + 78), f32(panel.y + 86), Math.max(1, f32(width - 78)), 7), health, t.success);
+      text(58, 'Health ' + Math.ceil(f32(health * 100)) + '%', t.muted, 11);
+      meter(c, new Rect(f32(left + 78), f32(panel.y + 65), Math.max(1, f32(width - 78)), 7), health, t.success);
     }
     if (housed) button(c, 'animal-ranch', new Rect(left, f32(panel.y + 104), width, 30),
       kind === AnimalKind.Chicken ? 'View coop' : 'View cowshed', () => this.selectBuilding(animal.pen));
@@ -180,8 +175,7 @@ export function worldObjectPanel(this: GameHudApp, panel: Rect): void {
     });
     text(10, harvestName(product, basalt), t.text, 17, true);
     text(35, harvestNeeds(product, basalt) || 'Stone deposit', t.accent);
-    if (basalt) text(79, 'Opens a path for the party', t.muted, 11);
-    text(58, product === Product.Stone ? 'Mine, carry, store +3 stone' : `${productItem(product)!.name} +${harvestAmount(product)}`, t.muted);
+    text(58, `${productItem(product)!.name} +${harvestAmount(product)}`, t.muted);
   } else {
     if (!map.at(x, y).trees) return;
     const instance =
@@ -216,7 +210,7 @@ export function worldObjectPanel(this: GameHudApp, panel: Rect): void {
       harvestNeeds(product) || (tree.kind === TreeKind.Fir ? 'Fir' : tree.kind === TreeKind.SnowySpruce ? 'Snowy spruce' : 'Dead tree'),
       t.accent,
     );
-    text(58, product === Product.Frostwood ? `Frostwood +${harvestAmount(product)}` : 'Chop, carry, store +3 wood', t.muted);
+    text(58, `${productItem(product)!.name} +${harvestAmount(product)}`, t.muted);
     text(79, 'Trees remaining: ' + map.at(x, y).trees, t.muted, 11);
   }
   button(

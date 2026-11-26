@@ -230,10 +230,7 @@ describe('wooden gear from the workbench', () => {
     expect(town.stock().wood).toBe(0);
     expect(p.carrying + (p.inventory.find((s) => s?.item === 'wood')?.quantity ?? 0)).toBe(1);
     expect(workItem(p, 'woodcutting')?.id).toBe('wooden-axe');
-    expect(town.notices.slice(-2)).toEqual([
-      'Asa crafted Wooden axe',
-      'Wooden axe in the pack · Felling efficiency +1 · Attack as a weapon +1 · Two-handed',
-    ]);
+    expect(town.notices.at(-1)).toBe('Asa crafted Wooden axe');
   });
   it('keeps the forge deed for iron weapons and takes a new weapon in hand', () => {
     const { town, p, smith } = fixture();
@@ -243,7 +240,7 @@ describe('wooden gear from the workbench', () => {
     for (let i = 0; i < 1000 && p.craftItem; ++i) step(town);
     expect(town.chronicle.weaponsForged).toBe(0);
     expect(p.equipment.weapon).toBeGreaterThan(0);
-    expect(town.notices.at(-1)).toBe('Wooden club in hand · Melee attack +1 · STR scaling +3 · INT scaling +2 · Staggers');
+    expect(town.notices.at(-1)).toBe('Asa crafted Wooden club');
     expect(town.craftReason(0, smith.id, 'iron-mace')).toBe('Needs a level 3 smithy');
     smith.variant = levelVariant(3);
     // Iron is reached one make at a time, each the make before it upgraded in the same hand.

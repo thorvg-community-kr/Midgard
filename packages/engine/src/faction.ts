@@ -45,12 +45,12 @@ export function canControl(
   );
 }
 export function controlReason(p: Person | null | undefined): string {
-  if (p && p.downedAt >= 0 && p.health > -0.5) return 'Downed: another resident must tend them before they bleed out.';
+  if (p && p.downedAt >= 0 && p.health > -0.5) return 'Downed. Send help.';
   if (!p || p.health <= 0 || p.activity === Activity.Leaving) return 'This resident is unavailable.';
-  if (p.role !== Role.Resident) return 'Guests are visitors and cannot be commanded or hired.';
-  if (!belongsToFaction(p)) return 'This resident belongs to a neutral settlement.';
+  if (p.role !== Role.Resident) return 'Guests take no orders.';
+  if (!belongsToFaction(p)) return 'From a neutral settlement.';
   if (p.stressRecovery) return 'Exhausted and resting.';
-  if (beyondOrders(p)) return 'This resident has stepped into the gate.';
+  if (beyondOrders(p)) return 'Beyond the gate.';
   return '';
 }
 export function isPlayerBuilding(b: Building | null | undefined): b is Building & { faction: 0 } {

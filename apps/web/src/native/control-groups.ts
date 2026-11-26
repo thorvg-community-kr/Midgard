@@ -42,7 +42,7 @@ export function setGroup(app: GameAppState, digit: number, add: boolean): boolea
   syncGroups(app);
   const ids = controllableIds(app.town, app.chosen).filter((id) => isPlayerResident(app.town.person(id)));
   if (!ids.length) {
-    app.status = `Select residents first, then Ctrl+${digit} makes them group ${digit}`;
+    app.status = 'Select a resident first.';
     return false;
   }
   const before = add ? (app.army.groups.get(digit) ?? []) : [];
@@ -67,7 +67,7 @@ export function recallGroup(app: GroupApp, digit: number): boolean {
     now = app.context.time(),
     last = app.army.lastRecall;
   if (!members.length) {
-    app.status = `Group ${digit} is empty: select residents and press Ctrl+${digit}`;
+    app.status = `Group ${digit} is empty`;
     return false;
   }
   const twice = last.digit === digit && now - last.at < recallTwice && now >= last.at;
@@ -131,10 +131,10 @@ export function groupTabs(app: GameHudApp, height: number): void {
     c.rect(new Rect(pip.x, f32(pip.y + pip.h - fill), pip.w, Math.max(1, fill)), downed || health < 0.3 ? t.danger : t.success, 1);
     tooltip(c, id, state.hovered, [
       `Group ${digit}: ${members.map((p) => p.name).join(', ')}`,
-      downed ? `${downed} down. Health ${Math.round(health * 100)}% on average.` : `Health ${Math.round(health * 100)}% on average.`,
+      downed ? `${downed} down · Average health ${Math.round(health * 100)}%` : `Average health ${Math.round(health * 100)}%`,
       app.touchMode
-        ? 'Tap to select them; tap again to look at them.'
-        : `${digit} selects them, ${digit} twice looks at them. Ctrl+${digit} remakes the group, Shift+${digit} adds to it.`,
+        ? 'Double-tap to center.'
+        : `Ctrl+${digit} to assign, Shift+${digit} to add`,
     ]);
   });
   if (spare && shown.length >= start && shown.length < start + perPage) {
@@ -142,11 +142,6 @@ export function groupTabs(app: GameHudApp, height: number): void {
       id = 'group-new',
       state = button(c, id, r, '', () => setGroup(app, spare, false), ButtonStyle.Quiet);
     c.text(r, `+ ${spare}`, t.accent, 12, true, Align.Center);
-    tooltip(c, id, state.hovered, [
-      `Make group ${spare}`,
-      app.touchMode
-        ? `The selected residents become group ${spare}; tap its tab to select them again.`
-        : `The selected residents become group ${spare} (Ctrl+${spare}); press ${spare} to select them again.`,
-    ]);
+    tooltip(c, id, state.hovered, [`Make group ${spare}`]);
   }
 }

@@ -8,7 +8,7 @@ import { Point, point, add } from './geometry';
 import { f32 } from './numeric';
 import { copyNative } from './native-copy';
 import { founderAppearance } from './person-look';
-import { birthNotice, foundingPeople } from './ymir-born';
+import { foundingPeople } from './ymir-born';
 import * as construction from './town-construction';
 import * as farms from './farm-layout';
 import { pastureLayout, layPasture } from './pasture-layout';
@@ -64,7 +64,6 @@ export class Town extends TownState {
     if (!founders) return;
     const start = this.world.camp(), gathered = [point(), point(.8, .4)];
     for (let i = 0; i < gathered.length; ++i) { const founder = this.makePerson(Role.Resident, Calling.Settler, add(start, gathered[i])); founder.name = foundingPeople[i].name; founder.race = Race.Human; founder.past = foundingPeople[i].past; founder.customLook = founderAppearance(founder, foundingPeople[i].bodyType); this.folk.push(founder); }
-    this.notify(birthNotice);
   }
   camp(id?: number): Building | null { return id === undefined ? this.placed.find(item => isSeat(item.kind) && item.faction === this.controlFaction) ?? null : settlements.campById.call(this, id); }
   population(id?: number): number { return id === undefined ? this.folk.filter(p => p.role === Role.Resident && p.faction === this.controlFaction).length : scopedPopulation.call(this, id); }

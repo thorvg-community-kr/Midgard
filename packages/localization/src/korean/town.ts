@@ -85,15 +85,12 @@ export const townPhrases: Phrases = {
   'Complete an altar first.': '먼저 제단을 완성하세요.',
   'This altar belongs to another settlement.': '다른 정착지의 제단입니다.',
   'Complete a camp for this altar.': '이 제단이 속한 캠프를 완성하세요.',
-  'A resident is waiting for an available home.': '새 정착민이 빈 집을 기다리고 있습니다.',
-  'A resident is already preparing this altar.': '다른 정착민이 이미 이 제단을 준비하고 있습니다.',
-  'No free resident bed. Complete a home in this settlement.':
-    '남는 정착민 침대가 없습니다. 이 정착지에 집을 완성하세요.',
-  'Need 4 food for the altar offering.': '제단 공물로 식량 4가 필요합니다.',
-  'An available resident must be present in this settlement.':
-    '이 정착지에 움직일 수 있는 정착민이 있어야 합니다.',
-  'The settlement does not have enough resources for this offering.':
-    '정착지에 이 공물을 바칠 자원이 부족합니다.',
+  'Waiting for a home.': '빈집을 기다리는 중입니다.',
+  'The altar is in use.': '제단을 사용 중입니다.',
+  'No free beds here.': '이곳에 빈 침대가 없습니다.',
+  'Need 4 food.': '식량 4가 필요합니다.',
+  'No settlers available here.': '이곳에 대기 중인 정착민이 없습니다.',
+  'Not enough supplies.': '물자가 부족합니다.',
   'Guests cannot pray for a new resident.': '손님은 새 정착민을 위해 기도할 수 없습니다.',
   'Choose an available resident of this settlement.': '이 정착지의 움직일 수 있는 정착민을 선택하세요.',
   "Choose a resident who lives in this altar's settlement.": '이 제단이 있는 정착지의 정착민을 선택하세요.',
@@ -112,6 +109,7 @@ export const townPhrases: Phrases = {
   Winter: '겨울',
 
   // town-economy
+  'Camp #{0} needs food for winter': '캠프 #{0}에 겨울 식량이 부족합니다',
   'Autumn ends with no harvest': '수확 없이 가을이 끝났습니다',
   'Harvest: +{0} food': '수확: 식량 +{0}',
   'Harvest: +{0} food ({1} produced, {2} not stored)': '수확: 식량 +{0} (생산 {1}, 저장하지 못함 {2})',
@@ -120,11 +118,7 @@ export const townPhrases: Phrases = {
   'Summer begins': '여름이 시작됩니다',
   'Autumn begins': '가을이 시작됩니다',
   'Winter begins': '겨울이 시작됩니다',
-  'Winter is one season away: fields will lie fallow and game will thin. Store food.':
-    '한 계절 뒤면 겨울입니다. 밭은 쉬고 사냥감은 줄어듭니다. 식량을 비축하세요.',
-  'Game is scarce in winter.': '겨울에는 사냥감이 줄어듭니다.',
-  'The stores are full: build a suitable depot or storehouse':
-    '저장고가 가득 찼습니다. 알맞은 보관소나 창고를 지으세요',
+  'The stores are full': '저장고가 가득 찼습니다',
   '{0} bought their {1} for {2} gold': '{0}: 살던 {1} 구입 ({2} 골드)',
   'Needs food in store': '비축된 식량이 필요합니다',
   'Needs a market close by': '가까이에 시장이 필요합니다',
@@ -161,8 +155,7 @@ export const townPhrases: Phrases = {
   'Build a workbench first': '먼저 작업대를 지으세요',
 
   // town-hiring
-  'Guests visit for a while. Prepare food and a free bed to welcome a resident at the altar.':
-    '손님은 잠시 마을에 머뭅니다. 식량과 빈 침상을 마련하면 제단에서 새 정착민을 맞이할 수 있습니다.',
+  "Welcome new settlers at the altar.": "제단에서 새 정착민을 맞이하세요.",
   'A close-combat profession that strikes hardest. Equip a crafted weapon for stronger attacks.':
     '가장 강하게 공격하는 근접 전투 직업입니다. 제작한 무기를 장비하면 공격이 더 강해집니다.',
   'A ranged-combat profession that strikes harder. Equip a crafted bow to attack from a distance.':
@@ -194,7 +187,7 @@ export const townPhrases: Phrases = {
   '{0} was killed by monsters': '{0}: 몬스터에게 죽었습니다',
   '{0} was killed': '{0}: 죽었습니다',
   '{0} reached level {1}!': '{0}: 레벨 {1} 달성!',
-  "A guest was killed: the settlement's renown suffers": '손님이 죽었습니다. 정착지의 명성이 떨어집니다',
+  'A guest was killed': '손님이 죽었습니다',
   'Monsters tore up a paved road': '몬스터가 포장된 길을 파헤쳤습니다',
   'Monsters tore up a road': '몬스터가 길을 파헤쳤습니다',
   'Monsters wrecked the {0} site': '몬스터가 건설 현장을 부쉈습니다: {0}',
@@ -231,20 +224,15 @@ export const townPhrases: Phrases = {
   'The party withdraws from {0} empty-handed': '파티가 {0}에서 빈손으로 철수했습니다',
   'The party withdraws from {0} with {1}': '파티가 {0}에서 철수했습니다. 획득: {1}',
   'No one returned from {0}': '{0}에서 아무도 돌아오지 못했습니다',
-  '{0} is sealed. Every gate is closed: Midgard is safe!':
-    '{0} 봉인 완료. 모든 관문이 닫혔습니다. 미드가르드는 안전합니다!',
-  '{0} is sealed for good ({1} of {2} gates closed)': '{0} 영구 봉인 (관문 {2}개 중 {1}개 닫힘)',
   '{0}: the guardian of floor {1} has fallen': '{0}: {1}층의 수호자가 쓰러졌습니다',
 
   // town-realm: reward panel
+  '{0} sealed ({1}/{2})': '{0} 봉인 ({1}/{2})',
   '{0} is sealed': '{0} 봉인 완료',
   'Floor {0} cleared': '{0}층 정리 완료',
-  '{0} is sealed for good ({1} of {2} gates).': '{0} 영구 봉인 (관문 {2}개 중 {1}개).',
   'Every survivor gains {0} levels.': '생존자 전원의 레벨이 {0} 오릅니다.',
   'Floor {0} of {1} is now open.': '{1}의 {0}층이 열렸습니다.',
-  'This floor had already been cleared: a smaller hoard.': '이미 정리한 층이라 전리품이 적습니다.',
   'Hoard: {0}.': '전리품: {0}.',
-  'Go home from anywhere to bank the spoils.': '어디서든 귀환하면 전리품을 정착지로 가져갑니다.',
 
   // town-residents: guest arrivals
   '{0}, a traveller, arrives': '{0}: 여행자가 도착했습니다',
@@ -271,7 +259,6 @@ export const townPhrases: Phrases = {
   // Station levels and upgrades
   "{0} raised the {1} to level {2}": "{0}: {1}을(를) {2}단계로 올렸습니다",
   "{0} upgraded the {1} to the {2}": "{0}: {1}을(를) {2}(으)로 업그레이드했습니다",
-  "{0} in the pack · {1}": "{0} 짐에 넣음 · {1}",
   "{0} level {1}": "{0} {1}단계",
   "workbench": "작업대",
   "smithy": "대장간",

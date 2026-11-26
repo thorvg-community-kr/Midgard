@@ -586,28 +586,17 @@ export function realmKill(this: RealmTown, beast: Monster): void {
     }
     if (party.length) this.changeRenown(this.settlementOf(party[0]), 15);
     const { sealed, total } = sealProgress(this);
-    lines.push(`${site.name} is sealed for good (${sealed} of ${total} gates).`);
+    lines.push(`${site.name} sealed (${sealed}/${total})`);
     lines.push(`Every survivor gains ${realmRules.sealLevels} levels.`);
-    this.notify(
-      sealed === total
-        ? `${site.name} is sealed. Every gate is closed: Midgard is safe!`
-        : `${site.name} is sealed for good (${sealed} of ${total} gates closed)`,
-    );
+    this.notify(`${site.name} sealed (${sealed}/${total})`);
   } else {
-    lines.push(
-      first
-        ? last
-          ? ''
-          : `Floor ${floor + 2} of ${site.name} is now open.`
-        : 'This floor had already been cleared: a smaller hoard.',
-    );
+    if (first) lines.push(`Floor ${floor + 2} of ${site.name} is now open.`);
     this.notify(`${site.name}: the guardian of floor ${floor + 1} has fallen`);
   }
   if (first) lines.push(altarCapLine(altarCap(this)));
   recordOf(this).rewards = lines.filter(Boolean);
   this.realmLoot.add(prize);
   lines.push('Hoard: ' + describe(prize) + '.');
-  lines.push('Go home from anywhere to bank the spoils.');
   this.realmReward = {
     title: first && last ? `${worldName(world)} is sealed` : `Floor ${floor + 1} cleared`,
     lines: lines.filter(Boolean),

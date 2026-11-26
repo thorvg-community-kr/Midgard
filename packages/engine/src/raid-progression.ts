@@ -101,10 +101,3 @@ export const raidWarning = (kind: RaidKind, gate: string, camp: number): string 
         : `A pack from ${gate} will raid Camp #${camp + 1} tonight`;
 /** A fortified seat shoots at raiders; a bare camp cannot. */
 export const seatVolley = { reach: 8, pause: 1.5, damagePerTier: 1.5 };
-/** Told once a week while any hostile gate is active. */
-export const pressureNotice = (week: number): string =>
-  week > threatWeeks
-    ? ''
-    : week === threatWeeks
-      ? `Week ${week}: the dungeons can now send their largest hordes. Seal a dungeon to end its raids.`
-      : `Week ${week}: raiders grow stronger. Seal a gate to end its raids.`;

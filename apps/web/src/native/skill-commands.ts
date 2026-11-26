@@ -133,7 +133,7 @@ function notReady(town: Town, ids: readonly number[], slot: number): string {
   const first = [...unlocked].sort((a, b) => a.soonest - b.soonest)[0];
   return unlocked.length === 1
     ? `${first.spec.name} is ready in ${Math.ceil(first.soonest)} s`
-    : `Skills are recovering (the first is ready in ${Math.ceil(first.soonest)} s)`;
+    : `Next skill in ${Math.ceil(first.soonest)} s`;
 }
 /** Fires the skill in `slot` for every one of `ids` who has it ready. False when no one there has that slot. */
 export function fireSkill(app: GameAppState, ids: readonly number[], slot: number, target?: Point): boolean {
@@ -227,7 +227,7 @@ export function aimPrompt(app: GameAppState): string {
   const names = groundSkillsReady(app.town, aim.ids, aim.slot).map((spec) => spec.name),
     what = names.join(' and ') || 'the skill';
   if (aim.via === 'key') return `${what}: release ${skillKeys[aim.slot] ?? ''} over the ground to cast`;
-  return app.touchMode ? `Tap the ground for ${what}` : `${what}: click the ground; right-click cancels`;
+  return app.touchMode ? `Tap the ground for ${what}` : `${what}: click a spot`;
 }
 /** "Warrior x2" for the calling tabs of a mixed selection. */
 export function callingLabel(entry: CallingSkills): string {

@@ -346,7 +346,6 @@ export function rosterPanel(this: GameHudApp, panel: Rect): void {
     const lodging = this.town.building(p.bed);
     text(y, lodging ? `Lodging: ${structureSpec(lodging.kind).name}` : 'Looking for lodging', ochre, 12);
     text(y + (short ? 17 : 23), `${activityName(p.activity)} · Purse ${p.purse} gold`, ink, 11);
-    text(y + (short ? 34 : 46), 'Visitors pay for lodging and services.', t.muted, 10);
     button(
       c,
       'roster-focus',

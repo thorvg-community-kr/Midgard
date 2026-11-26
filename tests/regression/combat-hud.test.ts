@@ -283,7 +283,7 @@ describe('skills in the player hands', () => {
         expect.arrayContaining(['ability-mend', 'skill-auto-mend', 'ability-sanctuary', 'skill-auto-sanctuary', 'unit/card-hold']),
       );
       expect(ui.text()).toEqual(expect.arrayContaining(['Q  Mend', 'Ready', 'Auto on', 'W  Sanctuary', 'Lv 4']));
-      expect(ui.text().some((line) => line.startsWith('Heals the most hurt ally'))).toBe(true);
+      expect(ui.text()).toContain('Heal or revive an ally.');
       const auto = vi.spyOn(town, 'setSkillAuto');
       ui.click('skill-auto-mend');
       expect(auto).toHaveBeenCalledWith([cleric.id], 0, false);
@@ -350,7 +350,7 @@ describe('skills in the player hands', () => {
       ui.draw(() => personPanel.call(app, personPanelBounds.call(app, 1024, 768, true)));
       ui.click('ability-burst');
       expect(app.army.aim).toEqual({ slot: 0, ids: [mage.id], via: 'pointer' });
-      expect(aimPrompt(app)).toBe('Rune Burst: click the ground; right-click cancels');
+      expect(aimPrompt(app)).toBe('Rune Burst: click a spot');
       pointerDown.call(input as never, 500, 200, PointerButton.Secondary);
       expect(app.army.aim).toBeNull();
       ui.click('ability-burst');
@@ -400,7 +400,7 @@ describe('commanding a few residents', () => {
       // The dead leave their groups; an empty group says how to make it.
       town.killResident(c, 'Killed by monsters');
       press(game, '2');
-      expect(app.status).toBe('Group 2 is empty: select residents and press Ctrl+2');
+      expect(app.status).toBe('Group 2 is empty');
       expect(app.army.groups.get(1)).toEqual([a.id, b.id]);
     } finally {
       ui.dispose();
@@ -564,7 +564,7 @@ describe('commanding a few residents', () => {
       app.chosen = [a.id];
       holdPosition(app);
       ui.draw(() => personPanel.call(app, personPanelBounds.call(app, 1024, 768, true)));
-      expect(ui.text()).toContain('Holding position: strikes what comes into reach, never chases');
+      expect(ui.text()).toContain('Holding position');
       const hold = ui.controls.mock.calls.find((call) => call[0] === 'unit/card-hold')!;
       expect(hold).toBeDefined();
       const layer = new SceneNode();
@@ -610,11 +610,11 @@ describe('reading a swarm', () => {
       expect(swarmLine(swarmCount(app)!)).toBe('Dens 1 of 2  ·  Monsters 5');
       expect(app.paused).toBe(false);
       ui.draw(() => combatOverlays(app, 1024, 768), 1);
-      expect(ui.text()).toEqual(expect.arrayContaining(['A den is destroyed', 'Askr struck the last blow. 1 of 2 still breeds.']));
+      expect(ui.text()).toEqual(expect.arrayContaining(['A den is destroyed', 'Dens 1 of 2']));
       town.emit(CombatCue.BroodBreak, dens[1].position, { amount: 23 });
       combatFrame(app, 1.5);
       ui.draw(() => combatOverlays(app, 1024, 768), 1.5);
-      expect(ui.text()).toEqual(expect.arrayContaining(['The brood breaks', '23 monsters die with their dens. The floor is clear.']));
+      expect(ui.text()).toEqual(expect.arrayContaining(['The brood breaks', 'Monsters slain: 23']));
       expect(bannerNotice('A den is destroyed (1 left)')).toBe(true);
       expect(bannerNotice('What was left of the brood dies with it (23)')).toBe(true);
       expect(bannerNotice('The guardian has fallen; 1 den still breeds')).toBe(false);
@@ -818,7 +818,7 @@ describe('auto-pause, the downed moment and the death moment', () => {
       combatFrame(app, 0.2);
       ui.draw(() => combatOverlays(app, 1024, 768));
       expect(ui.ids()).toEqual(expect.arrayContaining(['auto-pause', 'auto-pause-look', 'auto-pause-resume', `downed-${a.id}`]));
-      expect(ui.text()).toContain('Paused. You can give orders while paused.');
+      expect(ui.text()).toContain('Resume (Space)');
       ui.click('auto-pause-resume');
       expect(app.paused).toBe(false);
       ui.draw(() => combatOverlays(app, 1024, 768));
@@ -937,7 +937,7 @@ describe('auto-pause, the downed moment and the death moment', () => {
       g.windupUntil = town.clock() + 1.2;
       ui.draw(() => combatOverlays(app, 1024, 768));
       expect(ui.text()).toContain('Enraged');
-      expect(ui.text()).toContain('Winding up a slam: move away! (1.2 s)');
+      expect(ui.text()).toContain('Slam in 1.2 s');
       g.windupUntil = -1;
       g.angry = false;
       app.renderer.visible = () => false;
