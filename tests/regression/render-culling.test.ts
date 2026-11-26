@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import ThorVG, { type ThorVGNamespace } from '@thorvg/webcanvas';
 import { Person, Calling, Role, Race, Activity } from '../../packages/engine/src/person';
 import { Camera, Footprint, point, project } from '../../packages/engine/src/geometry';
+import { Climate } from '../../packages/engine/src/climate';
 import { Traffic } from '../../packages/engine/src/traffic';
 import { Town } from '../../packages/engine/src/town';
 import { WorldMap } from '../../packages/engine/src/world-map';
@@ -11,9 +12,10 @@ import { MistField } from '../../packages/native-renderer/src/mist-bands';
 import { WorldRendererState } from '../../packages/native-renderer/src/world-renderer-state';
 import { fitToView } from '../../packages/native-renderer/src/world-ground';
 import { updateVision } from '../../packages/native-renderer/src/world-vision';
+import { drift } from '../../packages/native-renderer/src/world-weather';
 import { cullTrees } from '../../packages/native-renderer/src/world-trees';
 import { moveAgents } from '../../packages/native-renderer/src/world-people';
-import { registerDepth, sortWorldObjects } from '../../packages/native-renderer/src/world-depth';
+import { registerDepth, sortWorldObjects, viewRect } from '../../packages/native-renderer/src/world-depth';
 import { WebCanvasAdapter } from '../../packages/native-renderer/src/webcanvas-adapter';
 import { Rect } from '../../packages/native-ui/src/types';
 
@@ -235,6 +237,45 @@ it('keeps the ground mist and its daylight mask over the same tiles through zoom
         expect([left + stepX / 2, top + stepY / 2]).toEqual([frame.x, frame.y]);
       }
     }
+  } finally {
+    state.dispose();
+  }
+});
+
+it('prepares cloud puffs within reach of the camera and restores their pose when the camera returns', () => {
+  const state = new WorldRendererState(tvg), climate = new Climate();
+  state.viewWidth = 390;
+  state.viewHeight = 844;
+  state.shownShade = 1;
+  function visiblePuffs(x: number, y: number, zoom: number, time: number) {
+    state.view = new Camera(x, y, zoom);
+    drift(state, climate, time);
+    const view = viewRect(state), bounds: Rect[] = [];
+    for (const cloud of state.cloudShapes.filter(node => node.alpha)) {
+      for (const puff of (cloud.children[0] as SceneNode).children as ShapeNode[]) {
+        if (!puff.alpha) continue;
+        const radius = puff.gradient!.coordinates[2],
+          cx = cloud.matrix[2] + puff.matrix[2], cy = cloud.matrix[5] + cloud.matrix[4] * puff.matrix[5],
+          rx = radius * puff.matrix[0], ry = radius * cloud.matrix[4] * puff.matrix[4],
+          box = new Rect(cx - rx, cy - ry, 2 * rx, 2 * ry), overlap = box.intersect(view);
+        expect(overlap.w).toBeGreaterThan(0);
+        expect(overlap.h).toBeGreaterThan(0);
+        bounds.push(box);
+      }
+    }
+    return bounds;
+  }
+  try {
+    const wide = visiblePuffs(0, 0, 0.65, 17), first = visiblePuffs(0, 0, 1.4, 17);
+    const view = viewRect(state);
+    expect(first).toEqual(wide.filter(box => {
+      const overlap = box.intersect(view);
+      return overlap.w > 0 && overlap.h > 0;
+    }));
+    expect(first.length).toBeGreaterThan(0);
+    visiblePuffs(-1050, -240, 1.8, 19);
+    visiblePuffs(1700, 3000, 0.45, 37);
+    expect(visiblePuffs(0, 0, 1.4, 17)).toEqual(first);
   } finally {
     state.dispose();
   }

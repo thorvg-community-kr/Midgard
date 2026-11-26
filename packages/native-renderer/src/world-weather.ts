@@ -1,12 +1,14 @@
 // Native WorldRenderer weather, cloud drift and lightning, without replacement masks or artwork.
 import { WorldRendererState } from './world-renderer-state';
 import { SceneNode, ShapeNode } from './paint';
+import { viewRect } from './world-depth';
 import { SUN_PASSES, appendStrip, ellipse, fill, glow, opaque } from './vector-paint';
 import { CloudMottle } from './cloud-mottle';
 import { Climate, Weather } from '../../engine/src/climate';
 import { Reach } from '../../engine/src/thunderstorm';
 import { point, add, lerp, distance, type Point } from '../../engine/src/geometry';
 import { f32 as f, clamp, hash01 } from '../../engine/src/numeric';
+import type { Rect } from '../../native-ui/src/types';
 const byte = (value: number) => Math.trunc(value) & 255;
 interface PrecipitationMotion {
   at: number;
@@ -236,6 +238,7 @@ interface Puff {
   shape: ShapeNode;
   x: number;
   y: number;
+  radius: number;
   stretch: number;
   /** How far the puff strays from its place. */
   sway: number;
@@ -245,22 +248,24 @@ interface Puff {
 }
 const puffsOf = new WeakMap<SceneNode, Puff[]>(),
   turn = 6.2831853;
-/** Lets the puffs of one cloud sway and swell a little, each at its own slow pace. */
-function billow(cloud: SceneNode, seconds: number): void {
+/** The holder flattens the cloud by half. Test each moving puff in its local space before submitting it. */
+function billow(cloud: SceneNode, seconds: number, x: number, y: number, view: Rect): void {
+  const left = view.x - x, right = left + view.w,
+    top = (view.y - y) * 2, bottom = top + view.h * 2;
+  let shown = false;
   for (const p of puffsOf.get(cloud) ?? []) {
-    const swell = 1 + 0.07 * Math.sin(seconds * p.rate[2] + p.phase[2]);
-    p.shape.transform([
-      p.stretch * swell,
-      0,
-      p.x + p.sway * Math.sin(seconds * p.rate[0] + p.phase[0]),
-      0,
-      swell,
-      p.y + p.sway * Math.sin(seconds * p.rate[1] + p.phase[1]),
-      0,
-      0,
-      1,
-    ]);
+    const swell = 1 + 0.07 * Math.sin(seconds * p.rate[2] + p.phase[2]),
+      stretch = p.stretch * swell,
+      px = p.x + p.sway * Math.sin(seconds * p.rate[0] + p.phase[0]),
+      py = p.y + p.sway * Math.sin(seconds * p.rate[1] + p.phase[1]),
+      rx = p.radius * stretch, ry = p.radius * swell;
+    const visible = px + rx >= left && px - rx <= right && py + ry >= top && py - ry <= bottom;
+    if (visible !== (p.shape.alpha > 0)) p.shape.opacity(visible ? 255 : 0);
+    if (!visible) continue;
+    p.shape.transform([stretch, 0, px, 0, swell, py, 0, 0, 1]);
+    shown = true;
   }
+  if (shown) cloud.opacity(255).transform([1, 0, x, 0, 0.5, y, 0, 0, 1]);
 }
 export function drift(s: WorldRendererState, climate: Climate, seconds: number): void {
   const sun = f(s.shownSun * f(1 - climate.night));
@@ -294,6 +299,7 @@ export function drift(s: WorldRendererState, climate: Climate, seconds: number):
           shape,
           x,
           y,
+          radius: r,
           stretch,
           sway: r * (0.1 + 0.08 * roll(1)),
           rate: [pace(2), pace(3), pace(4)],
@@ -346,7 +352,8 @@ export function drift(s: WorldRendererState, climate: Climate, seconds: number):
     windY = f(f(seconds) * cloudWind.y);
   for (const shape of s.cloudShapes) shape.opacity(0);
   if (shown) {
-    const halfW = f(f(f(s.viewWidth / 2) / s.view.zoom) + cloudTile),
+    const view = viewRect(s),
+      halfW = f(f(f(s.viewWidth / 2) / s.view.zoom) + cloudTile),
       halfH = f(f(f(s.viewHeight / 2) / s.view.zoom) + cloudTile),
       x0 = Math.floor(f(f(f(s.view.x - halfW) - windX) / cloudTile)),
       y0 = Math.floor(f(f(f(s.view.y - halfH) - windY) / cloudTile));
@@ -360,22 +367,12 @@ export function drift(s: WorldRendererState, climate: Climate, seconds: number):
             (((tx % cloudCols) + cloudCols) % cloudCols) +
               (((ty % cloudRows) + cloudRows) % cloudRows) * cloudCols
           ];
-        cloud.opacity(255);
         // Each cloud wanders a little about the wind's line, so the sky is not one sheet sliding by.
         const strayX = cloudWander.x * Math.sin((seconds / cloudWander.across + hash01(37, tx, ty, 31)) * turn),
-          strayY = cloudWander.y * Math.sin((seconds / cloudWander.down + hash01(37, tx, ty, 32)) * turn);
-        cloud.transform([
-          1,
-          0,
-          f(f(f(f(tx + hash01(37, tx, ty)) * cloudTile) + windX) + strayX),
-          0,
-          f(0.5),
-          f(f(f(f(ty + hash01(37, tx, ty, 9)) * cloudTile) + windY) + strayY),
-          0,
-          0,
-          1,
-        ]);
-        billow(cloud, seconds);
+          strayY = cloudWander.y * Math.sin((seconds / cloudWander.down + hash01(37, tx, ty, 32)) * turn),
+          x = f(f(f(f(tx + hash01(37, tx, ty)) * cloudTile) + windX) + strayX),
+          y = f(f(f(f(ty + hash01(37, tx, ty, 9)) * cloudTile) + windY) + strayY);
+        billow(cloud, seconds, x, y, view);
       }
   }
   const mottleShown = shown ? f(s.shownCloudy * clamp(f(f(s.view.zoom - f(0.2)) / f(0.1)), 0, 1)) : 0;
