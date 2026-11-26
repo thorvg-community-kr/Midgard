@@ -72,6 +72,19 @@ describe('the title party', () => {
     expect(readyParty(town)).toMatchObject({ gate: next.gate });
     expect(readyParty(town)?.members).toHaveLength(11);
   });
+  it('lets veterans cover a trained archer when the whole company meets the recommendation', () => {
+    const { town } = expeditionTown();
+    const veterans = Array.from({ length: 9 }, (_, i) => fighter(i, 12, 'flint-sword'));
+    const swordsman = fighter(9, 6, 'wooden-sword'), archer = fighter(10, 6, 'short-bow');
+    archer.calling = Calling.Ranger;
+    town.folk = [...veterans, swordsman, archer];
+    expect(readyParty(town)?.members).toContain(archer);
+    veterans[0].level = 9;
+    expect(readyParty(town)).toBeNull();
+    veterans[0].level = 12;
+    archer.level = 2;
+    expect(readyParty(town)).toBeNull();
+  });
   it('keeps an armed pair home on a warned raid day', () => {
     const { town, camp } = expeditionTown();
     town.raidWarnedDay = town.days;

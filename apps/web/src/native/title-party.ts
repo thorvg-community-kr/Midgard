@@ -5,10 +5,11 @@ import { dungeonChallenge, dungeonStatus, siegeDefender, targetedDungeon } from 
 import { canControl } from '../../../../packages/engine/src/faction';
 import { add, distance, normalized, point, scale, sub, type Point } from '../../../../packages/engine/src/geometry';
 import { equippedItem } from '../../../../packages/engine/src/equipment';
+import { secondSkillLevel } from '../../../../packages/engine/src/skill-catalog';
 import { TownState } from '../../../../packages/engine/src/town-state';
 import { sealable } from '../../../../packages/engine/src/gate-seals';
 import { RaidKind, raidKind } from '../../../../packages/engine/src/raid-progression';
-import { lairOf } from '../../../../packages/engine/src/town-monsters';
+import { lairOf, shoots } from '../../../../packages/engine/src/town-monsters';
 import { isFighter } from './title-gear';
 import { beyond, living, order, take, type TitleContext } from './title-roster';
 
@@ -147,9 +148,16 @@ export function readyParty(town: Town, available = Infinity): PartyChoice | null
   const fighters = fitFighters(town);
   for (const { gate } of gates) {
     const { partySize, level } = dungeonChallenge(town, gate);
-    const members = fighters.filter(p => p.level >= Math.ceil(level * .65)).slice(0, Math.min(available, partySize));
-    if (members.length === partySize && members.reduce((sum, p) => sum + p.level, 0) >= level * .9 * partySize)
-      return { gate, members };
+    if (fighters.length < partySize || available < partySize) continue;
+    const members = fighters.slice(0, partySize);
+    const total = members.reduce((sum, p) => sum + p.level, 0), junior = members[members.length - 1];
+    if (junior.level >= Math.ceil(level * .65) && total >= level * .9 * partySize) return { gate, members };
+    // Veterans can cover one trained fighter in the rear if the company meets the full recommendation.
+    const veterans = members.slice(0, -1);
+    if (veterans.some(p => p.level < level)) continue;
+    const support = fighters.slice(veterans.length).find(p =>
+      shoots(p) && isFighter(p) && p.level >= Math.max(secondSkillLevel, level / 2));
+    if (support && total - junior.level + support.level >= level * partySize) return { gate, members: [...veterans, support] };
   }
   return null;
 }
