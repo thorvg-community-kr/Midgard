@@ -24,6 +24,7 @@ import {
   serpentRules,
   serpentSighting,
   SerpentPartKind,
+  type SerpentWorld,
   weatherSpell,
 } from '../../packages/native-renderer/src/serpent-ring';
 import { headLayout, updateSerpent } from '../../packages/native-renderer/src/world-serpent';
@@ -288,6 +289,7 @@ function sea(weather: Weather, intensity: number, peak: number, clock = 100) {
   return {
     map: () => map,
     realmArea: null,
+    realmRevision: 0,
     climate: () => ({ weather, intensity, night: 0 }),
     weather: () => ({ snapshot: () => ({ peak }) }),
     clock: () => clock,
@@ -430,6 +432,35 @@ describe('Jormungandr in the sea', () => {
       updateSerpent(s, sea(Weather.Clear, 0, 0, clock) as unknown as Town, 100 + t * 0.5, 1);
     }
     expect(s.serpent.alpha).toBe(0);
+  });
+  it('shares the sea survey between the serpent and its guide when a gate island rises and sinks', () => {
+    const area = findRealmArea(map);
+    expect(area).not.toBeNull();
+    const town: SerpentWorld = sea(Weather.Storm, 0.9, stormPeak());
+    const state = new WorldRendererState(tvg);
+    const read = vi.spyOn(map, 'at');
+    try {
+      updateSerpent(state, town as unknown as Town, 1, 1);
+      read.mockClear();
+      serpentSighting(town, () => false);
+      updateSerpent(state, town as unknown as Town, 2, 1);
+      expect(read.mock.calls.length).toBe(0);
+      town.realmArea = area;
+      town.realmRevision++;
+      updateSerpent(state, town as unknown as Town, 3, 1);
+      serpentSighting(town, () => false);
+      expect(read.mock.calls.length).toBe(0);
+      town.realmArea = null;
+      town.realmRevision++;
+      serpentSighting(town, () => false);
+      expect(read.mock.calls.length).toBeGreaterThanOrEqual(map.width() * map.height());
+      read.mockClear();
+      updateSerpent(state, town as unknown as Town, 4, 1);
+      expect(read.mock.calls.length).toBe(0);
+    } finally {
+      read.mockRestore();
+      state.dispose();
+    }
   });
   it('is pointed out to the player only when a part is up where they look', () => {
     const peak = stormPeak(),

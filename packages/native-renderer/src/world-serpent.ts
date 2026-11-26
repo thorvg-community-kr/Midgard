@@ -4,7 +4,6 @@
 import { project, type Point } from '../../engine/src/geometry';
 import type { Town } from '../../engine/src/town';
 import { Weather } from '../../engine/src/climate';
-import { findRealmArea } from '../../engine/src/realm-layout';
 import { Rect } from '../../native-ui/src/types';
 import { SceneNode, ShapeNode, type Matrix } from './paint';
 import { viewRect } from './world-depth';
@@ -14,7 +13,7 @@ import {
   partRise,
   serpentEmergence,
   serpentParts,
-  serpentRing,
+  townSerpentRing,
   SerpentPartKind,
   weatherSpell,
   type SerpentPart,
@@ -46,7 +45,6 @@ interface PartArt {
   rise: number;
 }
 interface SerpentArt {
-  key: string;
   spell: number;
   ring: SerpentRing | null;
   parts: PartArt[];
@@ -252,17 +250,13 @@ function buildPart(s: WorldRendererState, art: PartArt): void {
   s.serpentShade.add(art.shade);
 }
 function prepare(s: WorldRendererState, town: Town, art: SerpentArt | undefined, spell: number): SerpentArt {
-  const map = town.map(),
-    realm = town.realmArea ?? findRealmArea(map),
-    key = `${map.seed()}:${map.width()}:${spell}:${realm ? `${realm.x},${realm.y}` : ''}`;
-  if (art?.key === key) return art;
-  const ring = serpentRing(map, realm),
-    parts = ring ? serpentParts(ring, map.seed(), spell) : [];
+  const ring = townSerpentRing(town);
+  if (art && art.ring === ring && art.spell === spell) return art;
+  const parts = ring ? serpentParts(ring, town.map().seed(), spell) : [];
   s.serpent.remove();
   s.serpentLit.remove();
   s.serpentShade.remove();
   const next: SerpentArt = {
-    key,
     spell,
     ring,
     emergence: art?.emergence ?? 0,

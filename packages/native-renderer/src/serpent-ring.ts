@@ -275,9 +275,19 @@ export function partMiddle(part: SerpentPart, ring: SerpentRing): Point {
 export interface SerpentWorld {
   map(): WorldMap;
   realmArea: RealmArea | null;
+  realmRevision: number;
   climate(): { weather: Weather; intensity: number };
   weather(): { snapshot(): { peak: number } };
   clock(): number;
+}
+const surveys = new WeakMap<WorldMap, { revision: number; ring: SerpentRing | null }>();
+/** A live map's coastline changes only when a gate island rises or sinks. */
+export function townSerpentRing(town: SerpentWorld): SerpentRing | null {
+  const map = town.map(), cached = surveys.get(map);
+  if (cached && cached.revision === town.realmRevision) return cached.ring;
+  const ring = serpentRing(map, town.realmArea ?? undefined);
+  surveys.set(map, { revision: town.realmRevision, ring });
+  return ring;
 }
 /** A part of the serpent well above water where the player can see it, or null. */
 export function serpentSighting(town: SerpentWorld, seen: (at: Point) => boolean): Point | null {
@@ -287,7 +297,7 @@ export function serpentSighting(town: SerpentWorld, seen: (at: Point) => boolean
     spell = weatherSpell(town.weather().snapshot().peak),
     emergence = serpentEmergence(map.seed(), climate.weather, climate.intensity, spell);
   if (emergence < 0.5) return null;
-  const ring = serpentRing(map, town.realmArea ?? findRealmArea(map));
+  const ring = townSerpentRing(town);
   if (!ring) return null;
   for (const part of serpentParts(ring, map.seed(), spell)) {
     const at = partMiddle(part, ring);
