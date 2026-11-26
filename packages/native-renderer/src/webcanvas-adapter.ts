@@ -24,6 +24,8 @@ import {
   type Rgba,
   type Shade,
   identity,
+  evenShade,
+  shadeWithin,
 } from './paint';
 interface Entry {
   paint: Paint;
@@ -52,6 +54,20 @@ const toned = (color: Rgba, shade?: Shade): Rgba => {
     mix = (from: number, to: number) => Math.round(from + (to - from) * k);
   return [mix(color[0], shade.tone[0]), mix(color[1], shade.tone[1]), mix(color[2], shade.tone[2]), color[3]];
 };
+/** Where a rise eases from its foot to its top, as shares of its height and of the way: smooth at both ends. */
+const riseSteps = [0, 1 / 3, 2 / 3, 1].map((t) => ({ t, w: t * t * (3 - 2 * t) }));
+/** The colour of a gradient at `offset`, held at its ends. */
+function colourAt(stops: readonly { offset: number; color: Rgba }[], offset: number): Rgba {
+  if (offset <= stops[0].offset) return stops[0].color;
+  for (let i = 1; i < stops.length; i++) {
+    const a = stops[i - 1],
+      b = stops[i];
+    if (offset > b.offset) continue;
+    const k = b.offset > a.offset ? (offset - a.offset) / (b.offset - a.offset) : 1;
+    return [0, 1, 2, 3].map((c) => Math.round(a.color[c] + (b.color[c] - a.color[c]) * k)) as unknown as Rgba;
+  }
+  return stops[stops.length - 1].color;
+}
 function matrix(value: Matrix) {
   return {
     e11: value[0],
@@ -166,7 +182,8 @@ export class WebCanvasAdapter {
       const below = node.shade ? (node.shade.whole ? undefined : node.shade) : shade;
       let children: Paint[] | undefined;
       for (let i = 0; i < shown.length; i++) {
-        const paint = this.sync(shown[i], below);
+        const child = shown[i],
+          paint = this.sync(child, child instanceof SceneNode ? shadeWithin(below, child.matrix) : below);
         if (paint !== entry.childPaints?.[i]) {
           children ??= [...(entry.childPaints ?? [])];
           children[i] = paint;
@@ -407,21 +424,29 @@ export class WebCanvasAdapter {
       }
       if (node.rings?.count) this.rings(paint, node.rings);
     }
-    if (node.color) paint.fill(...toned(node.color, shade));
-    if (node.gradient && (node.gradient !== entry.gradient || recolour)) {
-      const g = node.gradient,
-        c = g.coordinates;
-      const gradient =
-        g.type === 'linear'
-          ? new this.tvg.LinearGradient(c[0], c[1], c[2], c[3])
-          : new this.tvg.RadialGradient(c[0], c[1], c[2], c[3], c[4], c[5]);
-      for (const stop of g.stops) gradient.addStop(stop.offset, [...toned(stop.color, shade)]);
-      paint.fill(gradient);
-      gradient.dispose();
+    const local = shadeWithin(shade, node.matrix),
+      risen = local?.rise ? this.risen(node, local) : undefined,
+      even = local && evenShade(local);
+    if (risen) {
+      paint.fill(risen);
+      risen.dispose();
+    } else {
+      if (node.color) paint.fill(...toned(node.color, even));
+      if (node.gradient && (node.gradient !== entry.gradient || recolour || local?.rise)) {
+        const g = node.gradient,
+          c = g.coordinates;
+        const gradient =
+          g.type === 'linear'
+            ? new this.tvg.LinearGradient(c[0], c[1], c[2], c[3])
+            : new this.tvg.RadialGradient(c[0], c[1], c[2], c[3], c[4], c[5]);
+        for (const stop of g.stops) gradient.addStop(stop.offset, [...toned(stop.color, even)]);
+        paint.fill(gradient);
+        gradient.dispose();
+      }
     }
     entry.gradient = node.gradient;
     if (node.width !== undefined) paint.stroke(node.width);
-    if (node.strokeColor) paint.stroke({ color: [...toned(node.strokeColor, shade)] });
+    if (node.strokeColor) paint.stroke({ color: [...toned(node.strokeColor, even)] });
     if (node.cap)
       paint.stroke({
         cap:
@@ -443,6 +468,51 @@ export class WebCanvasAdapter {
     if (node.dash) paint.stroke({ dash: node.dash });
     if (node.rule)
       paint.fillRule(node.rule === 'evenOdd' ? this.tvg.FillRule.EvenOdd : this.tvg.FillRule.Winding);
+  }
+  /**
+   * A shape's fill under mist lying on the ground: one gradient down the shape that is as dim as the shade's
+   * foot below its foot and as its top above, over the shape's own colour or its own vertical gradient. Null
+   * where the fill cannot be told by height (a radial or slanted gradient): it is then shaded evenly.
+   */
+  private risen(node: ShapeNode, shade: Shade): InstanceType<ThorVGNamespace['LinearGradient']> | undefined {
+    const rise = shade.rise!,
+      mist = riseSteps.map(({ t, w }) => ({
+        y: rise.foot - rise.height * (1 - t),
+        strength: rise.top + (shade.strength - rise.top) * w,
+      })),
+      heights = mist.map((step) => step.y);
+    let own: (y: number) => Rgba,
+      x = 0;
+    const g = node.gradient;
+    if (g) {
+      const [x1, y1, x2, y2] = g.coordinates;
+      if (g.type !== 'linear' || x1 !== x2 || y1 === y2) return undefined;
+      const stops = [...g.stops].sort((a, b) => a.offset - b.offset);
+      x = x1;
+      for (const stop of stops) heights.push(y1 + stop.offset * (y2 - y1));
+      own = (y) => colourAt(stops, (y - y1) / (y2 - y1));
+    } else if (node.color) {
+      const color = node.color;
+      own = () => color;
+    } else return undefined;
+    const ys = [...new Set(heights)].sort((a, b) => a - b),
+      low = ys[0],
+      high = ys[ys.length - 1];
+    if (!(high - low > 0.01)) return undefined;
+    const strengthAt = (y: number): number => {
+      if (y <= mist[0].y) return mist[0].strength;
+      for (let i = 1; i < mist.length; i++)
+        if (y <= mist[i].y)
+          return (
+            mist[i - 1].strength +
+            ((mist[i].strength - mist[i - 1].strength) * (y - mist[i - 1].y)) / (mist[i].y - mist[i - 1].y)
+          );
+      return mist[mist.length - 1].strength;
+    };
+    const gradient = new this.tvg.LinearGradient(x, low, x, high);
+    for (const y of ys)
+      gradient.addStop((y - low) / (high - low), [...toned(own(y), { tone: shade.tone, strength: strengthAt(y) })]);
+    return gradient;
   }
   private text(paint: Text, node: TextNode): void {
     paint

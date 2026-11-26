@@ -26,10 +26,14 @@ interface DepthItem {
   box?: Rect;
   /** The tiles under the middle and the two ends of the baseline: where it stands in the mist. */
   feet?: Point[];
-  /** The redraw of the mist this was last told from, whether the bank hides it, and how dim it is drawn. */
+  /**
+   * The redraw of the mist this was last told from, whether the bank hides it, and how deep in the mist it is
+   * drawn: steps of the tint and of the bank's soft edge under its foot.
+   */
   mistAt?: number;
   hidden?: boolean;
-  dim?: number;
+  veil?: number;
+  bank?: number;
 }
 const depthItems = new WeakMap<PaintNode, DepthItem>();
 
@@ -204,16 +208,34 @@ export function cullAround(paint: PaintNode, at: Point): void {
   const item = depthItems.get(paint);
   if (item) item.box = standingBox(groundBaseline(at));
 }
-/** The veil's tone on a thing, a step stronger each redraw until it is as dim as the ground it stands on. */
-const dimmed = (whole: boolean): (Shade | undefined)[] =>
-  Array.from({ length: mistRules.steps + 1 }, (_, step) =>
-    step ? { tone: mistTones.veil, strength: (mistTones.memory * step) / mistRules.steps, whole } : undefined,
-  );
-const shades = { own: dimmed(false), whole: dimmed(true) };
+const evenShades = new Map<string, Shade>();
 /**
- * Tells a thing from the ground it stands on: gone in the bank, dimmed in the veil, plain in sight. It is
- * told whole, by its foot, so a tree in sight keeps its top against the mist behind it and nothing shows on
- * the black. A landmark is too wide for one foot: it is gone only when the bank has all of its baseline.
+ * The mist on a thing whose foot stands `veil` steps deep in the tint and `bank` steps into the bank's soft
+ * edge. It stands in the mist up to its knees: at its foot as dim as the ground there, and above the mist's
+ * height (`rise`) keeping half of the tint. Toward the middle of the bank's edge it goes dark whole, so it is
+ * gone before the bank hides it and nothing shows on the black. Without a rise (a Lottie building, a thing
+ * turned in its own coordinates) it is laid on evenly, half way between.
+ */
+function mistShade(veil: number, bank: number, rise?: { foot: number; height: number }, whole = false): Shade | undefined {
+  if (!veil && !bank) return undefined;
+  const v = veil / mistRules.steps,
+    b = bank / mistRules.steps,
+    memory = mistTones.memory / 255,
+    fade = b * b * (3 - 2 * b),
+    top = 1 - (1 - mistRules.above * memory * v) * (1 - fade),
+    strength = Math.round(255 * Math.max(top, Math.min(1, 0.5 * b + memory * v))),
+    upper = Math.round(255 * top);
+  if (rise) return { tone: mistTones.veil, strength, rise: { foot: rise.foot, height: rise.height, top: upper } };
+  const key = `${veil}:${bank}:${whole}`;
+  let even = evenShades.get(key);
+  if (!even) evenShades.set(key, (even = { tone: mistTones.veil, strength: (strength + upper) / 2, whole }));
+  return even;
+}
+/**
+ * Tells a thing from the ground it stands on: gone in the bank, standing in the mist over remembered land,
+ * plain in sight. It is told by its foot, so a tree in sight keeps its top against the mist behind it and
+ * nothing shows on the black. A landmark is too wide for one foot: it is gone only when the bank has all of its
+ * baseline.
  */
 function standInMist(s: WorldRendererState, item: DepthItem, mist: MistField): void {
   if (!item.feet) {
@@ -232,25 +254,45 @@ function standInMist(s: WorldRendererState, item: DepthItem, mist: MistField): v
   if (Number.isNaN(bank)) return;
   const tick = s.mistTick,
     hidden = bank > 0,
-    // As dim as the ground under it is tinted, so a thing fades with the mist instead of changing colour at its edge.
-    veil = hidden ? 0 : mist.tint(foot.x, foot.y),
-    want = hidden ? 0 : Number.isNaN(veil) ? (item.dim ?? 0) : Math.round(veil * mistRules.steps),
-    // What comes into view, or out of the bank, is at once as the land round it; the rest goes by steps.
+    under = hidden ? { veil: 0, bank: 0 } : mist.under(foot.x, foot.y),
+    // What comes into view, or out of the bank, is at once as the land round it; the rest moves a few steps
+    // a redraw toward the ground under its foot, so the flow of the mist never flickers on it.
     sudden = s.reducedMotion || item.hidden !== false || item.mistAt !== tick - 1,
-    dim = sudden ? want : (item.dim ?? 0) + Math.sign(want - (item.dim ?? 0));
+    toward = (from: number | undefined, to: number): number => {
+      const at = from ?? 0,
+        gap = to - at;
+      return sudden || !gap ? to : at + Math.sign(gap) * Math.max(1, Math.round(Math.abs(gap) / 2));
+    };
   item.mistAt = tick;
+  if (!under) return;
   item.hidden = hidden;
-  shadeItem(item, dim);
+  shadeItem(
+    item,
+    toward(item.veil, Math.round(under.veil * mistRules.steps)),
+    toward(item.bank, Math.round(under.bank * mistRules.steps)),
+  );
   // A landmark once seen is known whole: the bank then keeps off all of its ground, so it never stands on black.
   if (!hidden && item.feet.length > 1 && !s.mistKnown.has(item.key))
     s.mistKnown.set(item.key, { center: item.feet[0], radius: distance(item.feet[1], item.feet[2]) / 2 + 0.5 });
 }
-function shadeItem(item: DepthItem, dim: number): void {
-  if (item.dim === dim) return;
-  item.dim = dim;
-  // A building is a Lottie picture: its colours are not ours to change one by one.
-  if (item.paint instanceof SceneNode)
-    item.paint.shaded((item.key.startsWith('building:') ? shades.whole : shades.own)[dim]);
+function shadeItem(item: DepthItem, veil: number, bank: number): void {
+  const paint = item.paint;
+  if (!(paint instanceof SceneNode)) {
+    item.veil = veil;
+    item.bank = bank;
+    return;
+  }
+  // The mist's height is told in the thing's own coordinates. A building is a Lottie picture: its colours are not
+  // ours to change one by one, so it takes the mist evenly, as does a thing turned or tipped.
+  const m = paint.matrix,
+    risen = !item.key.startsWith('building:') && m[3] === 0 && m[4] > 0,
+    foot = risen ? Math.round(((item.centerY - m[5]) / m[4]) * 2) / 2 : 0;
+  if (item.veil === veil && item.bank === bank && (!paint.shade?.rise || paint.shade.rise.foot === foot)) return;
+  item.veil = veil;
+  item.bank = bank;
+  paint.shaded(
+    mistShade(veil, bank, risen ? { foot, height: mistRules.layer / m[4] } : undefined, item.key.startsWith('building:')),
+  );
 }
 function rowItem(paint: PaintNode, row: number, category: number, order: number): DepthItem {
   let item = depthItems.get(paint);
@@ -309,10 +351,10 @@ export function sortWorldObjects(s: WorldRendererState): void {
     if (mist && category !== 3) {
       if (item.mistAt !== s.mistTick) standInMist(s, item, mist);
       if (item.hidden) return;
-    } else if (item.dim || item.hidden) {
+    } else if (item.veil || item.bank || item.hidden) {
       item.hidden = false;
       item.mistAt = undefined;
-      shadeItem(item, 0);
+      shadeItem(item, 0, 0);
     }
     entries.push(item);
   };

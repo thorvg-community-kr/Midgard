@@ -15,13 +15,37 @@ export interface Gradient {
   stops: { offset: number; color: Rgba }[];
 }
 export type Blend = 'normal' | 'softLight' | 'add' | 'multiply' | 'screen';
-/** A flat tone mixed into every colour under a scene: how the mist dims a thing whole. */
+/** A tone mixed into every colour under a scene: how the mist dims what stands in it. */
 export interface Shade {
   readonly tone: Rgb;
-  /** 0 leaves the colours alone, 255 leaves only the tone. */
+  /** 0 leaves the colours alone, 255 leaves only the tone. With a `rise`, the strength at the foot and below. */
   readonly strength: number;
   /** Laid over the scene as one picture, for what cannot be recoloured shape by shape (a Lottie building). */
   readonly whole?: boolean;
+  /**
+   * Mist lying on the ground: `strength` at the height `foot` (in the scene's own coordinates) and below it,
+   * easing to `top` at `height` above it and higher, so a thing stands in the mist up to its knees instead of
+   * changing colour whole.
+   */
+  readonly rise?: { readonly foot: number; readonly height: number; readonly top: number };
+}
+const evenShades = new WeakMap<Shade, Shade>();
+/** A risen shade laid on evenly, half way between its foot and its top: for what cannot take it by height. */
+export function evenShade(shade: Shade): Shade {
+  if (!shade.rise) return shade;
+  let even = evenShades.get(shade);
+  if (!even) {
+    even = { tone: shade.tone, strength: (shade.strength + shade.rise.top) / 2, whole: shade.whole };
+    evenShades.set(shade, even);
+  }
+  return even;
+}
+/**
+ * The shade a child with the transform `m` takes: a rise is measured in heights, so a child moved across or
+ * slanted keeps it, and any other transform takes it evenly.
+ */
+export function shadeWithin(shade: Shade | undefined, m: Matrix): Shade | undefined {
+  return shade?.rise && !(m[3] === 0 && m[4] === 1 && m[5] === 0) ? evenShade(shade) : shade;
 }
 export const identity: Matrix = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 const f = Math.fround;

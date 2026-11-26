@@ -2,7 +2,8 @@
 // Where each lies is a field that flows like noise on the wind, so neither is a circle round an eye and neither
 // stands still. The mist is drawn as one soft picture, a dot for every corner of the grid, so its edge melts
 // away over a cell to each side instead of ending in a line. It lies under all that stands; what stands is told
-// from the same fields whether it is gone, dimmed or plain (`depth`), whole, so nothing is ever cut across.
+// from the same fields by its foot whether it is gone (`depth`), stands in the mist up to its knees (`under`) or
+// is plain, so nothing is ever cut across by the mist behind it.
 import type { Point } from '../../engine/src/geometry';
 import { noise } from './field-contour';
 import { SUN_PASSES } from './vector-paint';
@@ -19,8 +20,18 @@ export const mistRules = {
   clear: 0.3,
   /** Tiles toward the camera the fields run on past the view, so what stands below it knows its ground. */
   tallest: 5,
-  /** Redraws a thing takes to go dim or plain again. */
-  steps: 8,
+  /** Steps of how deep a thing stands in the mist; a redraw moves it a few toward the ground under its foot. */
+  steps: 12,
+  /**
+   * How thick the mist lies on the ground, in world pixels: about a resident's height. A thing in it is as dim
+   * as the ground at its foot and eases out of it up to this height.
+   */
+  layer: 40,
+  /**
+   * How much of the ground's tint the part of a thing above the mist keeps. The day's soft light lifts a mid tone
+   * a long way, so less would show remembered land as if in sight.
+   */
+  above: 0.7,
 };
 /**
  * The tones: the bank over the unknown, and the tint over what is only remembered with its strength. Both lie
@@ -120,14 +131,15 @@ export class MistField {
     );
   }
   /**
-   * How strongly the ground at a tile point is tinted, from none to all, as the picture shows it: what stands
-   * there is dimmed by as much, so it fades with the mist instead of changing colour at a line.
+   * How the mist lies on the ground at a tile point, as the picture shows it: the share of the tint over
+   * remembered land, and how far the bank's soft edge has come toward its middle (1 there and beyond). Null
+   * beyond the fields. What stands there is told from these, so it fades with the mist under it.
    */
-  tint(x: number, y: number): number {
+  under(x: number, y: number): { veil: number; bank: number } | null {
     const { i0, j0, nx, ny, cell } = this.grid,
       across = x / cell - i0,
       down = y / cell - j0;
-    if (!nx || !ny || across < -4 || down < -4 || across > nx + 4 || down > ny + 4) return NaN;
+    if (!nx || !ny || across < -4 || down < -4 || across > nx + 4 || down > ny + 4) return null;
     const u = Math.min(nx, Math.max(0, across)),
       v = Math.min(ny, Math.max(0, down)),
       i = Math.min(nx - 1, Math.floor(u)),
@@ -136,8 +148,12 @@ export class MistField {
       b = v - j,
       at = j * (nx + 1) + i,
       mix = (field: Float32Array) =>
-        (field[at] * (1 - a) + field[at + 1] * a) * (1 - b) + (field[at + nx + 1] * (1 - a) + field[at + nx + 2] * a) * b;
-    return Math.min(1, Math.max(0, mix(this.dim) * (1 - mix(this.dark))));
+        (field[at] * (1 - a) + field[at + 1] * a) * (1 - b) + (field[at + nx + 1] * (1 - a) + field[at + nx + 2] * a) * b,
+      dark = mix(this.dark);
+    return {
+      veil: Math.min(1, Math.max(0, mix(this.dim) * (1 - dark))),
+      bank: Math.min(1, Math.max(0, dark / 0.5)),
+    };
   }
   build(input: MistInput): void {
     const [vx, vy, vw, vh] = input.view,

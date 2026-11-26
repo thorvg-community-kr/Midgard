@@ -18,7 +18,8 @@ const materials = new WeakMap<ShapeNode, { key: string; gradient?: Gradient }>()
 
 /** The row owns these filled, immutable outlines. Work reactions and wind move their parent. */
 export function registerScenery(paint: SceneNode, bounds: Rect, footY = bounds.y + bounds.h): void {
-  scenery.set(paint, { paint, bounds, band: Math.floor(footY / 32) });
+  // A batch shares one rise of the mist: its members' feet lie within a band, so it sits at all their knees.
+  scenery.set(paint, { paint, bounds, band: Math.floor(footY / 16) });
 }
 
 function material(shape: ShapeNode) {
@@ -58,7 +59,20 @@ export class SceneryBatch extends StaticShapeLayer {
     const shapes: ShapeNode[] = [];
     for (const layer of layers) for (const shape of layer.values()) shapes.push(shape);
     super(shapes);
-    this.shaded(members[0].paint.shade);
+    // Every member stands as deep in the mist; its rise is measured from the middle of their feet.
+    const shade = members[0].paint.shade,
+      rise = shade?.rise;
+    this.shaded(
+      rise
+        ? {
+            ...shade,
+            rise: {
+              ...rise,
+              foot: members.reduce((sum, { paint }) => sum + (paint.shade?.rise?.foot ?? rise.foot), 0) / members.length,
+            },
+          }
+        : shade,
+    );
   }
 }
 

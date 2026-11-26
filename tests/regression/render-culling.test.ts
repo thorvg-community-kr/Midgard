@@ -8,7 +8,7 @@ import { Traffic } from '../../packages/engine/src/traffic';
 import { Town } from '../../packages/engine/src/town';
 import { WorldMap } from '../../packages/engine/src/world-map';
 import { PictureNode, SceneNode, ShapeNode, StaticShapeLayer } from '../../packages/native-renderer/src/paint';
-import { MistField } from '../../packages/native-renderer/src/mist-bands';
+import { MistField, mistTones } from '../../packages/native-renderer/src/mist-bands';
 import { WorldRendererState } from '../../packages/native-renderer/src/world-renderer-state';
 import { fitToView } from '../../packages/native-renderer/src/world-ground';
 import { updateVision } from '../../packages/native-renderer/src/world-vision';
@@ -165,6 +165,26 @@ describe('a shaded scene', () => {
       expect(fill.mock.calls.at(-1)).toEqual([200, 100, 50, 255]);
     } finally {
       fill.mockRestore();
+      adapter.dispose();
+    }
+  });
+  it('lays mist on the ground: one gradient down a shape, dark from the foot down and lighter above the rise', () => {
+    const adapter = new WebCanvasAdapter(tvg),
+      // A trunk from y 0 down to its foot at y 100.
+      shape = new ShapeNode().appendRect(0, 0, 4, 100).fill(200, 100, 50),
+      root = new SceneNode().add(shape),
+      stops = vi.spyOn(tvg.LinearGradient.prototype, 'addStop');
+    try {
+      root.shaded({ tone: [0, 0, 0], strength: 255, rise: { foot: 100, height: 60, top: 127.5 } });
+      adapter.sync(root);
+      const sent = stops.mock.calls.map(([offset, color]) => [offset, ...color]);
+      // From the top of the rise, y 40, half way to black, down to the foot, black.
+      expect(sent[0]).toEqual([0, 100, 50, 25, 255]);
+      expect(sent.at(-1)).toEqual([1, 0, 0, 0, 255]);
+      expect(sent.length).toBeGreaterThanOrEqual(3);
+      for (let i = 1; i < sent.length; i++) expect(sent[i][1]).toBeLessThan(sent[i - 1][1]);
+    } finally {
+      stops.mockRestore();
       adapter.dispose();
     }
   });
@@ -367,12 +387,21 @@ describe('what stands in the mist', () => {
     expect(s.objects.children).toContain(near);
     expect(near.shade).toBeUndefined();
     expect(s.objects.children).not.toContain(far);
-    // A scout walks past: the land is remembered, and the same tree appears, dimmed whole.
+    // A scout walks past: the land is remembered, and the same tree appears, standing in the mist.
     mist(s, true);
     sortWorldObjects(s);
     expect(s.objects.children).toContain(far);
     expect(far.shade).toBeDefined();
     expect(near.shade).toBeUndefined();
+  });
+  it('stands a thing deep in remembered land in the mist up to its knees, not dimmed whole', () => {
+    const { s } = world([]);
+    mist(s, true);
+    // Fourteen tiles from the eye, well past the soft edge of its sight.
+    const deep = standing(s, 20, 10, 'tree:deep');
+    sortWorldObjects(s);
+    // As dark as the ground at its foot (y 480) and below; above the mist's height it keeps 70% of the tint.
+    expect(deep.shade).toEqual({ tone: mistTones.veil, strength: 218, rise: { foot: 480, height: 40, top: 153 } });
   });
   it('shows everything plain in the editors and when the mist is lifted', () => {
     const { s } = world([]);
