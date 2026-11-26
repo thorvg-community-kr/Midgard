@@ -17,6 +17,7 @@ import { deposit } from '../../packages/engine/src/mining';
 import { separatePeople } from '../../packages/engine/src/person-navigation';
 import { enter } from '../../packages/engine/src/town-residents';
 import { packAmount } from '../../packages/engine/src/carried-resources';
+import { decodeTown, encodeTown } from '../../packages/engine/src/save-game';
 let base: Town;
 beforeAll(() => {
   const doc = new MapDocument(WorldMap.generate(5, 64, 64));
@@ -66,6 +67,36 @@ describe('resident automatic policy', () => {
     const town=fixture(), p=town.people()[0]; town.setAuto(p.id,false);
     town.orderMove([p.id],add(p.position,point(2,0)));step(town,4);
     expect(p.autoMode).toBe(true);expect(p.ordered).toBe(false);expect(p.task).not.toBe(Activity.Moving);
+  });
+  it.each([1, 5])('waits at the clicked ground for 1.5 play seconds before taking work at %i×', (speed) => {
+    const town = fixture(), p = town.people()[0], goal = point(36, 34);
+    const site = road(town);
+    town.orderMove([p.id], goal);
+    expect(p.ordered).toBe(true);
+    for (let frame = 0; frame < 1200 && p.ordered; ++frame) town.advance(speed / 60, 1 / 60);
+    expect(distance(p.position, goal)).toBeLessThan(.2);
+    const arrival = { ...p.position };
+    for (let frame = 0; frame < 89; ++frame) {
+      town.advance(speed / 60, 1 / 60);
+      expect(p.task).toBe(Activity.Idle);
+      expect(p.position).toEqual(arrival);
+    }
+    for (let frame = 0; frame < 6; ++frame) town.advance(speed / 60, 1 / 60);
+    expect(p.task).toBe(Activity.Roadwork);
+    expect(p.taskSite).toBe(site.id);
+  });
+  it('preserves the remaining wait through a save and a speed change', () => {
+    const town = fixture(), p = town.people()[0], site = road(town);
+    town.orderMove([p.id], point(36, 34));
+    for (let frame = 0; frame < 1200 && p.ordered; ++frame) town.advance(5 / 60, 1 / 60);
+    for (let frame = 0; frame < 45; ++frame) town.advance(5 / 60, 1 / 60);
+    const loaded = decodeTown(encodeTown(town), map => new Town(map, 64, false, true));
+    const resident = loaded.person(p.id)!;
+    for (let frame = 0; frame < 43; ++frame) loaded.advance(2 / 60, 1 / 60);
+    expect(resident.task).toBe(Activity.Idle);
+    for (let frame = 0; frame < 8; ++frame) loaded.advance(2 / 60, 1 / 60);
+    expect(resident.task).toBe(Activity.Roadwork);
+    expect(resident.taskSite).toBe(site.id);
   });
   it('lets a rested resident leave home after dark', () => {
     const town=fixture(),p=town.people()[0], home=town.camp()!;
@@ -201,10 +232,14 @@ describe('resident automatic policy', () => {
     expect(activities.has(Activity.Mining)).toBe(true);expect(activities.has(Activity.DeliveringMaterials)).toBe(true);
     expect(child.paved,JSON.stringify({activity:Activity[p.activity],task:p.task,target:p.target,cargo:p.carrying,materials:child.materials})).toBe(true);
   });
-  it('moves to a clicked building before collecting its missing resources', () => {
+  it('immediately takes a building order during the arrival wait and visits the site before collecting materials', () => {
     const town=fixture(),p=town.people()[0],site=new Building(1,Structure.Tent,point(39,34),0,0);
     site.progress=0;site.materials.required.wood=3;town.placed.push(site);town.stock().wood=0;town.map().at(32,34).trees=1;
+    town.orderMove([p.id],point(35,34));
+    for (let frame = 0; frame < 1200 && p.ordered; ++frame) town.advance(1 / 60);
+    expect(p.activity).toBe(Activity.Holding);
     expect(town.orderBuild([p.id],site.id)).toBe(true);
+    expect(p.ordered).toBe(true);expect(p.taskSite).toBe(site.id);
     expect(p.approachingOrder).toBe(true);expect(p.activity).toBe(Activity.Moving);expect(p.tree).toBe(-1);
     expect(distance(p.path.at(-1)!,site.door())).toBeLessThan(.05);
   });

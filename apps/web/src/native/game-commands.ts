@@ -26,6 +26,7 @@ import { Rect } from '../../../../packages/native-ui/src';
 import {
   automaticConstructionAllowed,
   registerAutomaticConstruction,
+  waitingForAutoWork,
 } from '../../../../packages/engine/src/automatic-work';
 export interface GameCommandApp extends GameInputApp {
   editor?: unknown;
@@ -337,6 +338,7 @@ export function dispatchWork(this: GameCommandApp, force = false): void {
       for (const p of this.town.people()) {
         const stopped = this.stoppedWork.get(p.id);
         if (!canControl(p) || p.ordered || (stopped !== undefined && stopped >= work.serial)) continue;
+        if (!clicked && waitingForAutoWork(p, this.town.time)) continue;
         if (
           (work.activity === Activity.Building || work.activity === Activity.Roadwork) &&
           !automaticConstructionAllowed(this.town, p, work.activity, work.target)

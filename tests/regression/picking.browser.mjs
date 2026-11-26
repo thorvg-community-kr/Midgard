@@ -622,11 +622,43 @@ try {
       const treeSelection = await click(treePoint);
       assert.equal(treeSelection.tree, tree.cell);
       assert.equal(treeSelection.treeInstance, 0);
-      await page.evaluate(() => picking.game.selectPeople([11]));
+      const ground = await page.evaluate(() => {
+        const { game, data, point } = picking;
+        game.town.person(11).autoMode = true;
+        game.selectPeople([11]);
+        const { x, y } = data.tree.foot;
+        return game.toScreen(point(x + 2, y + 1));
+      });
       await frame();
+      assert.equal(await hover(ground), null);
+      await click(ground, 'right');
+      assert.equal(await page.evaluate(() => picking.calls.at(-1)?.name), 'orderMove');
+      const speed = dpr === 1 ? 1 : 5;
+      const earlyDeparture = await page.evaluate((speed) => {
+        const game = picking.game, resident = game.town.person(11), destination = { ...resident.goal };
+        if (!resident.moving()) throw Error('Ground click must start a walk');
+        game.setSpeed(speed);
+        if (game.gameSpeed() !== speed) throw Error('Could not set the simulation speed');
+        const start = picking.frames;
+        while (resident.moving() && picking.frames - start < 600) picking.frame();
+        for (let tick = 0; tick < 72; tick++) {
+          if (resident.moving() || picking.distance(resident.position, destination) >= .2 ||
+              ![picking.Activity.Idle, picking.Activity.Holding].includes(resident.activity))
+            return { elapsed: tick / 60, activity: picking.Activity[resident.activity], destination, at: resident.position };
+          picking.frame();
+        }
+        return null;
+      }, speed);
+      assert.equal(earlyDeparture, null, 'Resident must wait at the clicked ground before taking up work');
       assert.deepEqual((await click(treePoint, 'right')).people, [11]);
       assert.equal(await page.evaluate(() => picking.calls.at(-1)?.name), 'orderChop');
       assert.equal(await page.evaluate(() => picking.calls.at(-1)?.args[1]), tree.cell);
+      assert.ok(await page.evaluate(() => {
+        const resident = picking.game.town.person(11);
+        return resident.ordered && resident.task === picking.Activity.Felling && resident.taskSite === picking.data.cell;
+      }), 'A tree clicked during the wait must be assigned immediately');
+      row.checks.push(`a ground order waits at arrival at ${speed}x and a new tree order takes effect immediately`);
+      await page.evaluate(() => { picking.game.paused = true; });
       row.checks.push('small tree hover, click and contextual right-click share one painted winner');
       await page.evaluate(() => picking.game.selectPeople([]));
       await frame();

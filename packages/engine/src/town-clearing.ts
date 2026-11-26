@@ -10,6 +10,7 @@ import { TownState } from './town-state';
 import { beyondOrders, canControl } from './faction';
 import { f32 } from './numeric';
 import { hammerContact } from './work-timing';
+import { waitingForAutoWork } from './automatic-work';
 
 export type ClearKind = 'building' | 'field' | 'road';
 export interface ClearTarget {
@@ -162,11 +163,11 @@ function enlist(town: Town, mark: ClearMark, p: Person): boolean {
   if (auto) mark.wasAuto.push(p.id);
   return true;
 }
-function callFreeHands(town: Town, mark: ClearMark): void {
+function callFreeHands(town: Town, mark: ClearMark, requested = false): void {
   const spot = spotFor(town, mark);
   if (!spot) return;
   const hands = town.folk
-    .filter((p) => free(town, p))
+    .filter((p) => free(town, p) && (requested || !waitingForAutoWork(p, town.time)))
     .sort((a, b) => distance(a.position, spot) - distance(b.position, spot));
   for (const p of hands) {
     if (mark.crew.length >= autoCrew) break;
@@ -212,7 +213,7 @@ export function markClear(town: Town, kind: ClearKind, id: number, ids: readonly
       enlist(town, mark, p);
     }
   }
-  if (!mark.crew.length) callFreeHands(town, mark);
+  if (!mark.crew.length) callFreeHands(town, mark, true);
   ++town.changes;
   return { check, removed: false, mark };
 }

@@ -163,6 +163,22 @@ describe('new player road requests after the first Camp', () => {
     expect(town.people().map((p) => p.goal)).toEqual(goals);
     advanceUntil(app, () => road.built === 1, 120);
   });
+  it('waits after a move before dispatching an old road request and takes a fresh request immediately', () => {
+    const app = fixture(), town = app.town, worker = town.people()[0];
+    town.folk = [worker];
+    town.orderMove([worker.id], add(town.camp()!.center, point(3, 2)));
+    const road = requestRoad(app, radial(app, point(1, 0)));
+    expect(worker.task).toBe(Activity.Moving);
+    for (let i = 0; i < 300 && worker.ordered; ++i) town.advance(0.1);
+    expect(worker.activity).toBe(Activity.Holding);
+    expect(worker.ordered).toBe(false);
+    town.advance(0.3);
+    app.dispatchWork();
+    expect(worker.task).toBe(Activity.Idle);
+    app.queueWork(Activity.Roadwork, road.id);
+    expect(worker.task).toBe(Activity.Roadwork);
+    expect(worker.taskSite).toBe(road.id);
+  });
   it('keeps an unfinished automatic road assignment when another road is requested', () => {
     const app = fixture(),
       town = app.town,

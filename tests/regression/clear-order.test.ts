@@ -12,7 +12,7 @@ import { Camera, point, project, type Outline } from '../../packages/engine/src/
 import { Field } from '../../packages/engine/src/town-models';
 import { sharpAnchor } from '../../packages/engine/src/road-network';
 import { Tool } from '../../packages/engine/src/game-tools';
-import { canClear, clearMarkOf, keepClear, markClear } from '../../packages/engine/src/town-clearing';
+import { advanceClearing, canClear, clearMarkOf, keepClear, markClear } from '../../packages/engine/src/town-clearing';
 import { GameAppState } from '../../apps/web/src/native/game-app-state';
 import { inspector } from '../../apps/web/src/native/game-hud';
 import { worldObjectPanel } from '../../apps/web/src/native/game-selection-panel';
@@ -102,6 +102,19 @@ describe('clearing through residents', () => {
     run(town, 120, () => !town.building(b.id));
     expect(town.building(b.id)).toBeNull();
     expect(near.autoMode).toBe(true);
+  });
+  it('waits to recruit a recently moved resident unless the player requests clearing again', () => {
+    const town = world(), worker = resident(town, 0), site = tent(town);
+    const mark = markClear(town, 'building', site.id).mark!;
+    expect(mark.crew).toEqual([]);
+    town.orderMove([worker.id], worker.position);
+    town.resumeOrder(worker);
+    expect(worker.autoMode).toBe(true);
+    expect(worker.activity).toBe(Activity.Holding);
+    advanceClearing(town, 0.1);
+    expect(mark.crew).toEqual([]);
+    markClear(town, 'building', site.id);
+    expect(mark.crew).toEqual([worker.id]);
   });
   it('tears down successive sections with both workers on reachable ground', () => {
     const town = world(), a = resident(town, 0), b = resident(town, 1), site = tent(town);

@@ -91,7 +91,7 @@ function advanceSettlement(app: GameRenderApp, elapsed: number): void {
   app.pendingSimulationTicks = Math.max(0, ticks - steps);
   if (!steps) app.dispatchWork();
   for (let i = 0; i < steps; i++) {
-    app.town.advance(app.gameSpeed() / frequency);
+    app.town.advance(app.gameSpeed() / frequency, 1 / frequency);
     app.dispatchWork();
   }
 }

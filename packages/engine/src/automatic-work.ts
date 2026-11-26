@@ -1,5 +1,5 @@
 import type { Town } from './town';
-import { Activity, type Person } from './person';
+import { Activity, Role, type Person } from './person';
 import { distance } from './geometry';
 import { Product, structureSpec } from './building-catalog';
 import { unsourcedMaterial } from './settlement-progression';
@@ -10,6 +10,11 @@ const assignments = new WeakMap<Person, string>();
 const blocked = new WeakMap<Person, Map<string, number>>();
 const key = (work: Activity, id: number) => `${work}:${id}`;
 const announced = new WeakMap<Town, Set<string>>();
+/** A completed move leaves the resident holding until the player has had time to give another order. */
+export function waitingForAutoWork(person: Person, now: number): boolean {
+    return person.activity === Activity.Holding && person.task === Activity.Idle && person.role === Role.Resident &&
+        person.autoMode && !person.ordered && Number.isFinite(person.until) && now < person.until;
+}
 /** Says once, per site and material, that a building waits for something nobody has found yet. */
 function announceShortage(town: Town, id: number): void {
     const site = town.building(id),

@@ -24,6 +24,7 @@ import { updateGateOpenings } from './gate-progression';
 import { expectedCrops } from './farm-work';
 import { economyRules, swornCalling } from './economy-rules';
 import { coverDeposits } from './mining';
+import { waitingForAutoWork } from './automatic-work';
 export interface Reason {
   value: string;
 }
@@ -134,11 +135,17 @@ export function dailyOutput(this: EconomyTown, item: Building): Resources {
   }
   return out;
 }
-export function advance(this: EconomyTown, seconds: number): boolean {
+export function advance(this: EconomyTown, seconds: number, playSeconds = seconds): boolean {
   const step = 0.1;
   let newDayBegan = false;
   for (let left = seconds; left > 1e-9; left -= step) {
     const dt = Math.min(step, left);
+    if (playSeconds !== seconds) {
+      // The saved deadline keeps the remaining player time even when the simulation changes speed.
+      const extra = dt - dt * (playSeconds / seconds);
+      for (const p of this.folk)
+        if (waitingForAutoWork(p, this.time)) p.until += extra;
+    }
     this.time += dt;
     if (this.titleSky) this.sky.advance(0, TownState.secondsPerDay, this.titleSky.year, this.titleSky.day);
     else this.sky.advance(dt, TownState.secondsPerDay, this.yearFraction(), this.dayFraction());

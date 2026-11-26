@@ -394,7 +394,7 @@ export function finishMove(p: Person, now: number): void {
   p.foe = -1;
   p.activity = Activity.Holding;
   p.path = [];
-  p.until = now + 2;
+  p.until = now + 1.5;
 }
 export function resumeOrder(this: OrderTown, p: Person): boolean {
   if (p.stressRecovery || p.faction !== this.controlFaction) return false;

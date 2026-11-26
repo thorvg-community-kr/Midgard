@@ -9,7 +9,7 @@ import { f32 as f } from './numeric';
 import { healthCap } from './resident-wounds';
 import type { Road } from './road-network';
 import { dangerNear } from './town-tick';
-import { automaticConstructionAllowed, hasUnfinishedRoadwork, registerAutomaticConstruction } from './automatic-work';
+import { automaticConstructionAllowed, hasUnfinishedRoadwork, registerAutomaticConstruction, waitingForAutoWork } from './automatic-work';
 
 export function orderAutomatic(this: Town, ids: number[]): void {
   this.commanded();
@@ -64,6 +64,7 @@ export function scheduleAutomatic(this: Town, p: Person): boolean {
   if ((p.ordered && !directWork) || p.approachingOrder) return true;
   // Beyond a gate nobody farms, sleeps or builds: the party only follows orders.
   if ((!p.autoMode && !directWork) || this.inRealm(p.position)) return false;
+  if (waitingForAutoWork(p, this.time)) return true;
   // A direct wake order can defer a break. Daylight never decides when a shift ends.
   const awake = this.stayingUp(p);
   if (p.health >= healthCap(p)) p.recoveringHealth = false;
