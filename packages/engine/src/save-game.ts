@@ -7,7 +7,7 @@ import { coverDeposits } from './mining';
 import { preparePassage } from './realm-layout';
 import { migrateSiegeStrength, targetedDungeon, type DungeonSiege } from './dungeon-siege';
 import { gateSealed, sealable } from './gate-seals';
-import { rankRules } from './monster-ranks';
+import { applyMonsterBalance, rankRules } from './monster-ranks';
 import {
   SaveArchive,
   sealSave,
@@ -611,6 +611,10 @@ function townFields(a: SaveArchive, v: SaveTown): void {
     raidKills: i32,
     raidBounty: i32,
   });
+  // Archives which carry a maximum health can convert a wounded monster without healing it.
+  // In earlier archives its authored health is the only record of the encounter.
+  if (a.reading && a.formatVersion < 28)
+    for (const beast of v.beasts) if (beast.vigor > 0) applyMonsterBalance(beast);
   a.fields(legacy, { renown: f32, today: ledgerCodec, yesterday: ledgerCodec });
   a.fields(v, {
     blows: vector(hitCodec),
@@ -1121,7 +1125,9 @@ export function encodeTownPayload(town: SaveTown): Uint8Array {
   // Older readers accepted level 30 only as the cap, with no experience carried toward the next level.
   const campaign = town.sieges.some(Boolean) || town.folk.some(p => p.level > 30 || (p.level === 30 && p.experience > 0));
   const levelledMonsters = town.beasts.some(m => m.level > 1);
-  a.formatVersion = campaign ? 27 : levelledMonsters ? 26 : siege ? 25 : ranchCycle ? 24 : livestockOrRefining ? 23 : expedition ? 22 : foundry ? 21 : town.folk.some((p) => p.birthStrength !== 0 || p.birthVitality !== 0)
+  // Version 28 records that active monsters already carry the new health and attack values.
+  const balancedMonsters = town.beasts.some(m => m.vigor > 0);
+  a.formatVersion = balancedMonsters ? 28 : campaign ? 27 : levelledMonsters ? 26 : siege ? 25 : ranchCycle ? 24 : livestockOrRefining ? 23 : expedition ? 22 : foundry ? 21 : town.folk.some((p) => p.birthStrength !== 0 || p.birthVitality !== 0)
     ? 20
     : stations
     ? 19
@@ -1187,10 +1193,10 @@ export function decodeTown<T extends SaveTown>(encoded: string, create: (map: Wo
     endian = u32.read(a),
     appearanceSize = u32.read(a);
   let climateSize = 0;
-  if (version >= 2 && version <= 27) climateSize = u32.read(a);
+  if (version >= 2 && version <= 28) climateSize = u32.read(a);
   if (
     version < 2 ||
-    version > 27 ||
+    version > 28 ||
     endian !== 0x01020304 ||
     appearanceSize !== nativeAppearanceSize ||
     climateSize !== nativeClimateSize

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { dungeonThreat, pressureNotice, raidMight, raidMuster, raidShape, RaidKind, seatVolley, siegeMonsterLevel, threatWeeks } from '../../packages/engine/src/raid-progression';
 import { decodeTown, encodeTown } from '../../packages/engine/src/save-game';
 import { MonsterRank } from '../../packages/engine/src/combat-events';
-import { rankRules } from '../../packages/engine/src/monster-ranks';
+import { applyMonsterBalance, raidRewardHealth, rankRules } from '../../packages/engine/src/monster-ranks';
 import { Calling, Monster, Role } from '../../packages/engine/src/person';
 import { monsterBite } from '../../packages/engine/src/town-monsters';
 import { Building } from '../../packages/engine/src/town-models';
@@ -144,6 +144,16 @@ describe('weekly dungeon pressure', () => {
       expect(m.health).toBeLessThanOrEqual(0);
     }
   });
+  it('recognises a wounded raider from before levels were saved by its full health', () => {
+    const raider = new Monster(1, 0, point());
+    raider.raider = true;
+    raider.vigor = 8;
+    raider.health = 0.8;
+    applyMonsterBalance(raider);
+    expect(raider.vigor).toBeCloseTo(10.4);
+    expect(raider.health).toBeCloseTo(1.04);
+    expect(raidRewardHealth(raider)).toBeCloseTo(8);
+  });
   it('applies the weekly increase to actual spawned dungeon raiders', () => {
     const town = new Town(5, 32, false),
       camp = new Building(0, Structure.Camp, town.map().camp(), 0, 0);
@@ -175,11 +185,14 @@ describe('weekly dungeon pressure', () => {
     const swarmer = town.monsters()[0];
     expect(swarmer.rank).toBe(MonsterRank.Swarmer);
     expect(swarmer.level).toBe(2);
-    expect(swarmer.strength).toBeCloseTo(0.25 * 1.08 * rankRules.swarmerStrength * raidMuster.swarmBite, 4);
-    expect(swarmer.health).toBeCloseTo(breedOf(lair.kind).health * 0.24 * 1.32 * rankRules.swarmerHealth, 3);
+    expect(swarmer.strength).toBeCloseTo(0.2 * 1.08 * rankRules.swarmerStrength * raidMuster.swarmBite, 4);
+    expect(swarmer.health).toBeCloseTo(breedOf(lair.kind).health * 0.312 * 1.32 * rankRules.swarmerHealth, 3);
+    swarmer.health = Math.fround(swarmer.vigor * 0.4);
     town.days = 35;
     const saved = decodeTown(encodeTown(town), map => new Town(map, 32, false, true));
-    expect(saved.creature(swarmer.id)).toMatchObject({ level: 2, vigor: swarmer.vigor });
+    expect(saved.creature(swarmer.id)).toMatchObject({
+      level: 2, vigor: swarmer.vigor, health: swarmer.health, strength: swarmer.strength,
+    });
     saved.beasts = [];
     saved.summonRaid(RaidKind.Horde);
     expect(saved.monsters()[0].level).toBe(6);

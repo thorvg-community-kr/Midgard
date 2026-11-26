@@ -10,7 +10,7 @@ import { dungeonChallenge, dungeonStatus, siegeRules, targetedDungeon } from '..
 import { gateActive } from '../../packages/engine/src/gate-progression';
 import { gateSealed } from '../../packages/engine/src/gate-seals';
 import { add, distance, point } from '../../packages/engine/src/geometry';
-import { monsterEntrance } from '../../packages/engine/src/town-monsters';
+import { breedOf, monsterBite, monsterEntrance } from '../../packages/engine/src/town-monsters';
 import { encodeTown, decodeTown } from '../../packages/engine/src/save-game';
 import { WorldMap } from '../../packages/engine/src/world-map';
 import { DungeonKind, Layer, Terrain, makeTile } from '../../packages/engine/src/world-types';
@@ -88,7 +88,7 @@ describe('sieges in Midgard', () => {
     const loaded = decodeTown(archive, map => new Town(map, 64, false, true));
     const damaged = dungeonStatus(loaded, 1), guardian = loaded.creature(loaded.sieges[0]!.guardian)!;
     expect(damaged.health).toBe(damaged.maxHealth / 2);
-    expect(guardian.vigor).toBeGreaterThan(200);
+    expect(guardian.vigor).toBeCloseTo(1248);
     expect(guardian.level).toBeGreaterThan(1);
     expect(guardian.health / guardian.vigor).toBeCloseTo(0.6);
     const savedAgain = resume(loaded);
@@ -101,6 +101,49 @@ describe('sieges in Midgard', () => {
     p.position = { ...p.goal };
     expect(hitDungeon(savedAgain, p.id, 1, 1)).toHaveLength(0);
     expect(hitDungeon(savedAgain, p.id, damaged.maxHealth / 4 - 1, 1).length).toBeGreaterThan(0);
+  });
+  it('retunes wounded version 27 monsters once while preserving first-raid health and livestock', () => {
+    // This archive was written before the rebalance with a wounded guardian, two raiders and a cow.
+    const archive = gunzipSync(readFileSync(new URL('./fixtures/outdoor-monsters-v27.goldfantasy.gz', import.meta.url))).toString();
+    const loaded = decodeTown(archive, map => new Town(map, 64, false, true));
+    const guardian = loaded.creature(loaded.sieges[0]!.guardian)!;
+    const raider = loaded.creature(24)!, scout = loaded.creature(43)!;
+    expect(guardian.vigor).toBeCloseTo(960 * 1.3);
+    expect(guardian.health / guardian.vigor).toBeCloseTo(0.6);
+    expect(raider.vigor).toBeCloseTo(8.2656 * 1.3);
+    expect(raider.health / raider.vigor).toBeCloseTo(0.5);
+    expect(raider.strength).toBeCloseTo(0.29 * 0.8);
+    expect(scout).toMatchObject({ level: 1, health: 0.25, vigor: 1 });
+    expect(scout.strength).toBeCloseTo(0.25 * 0.8);
+    expect(loaded.animals.find(a => a.id === 44)).toMatchObject({ health: 10, vigor: 12, strength: 1 });
+    const saved = encodeTown(loaded);
+    expect(Buffer.from(saved.slice(17), 'hex').readUInt32LE(0)).toBe(28);
+    expect(encodeTown(resume(loaded))).toBe(saved);
+
+    // The extra health still earns the same bounty and experience for this third-level raider.
+    const fighter = loaded.folk[0], experience = vi.spyOn(loaded, 'rewardExperience');
+    const ledger = loaded.economy(loaded.settlementAt(raider.position)).today, bounty = ledger.bounty;
+    loaded.hurtCreature(raider, raider.health, fighter);
+    expect(experience).toHaveBeenCalledWith(fighter, 11);
+    loaded.stir(0);
+    expect(ledger.bounty - bounty).toBe(4);
+  });
+  it('gives the first guardian and its horde more staying power and softer individual hits', () => {
+    const { town, mouth } = breach(), horde = emerge(town);
+    const target = town.makePerson(Role.Resident, Calling.Settler, mouth);
+    const breed = breedOf(town.world.sites[0].kind);
+    for (const [rank, health, bite] of [
+      [MonsterRank.Swarmer, 3.25, 0.0144],
+      [MonsterRank.Brute, 27.3, 0.03744],
+      [MonsterRank.Guardian, 1248, 0.132],
+    ] as const) {
+      const beast = horde.find(m => m.rank === rank)!;
+      expect(beast.health).toBeCloseTo(health);
+      target.health = 1;
+      monsterBite(town, beast, target, breed);
+      const damage = (1 - target.health) * target.vitalityMultiplier();
+      expect(damage).toBeCloseTo(bite, 5);
+    }
   });
   it('releases a larger, stronger wave at each quarter, including across saves and hits from different settlers', () => {
     const game = settlement(), { ids, mouth } = game;

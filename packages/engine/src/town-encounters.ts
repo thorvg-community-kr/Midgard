@@ -16,7 +16,7 @@ import { belongsToFaction } from './faction';
 import { Season, type Calendar } from './town-models';
 import { losePrey, planRaiderApproach, pursueResident, separateMonsters } from './monster-navigation';
 import { MeleeFront } from './monster-engagement';
-import { choosePrey, rankPace, slowedBy, tauntedBy } from './monster-ranks';
+import { choosePrey, raidRewardHealth, rankPace, slowedBy, tauntedBy } from './monster-ranks';
 export interface EncounterTown extends TownState {
   wakeGiants(): void;
   stirWildlife(dt: number): void;
@@ -178,7 +178,7 @@ export function stir(this: EncounterTown, dt: number): void {
       this.realmKill(beast);
       continue;
     }
-    const bounty = beast.raider && beast.vigor > 0 ? Math.max(1, lround(beast.vigor * 0.5)) :
+    const bounty = beast.raider && beast.vigor > 0 ? Math.max(1, lround(raidRewardHealth(beast) * 0.5)) :
         lround(f(breedOf(this.world.dungeons()[beast.lair].kind).health * (beast.raider ? f(0.5) : f(0.4)))),
       village = this.settlementAt(beast.position);
     this.credit(new Resources(bounty), village);

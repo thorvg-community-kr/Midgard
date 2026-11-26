@@ -60,6 +60,26 @@ const worth: Record<MonsterRank, number> = {
 };
 export const rankWorth = (beast: Monster): number => worth[beast.rank] ?? 1;
 
+const monsterBalance = { health: 1.3, attack: 0.8 };
+
+/** Scouts fall to one unarmed blow. Older raiders without a saved level can still have a larger health pool. */
+function healthScale(beast: Monster): number {
+  return beast.raider && beast.level === 1 && beast.vigor <= 1 ? 1 : monsterBalance.health;
+}
+
+/** Apply once to the original combat stats, keeping the same fraction of health when wounded. */
+export function applyMonsterBalance(beast: Monster): void {
+  const scale = healthScale(beast);
+  beast.health = f(beast.health * scale);
+  beast.vigor = f(beast.vigor * scale);
+  beast.strength = f(beast.strength * monsterBalance.attack);
+}
+
+/** Raid gold and experience use the original muster strength. */
+export function raidRewardHealth(beast: Monster): number {
+  return f(beast.vigor / healthScale(beast));
+}
+
 /** Sets a new monster's rank and full health; `scale` applies the rank's health and strength. */
 export function rankMonster(beast: Monster, rank: MonsterRank, scale = true): Monster {
   beast.rank = rank;
@@ -80,6 +100,7 @@ export function rankMonster(beast: Monster, rank: MonsterRank, scale = true): Mo
     beast.strength = f(beast.strength * strength);
   }
   beast.vigor = beast.health;
+  applyMonsterBalance(beast);
   return beast;
 }
 export const rankPace = (beast: Monster): number =>

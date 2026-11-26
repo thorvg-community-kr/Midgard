@@ -21,7 +21,7 @@ import { CombatCue, MonsterRank, combatRules } from './combat-events';
 import { Boon, boon, boonRules } from './gate-boons';
 import { inArea } from './realm-layout';
 import { FirstSlam } from './expedition-record';
-import { rankMonster, rankPause, rankRules, rankWorth, skillEffects, slowedBy } from './monster-ranks';
+import { raidRewardHealth, rankMonster, rankPause, rankRules, rankWorth, skillEffects, slowedBy } from './monster-ranks';
 import { StrikeKind, strikeOf } from './skill-catalog';
 /** The mage tower's ward rite: monster blows near the resident's own seat. */
 const wardRite = { factor: 0.7, reach: 2 * TownState.campReach };
@@ -302,7 +302,7 @@ export function hurtCreature(this: CombatTown, foe: Monster, damage: number, by:
   }
   const health =
       foe.animal !== null ? animalSpec(foe.animal).health : breedOf(this.world.dungeons()[foe.lair].kind).health,
-    ordinary = foe.raider && foe.vigor > 0 ? Math.max(1, Math.round(foe.vigor * 1.33)) :
+    ordinary = foe.raider && foe.vigor > 0 ? Math.max(1, Math.round(raidRewardHealth(foe) * 1.33)) :
       lround(f(health * (foe.animal !== null ? 2 : rankWorth(foe)))),
     points = foe.animal === null && foe.level > 1 ? Math.max(ordinary,
       Math.round(experienceForLevel(Math.min(foe.level, Person.maximumLevel - 1)) * rankWorth(foe) / 40)) : ordinary;
