@@ -6,6 +6,7 @@ import { resourceAmount } from './construction-materials';
 import { Tool, toolStructure } from './game-tools';
 import rows from '../data/settlement-goals.json';
 import { belongsToFaction } from './faction';
+import { f32 } from './numeric';
 import { sealProgress } from './gate-seals';
 import { Activity, Calling, Role, type Person } from './person';
 import { carriedTools, equippedItem, itemSpec, madeFrom, productItem, upgradeCost } from './equipment';
@@ -407,33 +408,27 @@ const deedLabel = (deed: DeedKey, have: number, need: number): string => {
 export function goalProgress(town: Town, goal: SettlementGoal): GoalProgress {
   switch (goal.kind) {
     case GoalKind.Building: {
-      const have = completedFacility(town, goal.building) ? 1 : 0,
-        started = town
-          .buildings()
-          .some((b) => b.kind === goal.building && !b.built() && belongsToFaction(b, town.controlFaction));
-      return { have, need: 1, label: have ? 'Built' : started ? 'Under construction' : 'Not built yet' };
+      if (completedFacility(town, goal.building)) return { have: 1, need: 1, label: 'Built' };
+      const site = town.buildings().find((b) => b.kind === goal.building && belongsToFaction(b, town.controlFaction));
+      return { have: site?.progress ?? 0, need: 1, label: site ? 'Under construction' : '' };
     }
     case GoalKind.Road: {
-      const have = roadDone(town) ? 1 : 0;
-      return { have, need: 1, label: have ? 'Road complete' : 'No completed road yet' };
+      let built = -1;
+      for (const road of town.roads().roads()) {
+        const camp = town.camp(road.village);
+        if (camp && belongsToFaction(camp, town.controlFaction)) built = Math.max(built, road.built);
+      }
+      const label = built >= 1 ? 'Road complete' : built >= 0 ? `Laying road ${Math.trunc(f32(built * 100))}%` : '';
+      return { have: Math.max(0, built), need: 1, label };
     }
     case GoalKind.Field: {
       const planted = town.fieldAcres() > 0 ? 1 : 0;
       if (goal.building === Structure.Count)
-        return { have: planted, need: 1, label: planted ? 'Field planted' : 'No field yet' };
+        return { have: planted, need: 1, label: planted ? 'Field planted' : '' };
       const house = completedFacility(town, goal.building) ? 1 : 0;
-      return {
-        have: house + planted,
-        need: 2,
-        label:
-          house && planted
-            ? 'Farm laid out'
-            : house
-              ? 'No field yet'
-              : staked(town, goal.building)
-                ? 'Under construction'
-                : 'No farm yet',
-      };
+      const label = house ? (planted ? 'Farm laid out' : 'Farmhouse built')
+        : staked(town, goal.building) ? 'Under construction' : planted ? 'Field planted' : '';
+      return { have: house + planted, need: 2, label };
     }
     case GoalKind.Population: {
       const current = town.population();
@@ -467,7 +462,7 @@ export function goalProgress(town: Town, goal: SettlementGoal): GoalProgress {
           share = Math.min(1, working.craftProgress / orderSeconds(order, goal.building));
         return { have: have + share, need: goal.count, label: `Upgrading · ${Math.trunc(share * 100)}%` };
       }
-      return { have, need: goal.count, label: have ? `Level ${have} / ${goal.count}` : 'Not built yet' };
+      return { have, need: goal.count, label: have ? `Level ${have} / ${goal.count}` : '' };
     }
   }
   return { have: 0, need: 1, label: '' };

@@ -38,7 +38,7 @@ import { motionPreference, motionPreferences, setMotionPreference } from './moti
 import { startTitlePlay, type TitlePlay } from './title-session';
 import { drawTitleWordmark } from './title-wordmark';
 import { hudGlyph } from './hud-glyphs';
-import { touchTarget } from './mobile-layout';
+import { topBarEndButton, touchTarget } from './mobile-layout';
 import { IntroSaga } from './intro-saga';
 import { structureSpec } from '../../../../packages/engine/src/building-catalog';
 import { Activity, activityName } from '../../../../packages/engine/src/person';
@@ -352,12 +352,7 @@ export class SceneApplication implements Application {
         } else this.requested = 'Title';
       }
       if (this.intro === 'None' && (this.settingsOpen || !session.command('session.modal'))) {
-        const bounds = new Rect(
-          f(width - (this.touchInput ? 56 : 52)),
-          12,
-          this.touchInput ? 44 : 36,
-          this.touchInput ? 44 : 36,
-        );
+        const bounds = topBarEndButton(width, this.touchInput);
         const state = button(this.overlay, 'settings', bounds, '', () => this.openSettings());
         hudGlyph(
           this.overlay,

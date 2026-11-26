@@ -7,19 +7,20 @@ import {
   button,
   rgba,
   setTransform,
+  slab,
   tag,
 } from '../../../../packages/native-ui/src';
 import { seasonName } from '../../../../packages/engine/src/town-models';
 import { weatherName } from '../../../../packages/engine/src/climate';
 import { dayCycle, type DayCycle } from '../../../../packages/engine/src/day-cycle';
-import type { Paint, Scene, Shape, ThorVGNamespace } from '@thorvg/webcanvas';
+import type { Paint, Picture, Scene, Shape, ThorVGNamespace } from '@thorvg/webcanvas';
 import { f32 as f, clamp, lround } from '../../../../packages/engine/src/numeric';
 import type { GameHudApp } from './game-hud-contract';
 import { skyMural as mural } from './hud-assets';
 import { tooltip } from './game-combat-hud';
 import { hudGlyph } from './hud-glyphs';
 import { winterOutlookLine, winterLineHeight } from './camp-resource-hud';
-import { speedColumns, touchClockBounds, touchHudTop, touchTarget } from './mobile-layout';
+import { speedColumns, topBarEndButton, topBarGap, topBarInset, topBarSize, touchClockBounds, touchHudTop } from './mobile-layout';
 const revealDuration = f(0.18),
   controlStep = 34,
   panelWidth = 6 * controlStep + 8;
@@ -31,6 +32,7 @@ enum MuralPart {
   Moon,
 }
 interface CelestialParts {
+  wolves: Picture;
   remaining: Shape;
   sun: Scene;
   moon: Scene;
@@ -91,7 +93,6 @@ function celestialMural(tvg: ThorVGNamespace): Scene {
   const picture = new tvg.Picture().load(mural, { type: 'svg' }),
     scene = new tvg.Scene();
   scene.add(picture);
-  picture.dispose();
   const track = new tvg.Shape();
   orbitArc(track, 0);
   track
@@ -117,11 +118,12 @@ function celestialMural(tvg: ThorVGNamespace): Scene {
   horizon.dispose();
   scene.add(bodies);
   bodies.dispose();
-  celestialParts.set(scene, { remaining, sun, moon, sunX: 0, sunY: 0 });
+  celestialParts.set(scene, { wolves: picture, remaining, sun, moon, sunX: 0, sunY: 0 });
   const release = scene.dispose.bind(scene);
   scene.dispose = () => {
     if (scene.isDisposed) return;
     celestialParts.delete(scene);
+    picture.dispose();
     remaining.dispose();
     sun.dispose();
     moon.dispose();
@@ -149,10 +151,10 @@ export function skyMural(this: GameHudApp, width: number): void {
   else this.timeReveal = Math.max(target, f(this.timeReveal - f(dt / revealDuration)));
   const opened = unfold(this.timeReveal);
   const touch = this.touchMode;
-  this.timeToggleBounds = touch ? touchClockBounds(width) : new Rect(width - 96, 12, 36, 36);
+  this.timeToggleBounds = touch ? touchClockBounds(width) : topBarEndButton(width, false, 1);
   const below = touch || width < 900, columns = touch ? speedColumns(width) : 6,
     controlsWidth = touch ? columns * 46 + 8 : panelWidth,
-    right = touch ? (width + controlsWidth) / 2 : below ? width - 16 : this.timeToggleBounds.x - 8;
+    right = touch ? (width + controlsWidth) / 2 : below ? width - topBarInset : this.timeToggleBounds.x - topBarGap;
   this.timePanelBounds = new Rect(
     f(right - f(controlsWidth * opened)),
     below ? (this.touchMode ? 62 : 56) : 12,
@@ -166,11 +168,11 @@ export function skyMural(this: GameHudApp, width: number): void {
     if (this.timeReveal !== target) c.requestAnimationFrame();
     return;
   }
-  const leftEdge = 16,
-    rightEdge = below ? this.timeToggleBounds.x - 12 : this.timePanelBounds.x - 12,
-    room = f(2 * Math.min(f(f(width / 2) - leftEdge), f(rightEdge - f(width / 2)))),
-    muralWidth = clamp(room, 112, 360);
-  this.skyBounds = new Rect(f(f(width - muralWidth) / 2), 12, muralWidth, 36);
+  const size = topBarSize(false), middle = width / 2,
+    leftEdge = topBarInset + size + topBarGap,
+    rightEdge = (below ? this.timeToggleBounds.x : this.timePanelBounds.x) - topBarGap,
+    muralWidth = Math.max(1, Math.min(300, 2 * (middle - leftEdge), 2 * (rightEdge - middle)));
+  this.skyBounds = new Rect((width - muralWidth) / 2, topBarInset, muralWidth, size);
   const state = c.control('sky-calendar', this.skyBounds, undefined, true, false);
   this.skyHovered = state.hovered;
   this.skyArtwork ??= celestialMural(c.tvg);
@@ -208,40 +210,35 @@ export function skyMural(this: GameHudApp, width: number): void {
   });
   parts.sunX = sunAt.x;
   parts.sunY = sunAt.y;
+  const face = slab(c, this.skyBounds, t.raised, { lit: state.hovered ? t.accent : undefined });
+  // The ornaments give way first. The orbit and its caption keep their scale on a crowded toolbar.
+  const scale = Math.min(0.64, Math.max(0, face.w - 6) / 174);
+  parts.wolves.opacity(face.w >= 284 ? 255 : 0);
   c.add(this.skyArtwork);
-  const scale = f(this.skyBounds.w / 480),
-    artY = f(this.skyBounds.y + f(f(this.skyBounds.h - f(48 * scale)) / 2));
   setTransform(this.skyArtwork, {
     e11: scale,
     e12: 0,
-    e13: this.skyBounds.x,
+    e13: middle - 240 * scale,
     e21: 0,
     e22: scale,
-    e23: artY,
+    e23: face.y + 1,
     e31: 0,
     e32: 0,
     e33: 1,
   });
-  const caption =
-    (this.skyBounds.w >= 300 ? (cycle.daylight ? 'Sunset in ' : 'Sunrise in ') : '') + timeRemaining(cycle);
-  c.text(
-    new Rect(f(this.skyBounds.x + f(168 * scale)), f(artY + f(30 * scale)), f(144 * scale), f(14 * scale)),
-    caption,
-    cycle.daylight ? t.text : rgba(193, 207, 215),
-    clamp(f(13 * scale), 8, 10),
-    false,
-    Align.Center,
-  );
-  if (this.skyHovered) {
-    const ink = { ...t.accent, a: 140 };
-    c.line(
-      this.skyBounds.x + 12,
-      f(f(artY + f(48 * scale)) - 2),
-      f(f(this.skyBounds.x + this.skyBounds.w) - 12),
-      f(f(artY + f(48 * scale)) - 2),
-      ink,
-      0.8,
-    );
+  const clock = timeOfDay(this.town.dayFraction()), remaining = timeRemaining(cycle);
+  const clockWidth = Math.ceil(c.textWidth(clock, 13, true)) + 2, gap = 7;
+  const until = (cycle.daylight ? 'Sunset in ' : 'Sunrise in ') + remaining;
+  const available = face.w - 10 - clockWidth - gap;
+  const caption = c.textWidth(until, 12) + 2 <= available ? until : remaining;
+  const captionWidth = Math.ceil(c.textWidth(caption, 12)) + 2;
+  const showCaption = captionWidth <= available;
+  const x = middle - (clockWidth + (showCaption ? gap + captionWidth : 0)) / 2;
+  const y = face.y + face.h - 16;
+  c.text(new Rect(x, y, clockWidth, 15), clock, t.text, 13, true, Align.Center);
+  if (showCaption) {
+    c.text(new Rect(x + clockWidth + gap, y, captionWidth, 15), caption,
+      cycle.daylight ? t.text : rgba(193, 207, 215), 12, false, Align.Center);
   }
   wakeButton(this, width);
   if (Math.abs(f(this.timeReveal - target)) > f(0.001)) c.requestAnimationFrame();
@@ -251,12 +248,13 @@ function wakeButton(app: GameHudApp, width: number): void {
   if (app.town.isTitleAutoplay() || !app.town.abed().length) return;
   const c = app.context,
     t = app.theme,
-    size = app.touchMode ? touchTarget : 36,
-    nextToLog = app.skyBounds.x >= 12 + size * 2 + 12,
+    size = topBarSize(app.touchMode),
+    nextToLog = app.skyBounds.x >= topBarInset + 2 * (size + topBarGap),
     // In portrait the spare place is across from Quests, below Settings.
-    r = app.touchMode && !nextToLog
-      ? new Rect(width - size - 12, touchHudTop(width, app.timeExpanded), size, size)
-      : new Rect(Math.max(12 + size + 8, f(app.skyBounds.x - size - 6)), 12, size, size),
+    r = !nextToLog
+      ? new Rect(app.touchMode ? width - topBarInset - size : topBarInset,
+        app.touchMode ? touchHudTop(width, app.timeExpanded) : topBarInset + size + topBarGap, size, size)
+      : new Rect(app.skyBounds.x - size - topBarGap, topBarInset, size, size),
     state = button(c, 'wake-everyone', r, '', () => app.wakeEveryone());
   hudGlyph(c, 'wake', f(r.x + r.w / 2), f(r.y + r.h / 2 + (state.lift ?? 0)), state.hovered ? t.text : t.accent);
   tooltip(c, 'wake-everyone', state.hovered && !app.touchMode, ['Wake everyone']);

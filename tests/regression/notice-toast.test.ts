@@ -240,14 +240,14 @@ describe('the notices on screen', () => {
       ui.dispose();
     }
   });
-  const body = (words: unknown[]) => words.map(String).filter((text) => text.startsWith('Select the dungeon'));
+  const body = (words: unknown[]) => words.map(String).filter((text) => text.startsWith("Ymir's thoughts"));
   it('opens the log folded, and a press on a title unfolds its body and folds it again', () => {
     const ui = screen();
     try {
       ui.app.guide.log.push(told('gate', true));
       toggleGuideLog(ui.app);
       ui.drawLog(1);
-      expect(ui.words()).toContain('A hostile dungeon');
+      expect(ui.words()).toContain('Dungeon');
       expect(body(ui.words())).toHaveLength(0);
       expect(ui.folds()).toHaveLength(1);
       ui.press(ui.folds()[0][1]);

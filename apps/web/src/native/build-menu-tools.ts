@@ -61,8 +61,8 @@ export const toolInfo: readonly ToolInfo[] = [
   { label: 'Runestone', key: '', hint: '' },
   { label: 'Workbench', key: '', hint: 'Make tools and pack baskets.' },
   { label: 'Foundry', key: '', hint: '' },
-  { label: 'Chicken coop', key: '', hint: 'Draw a pasture for hens.' },
-  { label: 'Cowshed', key: '', hint: 'Draw a pasture for cows.' },
+  { label: 'Chicken coop', key: '', hint: '' },
+  { label: 'Cowshed', key: '', hint: '' },
 ];
 export interface BuildGroup {
   name: string;

@@ -2,6 +2,7 @@
 // beside a camp, or else at the edge of the play area, and the log of everything that has happened so far.
 import { localeRevision, translate } from '../../../../packages/localization/src/index';
 import { windowBackdrop } from './hud-window';
+import { topBarInset, topBarSize } from './mobile-layout';
 import { Align, ButtonStyle, EventType, Rect, board, button, frame, groove, tag } from '../../../../packages/native-ui/src';
 import { clamp, f32 } from '../../../../packages/engine/src/numeric';
 import { project } from '../../../../packages/engine/src/geometry';
@@ -142,8 +143,8 @@ function logButton(app: GameHudApp): void {
   const c = app.context,
     t = app.theme,
     s = app.guide,
-    size = app.touchMode ? 44 : 36,
-    r = new Rect(12, 12, size, size);
+    size = topBarSize(app.touchMode),
+    r = new Rect(topBarInset, topBarInset, size, size);
   const state = button(c, 'guide-log-button', r, '', () => toggleGuideLog(app), ButtonStyle.Default, true, undefined, s.logOpen);
   const ink = state.hovered || s.logOpen ? t.text : t.accent,
     cx = f32(r.x + r.w / 2),
@@ -208,7 +209,7 @@ function unlockCard(app: GameHudApp, shown: GuideCard, tool: Tool, boxes: readon
     },
   );
   let y = f32(r.y + 12);
-  c.text(new Rect(left, y, textW, 16), 'New in the build menu', t.inkAccent, 10, true);
+  c.text(new Rect(left, y, textW, 16), 'New', t.inkAccent, 10, true);
   y = f32(y + 16);
   c.text(new Rect(left, y, textW, 24), c.elideText(toolName(tool), textW, 15, true), t.ink, 15, true);
   y = f32(y + 26);

@@ -132,7 +132,7 @@ function look(app: GameHudApp, x: number, y: number): void {
 }
 function siteAction(app: GameHudApp, site: Building): QuestAction {
   return {
-    label: 'Find construction site',
+    label: 'Building location',
     run: () => {
       app.selectBuilding(site.id);
       look(app, site.center.x, site.center.y);

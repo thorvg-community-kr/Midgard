@@ -1,13 +1,4 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="480" height="54" viewBox="0 0 480 54">
-  <!-- A carved board in the interface's flat planes: hard shadow, thickness, face, lit top edge. -->
-  <path d="M12 12H468L477 21V45L468 54H12L3 45V21Z" fill="#120f24" fill-opacity=".38"/>
-  <path d="M12 7H468L477 16V40L468 49H12L3 40V16Z" fill="#17152a"/>
-  <path d="M12 3H468L477 12V36L468 45H12L3 36V12Z" fill="#2c2a40"/>
-  <path d="M12 3H468L470.5 5.5H9.5Z" fill="#5f5876"/>
-  <path d="M14 7.5H466L472.5 14V34L466 40.5H14L7.5 34V14Z" fill="none" stroke="#aa864e" stroke-opacity=".6" stroke-width="1"/>
-  <g fill="#aa864e">
-    <path d="M17 19L22 24L17 29L12 24ZM463 19L468 24L463 29L458 24Z"/>
-  </g>
   <!-- The two beasts that chase the sun and the moon, cut from one flat ochre. -->
   <g fill="#c9a25c">
     <path d="M48 30L40 26L33 15L38 16L46 24L56 23L63 18L75 17L89 20L103 19L111 15L114 7L119 16L124 14L128 8L129 18L141 21L146 25L136 29L127 27L121 23L115 25L109 31L107 37L102 37L103 29L98 28L91 36L85 36L90 28L78 27L72 36L67 36L70 27L61 26L55 31Z"/>

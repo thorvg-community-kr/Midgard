@@ -323,8 +323,13 @@ describe('unlocks by deeds', () => {
     // A founded camp asks for a road first: nothing of the chain is offered until it is laid.
     expect(currentGoal(town, GoalBranch.Core)).toBe(1);
     expect(settlementGoals()[1].title).toBe('Lay a road');
+    expect(goalProgress(town, settlementGoals()[1])).toEqual({ have: 0, need: 1, label: '' });
     expect(buildingUnlock(town, Structure.Workbench).reason).toBe('Reach the quest "Build a workbench"');
     road(town);
+    const firstRoad = town.roads().roads()[0];
+    firstRoad.built = 0.25;
+    expect(goalProgress(town, settlementGoals()[1])).toEqual({ have: 0.25, need: 1, label: 'Laying road 25%' });
+    firstRoad.built = 1;
     expect(buildingUnlock(town, Structure.Workbench)).toEqual({ available: true, reason: '' });
     expect(buildingUnlock(town, Structure.Tent).reason).toBe('Reach the quest "Build a tent"');
     expect(buildingUnlock(town, Structure.Farm).reason).toBe('Reach the quest "Lay out a farm"');
@@ -347,10 +352,10 @@ describe('unlocks by deeds', () => {
     expect(open()).toEqual(['Build a workbench', 'Build a tent']);
     // The farm quest is one step: the farmhouse standing is half of it, the planted field the rest.
     const farm = chain.find((goal) => goal.title === 'Lay out a farm')!;
-    expect(goalProgress(town, farm)).toEqual({ have: 0, need: 2, label: 'No farm yet' });
+    expect(goalProgress(town, farm)).toEqual({ have: 0, need: 2, label: '' });
     facility(town, Structure.Farm);
     expect(goalComplete(town, farm)).toBe(false);
-    expect(goalProgress(town, farm)).toEqual({ have: 1, need: 2, label: 'No field yet' });
+    expect(goalProgress(town, farm)).toEqual({ have: 1, need: 2, label: 'Farmhouse built' });
     town.farmland.push(new Field(78, [point(1, 1), point(5, 1), point(5, 5), point(1, 5)], 0));
     expect(goalComplete(town, farm)).toBe(true);
     facility(town, Structure.Workbench);
@@ -475,7 +480,7 @@ describe('quests that follow the combat loop', () => {
         if (index < 0) break;
         const goal = goals[index],
           progress = goalProgress(town, goal);
-        expect(progress.label, goal.title).not.toBe('');
+        if (progress.have > 0) expect(progress.label, goal.title).not.toBe('');
         expect(progress.need).toBeGreaterThan(0);
         expect(goalComplete(town, goal)).toBe(false);
         seen.push(goal.title);
@@ -665,8 +670,8 @@ describe('quests that follow the combat loop', () => {
     const every = goals.at(-1)!;
     expect(goalProgress(town, every).label).toMatch(/^0 \/ \d+ gates sealed$/);
     const portal = goals.find((g) => g.building === Structure.Portal)!;
-    expect(goalProgress(town, portal)).toEqual({ have: 0, need: 1, label: 'Not built yet' });
+    expect(goalProgress(town, portal)).toEqual({ have: 0, need: 1, label: '' });
     facility(town, Structure.Portal).progress = 0.2;
-    expect(goalProgress(town, portal).label).toBe('Under construction');
+    expect(goalProgress(town, portal)).toEqual({ have: 0.2, need: 1, label: 'Under construction' });
   });
 });

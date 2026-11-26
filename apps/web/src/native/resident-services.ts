@@ -116,7 +116,8 @@ export function residentServices(app: GameHudApp, p: Person, panel: Rect): numbe
     detail: o.description, reason: o.reason, action: `Train as ${o.name}`, submit: () => town.orderTrainAtGuild(p.id, station.id, o.calling) })) : recipes(app, p, station);
   if (!choices.length) { line(y, 'No further upgrades'); return y + 18; }
   const index = Math.max(0, Math.min(app.craftPage, choices.length - 1)), selected = choices[index];
-  const available = panel.y + panel.h - y, short = available < 210;
+  const available = panel.y + panel.h - y,
+    short = available < 210 || (panel.w < 410 && available < panel.w * 0.85);
   const beside = panel.w >= 410 || (short && panel.w >= 275);
   const gap = short ? 7 : 12;
   const listW = beside ? Math.min(240, Math.floor((panel.w - gap) * (short ? 0.40 : 0.41))) : panel.w;

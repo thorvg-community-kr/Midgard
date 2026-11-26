@@ -182,7 +182,9 @@ describe('quest panel', () => {
       ui = fixture(town);
     try {
       questPanel(ui);
-      expect(ui.words()).toEqual(expect.arrayContaining(['Found a camp', 'Not built yet', 'Place Camp']));
+      expect(ui.words()).toEqual(expect.arrayContaining(['Found a camp', 'Place Camp']));
+      expect(ui.words()).not.toContain('Not built yet');
+      const pendingHeight = ui.control('objectives-panel')![1].h;
       ui.click('quest-action/0');
       expect(ui.app.selectTool).toHaveBeenCalledWith(Tool.Camp);
       const site = new Building(0, Structure.Camp, town.map().camp(), 0, 0);
@@ -190,7 +192,8 @@ describe('quest panel', () => {
       site.village = 0;
       town.placed.push(site);
       questPanel(ui);
-      expect(ui.words()).toContain('Find construction site');
+      expect(ui.words()).toEqual(expect.arrayContaining(['Under construction · 40%', 'Building location']));
+      expect(ui.control('objectives-panel')![1].h).toBeGreaterThan(pendingHeight);
       ui.click('quest-action/0');
       expect(ui.app.selectBuilding).toHaveBeenCalledWith(site.id);
     } finally {
@@ -235,13 +238,14 @@ describe('quest panel', () => {
       for (const kind of [Structure.Workbench, Structure.Weaponsmith, Structure.Tent]) facility(town, kind);
       goalPick.branch = (branch) => (branch === GoalBranch.Core ? goal : -1);
       questPanel(ui);
-      expect(ui.words()).toEqual(expect.arrayContaining(['Lay out a farm', 'No farm yet']));
+      expect(ui.words()).toContain('Lay out a farm');
+      expect(ui.words()).not.toContain('No farm yet');
       ui.click(`quest-action/${goal}`);
       expect(ui.app.selectTool).toHaveBeenCalledWith(Tool.Farm);
       const site = facility(town, Structure.Farm);
       site.progress = 0.4;
       questPanel(ui);
-      expect(ui.words()).toEqual(expect.arrayContaining(['Under construction', 'Find construction site']));
+      expect(ui.words()).toEqual(expect.arrayContaining(['Under construction', 'Building location']));
       ui.click(`quest-action/${goal}`);
       expect(ui.app.selectBuilding).toHaveBeenCalledWith(site.id);
     } finally {
@@ -333,7 +337,7 @@ describe('quest panel', () => {
       town.resourceNearby = () => true;
       questPanel(ui);
       expect(ui.words().some((w) => w.startsWith('Materials: ')), JSON.stringify(ui.words())).toBe(true);
-      expect(ui.words()).toContain('Find construction site');
+      expect(ui.words()).toContain('Building location');
       // None in sight: builders would give up quietly, so the quest says what is missing and how to get it.
       town.resourceNearby = () => false;
       questPanel(ui);
@@ -595,7 +599,7 @@ describe('quest changes are hard to miss', () => {
       const site = facility(town, Structure.Guild);
       site.progress = 0.3;
       questPanel(ui);
-      expect(ui.words()).toContain('Find construction site');
+      expect(ui.words()).toContain('Building location');
       ui.click(`quest-action/${goal}`);
       expect(ui.app.selectBuilding).toHaveBeenCalledWith(site.id);
       site.progress = 1;

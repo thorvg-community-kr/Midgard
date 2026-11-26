@@ -120,7 +120,7 @@ const moments: GuideMoment[] = [
     key: 'opening',
     title: 'Askr and Embla',
     card: true,
-    text: () => ['Found your first camp from the Quests panel.'],
+    text: () => ['Set up camp.'],
     spot: (scan) => (scan.town.awaiting ? { at: null, about: residents(scan.town).map((p) => who(p.id)) } : null),
     met: () => true,
   },
@@ -212,9 +212,9 @@ const moments: GuideMoment[] = [
   // The world
   {
     key: 'gate',
-    title: 'A hostile dungeon',
+    title: 'Dungeon',
     card: true,
-    text: () => ['Select the dungeon and choose Attack.'],
+    text: () => ["Ymir's thoughts linger here. Monsters emerge every night."],
     spot: (scan) => {
       for (const { site, index } of sealableGates(scan.town)) {
         const at = gateFront(scan.town, index);

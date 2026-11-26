@@ -235,8 +235,9 @@ export function inspector(this: GameHudApp, panel: Rect, draw = true): number {
     lowDungeon = !building && this.viewHeight > 1 && this.viewHeight < 460,
     left = f32(panel.x + (station || !building ? 14 : 112)),
     fullWidth = f32(panel.w - (station || !building ? 28 : 128)),
-    // In landscape the building and its orders sit beside the recipes, leaving each stat a full row.
-    splitStation = station && building.built() && this.viewHeight > 1 && this.viewHeight < 460 && fullWidth >= 440,
+    // A wide, shallow inspector fits more by giving the station and its recipes their own columns.
+    splitStation = station && building.built() && this.viewHeight > 1 && fullWidth >= 440 &&
+      inspectorHeightLimit(this.viewHeight, true) < fullWidth * 0.85,
     inner = splitStation ? Math.floor(fullWidth * 0.44) : fullWidth,
     top = panel.y,
     frame = station
@@ -756,13 +757,11 @@ export function placementPanel(this: GameHudApp, panel: Rect): void {
     14,
     true,
   );
-  const kind = this.toolStructure(),
+  const kind = toolStructure(this.tool),
     detail =
       kind !== undefined
-        ? `${describe(structureSpec(kind).cost)} · R rotates`
-        : this.tool === Tool.Farm
-          ? `${describe(structureSpec(Structure.Farm).cost)} · Drag an area for the farmhouse and its field`
-          : tools[this.tool].hint;
+        ? `${describe(structureSpec(kind).cost)} · ${drawsArea(this.tool) ? 'Drag an area' : 'R rotates'}`
+        : tools[this.tool].hint;
   c.text(
     new Rect(f32(panel.x + 12), f32(panel.y + 36), f32(panel.w - 24), 18),
     c.elideText(detail, f32(panel.w - 24), 11),

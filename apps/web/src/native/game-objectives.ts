@@ -72,7 +72,12 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
   this.questsAnimating = celebrating || (fresh && !this.reducedMotion());
   if (this.questsAnimating) c.requestAnimationFrame();
   else if (fresh) c.requestFrameAt(this.questNewAt + questRules.fresh);
-  const unusedHintHeight = goals[current]?.description ? 0 : 35,
+  const goal = goals[current],
+    measured = goal ? goalProgress(this.town, goal) : null,
+    missingTool = goal?.kind === GoalKind.Building && !measured?.label ? buildingTool(goal.building) : undefined,
+    locked = missingTool === undefined ? '' : lockedLine(this.town, missingTool),
+    unusedHintHeight = goal?.description ? 0 : 35,
+    unusedStatusHeight = measured && !measured.label && !locked ? 32 : 0,
     collapsed = compact ? !this.mobileQuestsExpanded : this.objectivesCollapsed,
     header = this.touchMode ? 44 : 38,
     // Opened on a small touch screen it keeps left of the order rail.
@@ -80,7 +85,7 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
     w = Math.min(compact && collapsed ? 164 : 292, f32(width - (compact ? 76 : 24)), rail && !rail.beside ? f32(rail.bounds.x - 20) : Infinity),
     y = Math.min(top, f32(height - 60)),
     branchShift = this.touchMode && core < 0 ? 26 : 0,
-    preferred = 210 + branchShift - unusedHintHeight,
+    preferred = 210 + branchShift - unusedHintHeight - unusedStatusHeight,
     expanded = compact
       ? Math.min(preferred, height - y - 12)
       : clamp(f32(f32(this.dockBounds.y - y) - 24), 38, preferred),
@@ -109,9 +114,7 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
     },
     ButtonStyle.Quiet,
   );
-  const goal = current < goals.length ? goals[current] : null,
-    measured = goal ? goalProgress(this.town, goal) : null,
-    folded = collapsed && !compact && h < header + 8;
+  const folded = collapsed && !compact && h < header + 8;
   hudGlyph(
     c,
     'quest',
@@ -135,7 +138,7 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
     );
   } else if (folded && goal && measured) {
     // Folded away, the panel still says what to do and how far along it is.
-    const count = measured.need > 1 ? `${Math.min(measured.need, Math.floor(measured.have))} / ${measured.need}` : '',
+    const count = measured.label && measured.need > 1 ? `${Math.min(measured.need, Math.floor(measured.have))} / ${measured.need}` : '',
       countW = count ? f32(c.textWidth(count, 10) + 8) : 0,
       room = f32(w - 38 - 44 - countW);
     c.text(
@@ -147,7 +150,7 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
     );
     if (count)
       c.text(new Rect(f32(bounds.x + w - 44 - countW), f32(y + 4), countW, 18), count, t.muted, 10, false, Align.End);
-    meter(c, new Rect(f32(bounds.x + 38), f32(y + 26), f32(w - 38 - 46), 4), measured.have / Math.max(1, measured.need), t.accent);
+    if (measured.label) meter(c, new Rect(f32(bounds.x + 38), f32(y + 26), f32(w - 38 - 46), 4), measured.have / Math.max(1, measured.need), t.accent);
   } else
     c.text(
       new Rect(f32(bounds.x + 38), f32(y + 7), f32(w - (compact && collapsed ? 50 : 196)), 24),
@@ -174,11 +177,10 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
   }
   if (h < 76) return;
   c.clip(bounds.inset(6), () => {
-    if (current === goals.length) {
+    if (!goal || !measured) {
       c.text(new Rect(left, f32(y + 49), f32(w - 28), 25), 'Settlement saga complete', t.success, 14, true);
       return;
     }
-    const goal = goals[current];
     if (core >= 0 && fresh) c.text(new Rect(left, f32(y + 42), f32(w - 28), 16), 'New quest', t.accent, 9, true);
     if (core < 0) {
       const tab = f32(f32(w - 28) / branches.length);
@@ -220,21 +222,19 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
     flush();
     if (row && descriptionY < f32(bodyY + 117))
       c.text(new Rect(left, descriptionY, f32(w - 28), 16), row, t.muted, 10);
-    const measured = goalProgress(this.town, goal),
-      action = questAction(this, goal);
-    let progress = f32(measured.have / Math.max(1, measured.need)),
-      status = measured.label,
+    const action = questAction(this, goal);
+    const progress = f32(measured.have / Math.max(1, measured.need));
+    let status = measured.label,
       warn = false,
       waiting = false,
       site: Building | null = null;
-    if (goal.kind === GoalKind.Building && !measured.have) {
+    if (goal.kind === GoalKind.Building && measured.have < measured.need) {
       for (const b of this.town.buildings())
         if (b.kind === goal.building && !b.built() && isPlayerBuilding(b)) {
           site = b;
           break;
         }
       if (site) {
-        progress = site.progress;
         status = `${measured.label} · ${Math.trunc(f32(progress * 100))}%`;
         if (site.materials.limit() < 1) {
           status = 'Materials: ';
@@ -258,8 +258,6 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
         }
       }
       // A building still locked is not in the build menu: the panel says what it waits for instead.
-      const tool = site ? undefined : buildingTool(goal.building),
-        locked = tool === undefined ? '' : lockedLine(this.town, tool);
       if (locked) {
         status = locked;
         waiting = true;
@@ -268,23 +266,22 @@ export function objectives(this: GameHudApp, width: number, height: number, top:
       const altar = this.town.buildings().find((b) => b.kind === Structure.Shrine && b.built() && isPlayerBuilding(b));
       const reason = altar ? this.town.altarStatus(altar.id).reason : '';
       if (reason) status = `${measured.label} · ${reason}`;
-    } else if (goal.kind === GoalKind.Road && !measured.have) {
-      for (const road of this.town.roads().roads()) progress = Math.max(progress, f32(road.built));
-      if (this.town.roads().roads().length) status = 'Laying road ' + Math.trunc(f32(progress * 100)) + '%';
     }
-    c.text(
-      new Rect(left, f32(bodyY + 127 - unusedHintHeight), f32(w - 28), 18),
-      c.elideText(status, f32(w - 28), 10),
-      warn ? t.danger : waiting ? t.accent : t.text,
-      10,
-    );
-    const displayed = c.animate('quests/progress/' + current, clamp(progress, 0, 1), 0.2);
-    meter(c, new Rect(left, f32(bodyY + 149 - unusedHintHeight), f32(w - 28), 7), displayed, t.accent);
-    if (expanded < 200 + branchShift - unusedHintHeight || !action) return;
+    if (status) {
+      c.text(
+        new Rect(left, f32(bodyY + 127 - unusedHintHeight), f32(w - 28), 18),
+        c.elideText(status, f32(w - 28), 10),
+        warn ? t.danger : waiting ? t.accent : t.text,
+        10,
+      );
+      const displayed = c.animate('quests/progress/' + current, clamp(progress, 0, 1), 0.2);
+      meter(c, new Rect(left, f32(bodyY + 149 - unusedHintHeight), f32(w - 28), 7), displayed, t.accent);
+    }
+    if (expanded < preferred - 10 || !action) return;
     button(
       c,
       'quest-action/' + current,
-      new Rect(left, f32(bodyY + (this.touchMode ? 160 : 171) - unusedHintHeight), f32(w - 28), this.touchMode ? 44 : 29),
+      new Rect(left, f32(bodyY + (this.touchMode ? 160 : 171) - unusedHintHeight - unusedStatusHeight), f32(w - 28), this.touchMode ? 44 : 29),
       action.label,
       action.run,
       ButtonStyle.Primary,

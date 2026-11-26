@@ -17,7 +17,7 @@ import { GameAppState, DockView } from '../../apps/web/src/native/game-app-state
 import { makeTile } from '../../packages/engine/src/world-types';
 import { levelVariant } from '../../packages/engine/src/craft-stations';
 import { craftOrder } from '../../packages/engine/src/craft-orders';
-import { attackPreview } from '../../packages/engine/src/gear-stats';
+import { attackPreview, gearStats } from '../../packages/engine/src/gear-stats';
 import { addInventory, itemSpec } from '../../packages/engine/src/equipment';
 import { koreanFont, locale, setLocale, translate } from '../../packages/localization/src';
 import { itemIcon } from '../../apps/web/src/native/game-equipment-panel';
@@ -495,7 +495,8 @@ it.each([[568, 320], [320, 568], [1280, 800]])('inspects an upgrade in place and
 
 it.each([
   ['ENG', 1280, 800], ['KR', 1280, 800], ['KR', 360, 740], ['KR', 640, 360],
-  ['KR', 320, 568], ['ENG', 568, 320], ['KR', 568, 320], ['KR', 720, 540],
+  ['KR', 320, 568], ['ENG', 568, 320], ['KR', 568, 320], ['KR', 720, 540], ['ENG', 600, 500],
+  ['KR', 390, 500], ['KR', 460, 540],
 ] as const)('shows the same complete gear stats in recipes and inventory in %s at %ix%i', (language, width, height) => {
   const previous = locale();
   setLocale(language);
@@ -544,11 +545,8 @@ it.each([
         }
       }
     };
-    for (const [station, id, stats] of [
-      [smith, 'wooden-spear', ['Melee attack +1', 'STR scaling +2', 'DEX scaling +3', 'Reach +0.5', 'Two-handed']],
-      [bench, 'wooden-mallet', ['Building efficiency +1', 'Crafting efficiency +1', 'Attack as a weapon +1']],
-    ] as const) {
-      const item = itemSpec(id)!;
+    for (const [station, id] of [[smith, 'wooden-spear'], [bench, 'wooden-mallet']] as const) {
+      const item = itemSpec(id)!, stats = gearStats(item);
       ui.app.equipmentTab = 'craft';
       ui.app.craftWorkshopFilter = station.kind;
       ui.app.craftPage = ui.town.craftOptions(resident.id, station.id).filter(({ item }) => item.stationLevel === 1).findIndex(o => o.item.id === id);
@@ -576,7 +574,7 @@ it.each([
     ui.app.selected = smith.id;
     ui.draw(() => inspector.call(ui.app, stationBoard, true));
     const sword = itemSpec('wooden-sword')!, who = ui.town.craftOffers(smith.id).find(o => o.item.id === sword.id)!.who!;
-    shown(['STR scaling +3', 'DEX scaling +1', attackPreview(who, sword)], stationBoard);
+    shown([...gearStats(sword), attackPreview(who, sword)], stationBoard);
     for (const [key, box] of ui.controls.mock.calls.filter(([key]) => key.startsWith('station-') || key === 'clear-target')) {
       expect(box.y + box.h, key).toBeLessThanOrEqual(stationBoard.y + stationBoard.h);
     }
@@ -1307,6 +1305,27 @@ it.each([
     local.faction = preferred.faction = 1;
     expect(ui.town.craftOffers(smith.id)).toEqual([]);
   } finally {
+    ui.dispose();
+  }
+});
+it.each([400, 960])('keeps the desktop clock face and caption at toolbar height at %i px', (width) => {
+  const ui = fixture(width, 400);
+  try {
+    ui.app.reducedMotion = () => true;
+    ui.app.timeExpanded = true;
+    ui.draw(() => skyMural.call(ui.app, width));
+    const clock = ui.app.skyBounds, speed = ui.app.timeToggleBounds;
+    expect([clock.y, clock.h]).toEqual([speed.y, speed.h]);
+    const alpha = (x: number, y: number) => ui.memory.pixels[(Math.floor(y) * width + Math.floor(x)) * 4 + 3];
+    expect(alpha(clock.x + 8, clock.y + 1)).toBeGreaterThan(200);
+    expect(alpha(clock.x + 8, clock.y + clock.h - 2)).toBeGreaterThan(200);
+    const time = ui.labels.mock.calls.find(([, label]) => /^\d{2}:\d{2}$/.test(label));
+    expect(time?.[3]).toBeGreaterThanOrEqual(13);
+    const caption = ui.labels.mock.calls.find(([, label]) => /\dh \d+m/.test(label));
+    expect(caption?.[3]).toBeGreaterThanOrEqual(12);
+    expect(clock.x + clock.w).toBeLessThanOrEqual(speed.x - 8);
+  } finally {
+    ui.app.skyArtwork?.dispose();
     ui.dispose();
   }
 });

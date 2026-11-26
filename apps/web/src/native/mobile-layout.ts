@@ -2,9 +2,15 @@ import { Rect } from '../../../../packages/native-ui/src';
 
 /** All HUD measurements are logical CSS pixels. The backing canvas owns the display density. */
 export const touchTarget = 44;
+export const topBarInset = 12, topBarGap = 8;
+export const topBarSize = (touch: boolean): number => touch ? touchTarget : 36;
+export function topBarEndButton(width: number, touch: boolean, slot = 0): Rect {
+  const size = topBarSize(touch);
+  return new Rect(width - topBarInset - size - slot * (size + topBarGap), topBarInset, size, size);
+}
 export function touchClockBounds(width: number): Rect {
-  const w = Math.min(224, Math.max(1, width - (12 + touchTarget + 8) * 2));
-  return new Rect((width - w) / 2, 12, w, touchTarget);
+  const w = Math.min(224, Math.max(1, width - (topBarInset + touchTarget + topBarGap) * 2));
+  return new Rect((width - w) / 2, topBarInset, w, touchTarget);
 }
 export const speedColumns = (width: number): number => width < 300 ? 3 : 6;
 export const touchHudTop = (width: number, expanded: boolean): number =>

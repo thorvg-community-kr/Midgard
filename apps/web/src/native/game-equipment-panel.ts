@@ -49,7 +49,7 @@ export function openWorkbench(app: GameHudApp, p: Person): void {
   app.craftPage = 0;
   app.inventorySelected = -1;
 }
-export const workbenchTip = () => 'Craft or upgrade equipment for this resident';
+export const workbenchTip = () => 'Craft and upgrade gear and tools';
 /** Inventory owns real finite stacks; gear slots reference those same stacks. */
 export function equipmentPanel(app: GameHudApp, p: Person, panel: Rect): void {
   const c = app.context, tabH = app.touchMode ? touchTarget : 27;
