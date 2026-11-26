@@ -18,6 +18,7 @@ import {
   popScale,
   skillCastOf,
   swingsOf,
+  struckCreature,
   tone,
   unit,
 } from './combat-paint';
@@ -184,25 +185,12 @@ function retire(s: WorldRendererState, item: Floater): void {
   layer.remove(item.back);
   layer.remove(item.front);
 }
-/** The live monster a blow landed on, if any. */
-function struck(monsters: readonly Monster[], at: Point): Monster | undefined {
-  let best: Monster | undefined,
-    gap = 0.7;
-  for (const m of monsters) {
-    const d = distance(m.position, at);
-    if (d < gap) {
-      gap = d;
-      best = m;
-    }
-  }
-  return best;
-}
 /** Numbers on these ranks only when they say something: a crit or a skill total. */
 const crowd = (m: Monster | undefined) => m?.rank === MonsterRank.Swarmer || m?.rank === MonsterRank.Spitter;
 function addHit(s: WorldRendererState, state: TextState, hit: Hit, monsters: readonly Monster[]): void {
   if (hit.onPerson && hit.person < 0) return; // Buildings have their own bars.
   if (!hit.blocked && hit.damage <= 0) return;
-  const foe = hit.onPerson ? undefined : struck(monsters, hit.to);
+  const foe = hit.onPerson ? undefined : struckCreature(hit, monsters);
   // A crit on a swarmer is told once, on the swing's target, not on every swarmer it swept.
   if (!hit.onPerson && !hit.blocked && !(hit.crit && isPrimary(hit)) && crowd(foe)) return;
   const key = hit.onPerson

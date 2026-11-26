@@ -138,6 +138,18 @@ describe('blows', () => {
     expect(lean(strikePhase).forward).toBeGreaterThan(1);
     expect(lean(strikePhase).nod).toBeGreaterThan(0.1);
   });
+  it.each([[26, -9], [6, -19], [8, -1]])('aims the blade through the body at (%i, %i) on contact', (x, y) => {
+    const parts = figure(Calling.Warrior);
+    animateAction(parts, 'sword', strikePhase, 1, point(x, y));
+    const arm = parts.arms[1], transform = (m: Matrix, p: { x: number; y: number }) =>
+      point(m[0] * p.x + m[1] * p.y + m[2], m[3] * p.x + m[4] * p.y + m[5]);
+    const shoulder = transform(parts.body!.matrix, arm.shoulder);
+    let tip = point(arm.wrist.x + 7.6, arm.wrist.y - 13.4);
+    for (const node of [arm.hand!, arm.forearm!, parts.body!]) tip = transform(node.matrix, tip);
+    const dx = tip.x - shoulder.x, dy = tip.y - shoulder.y;
+    expect((x - shoulder.x) * dx + (y - shoulder.y) * dy).toBeGreaterThan(0);
+    expect(Math.abs((x - shoulder.x) * dy - (y - shoulder.y) * dx) / Math.hypot(dx, dy)).toBeLessThan(2);
+  });
   it('keeps both feet where they stand while the body shifts over them', () => {
     const parts = figure(Calling.Warrior),
       planted = [0, 1].map(() => new Set<number>());

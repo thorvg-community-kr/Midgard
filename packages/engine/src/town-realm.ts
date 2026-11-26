@@ -1,3 +1,4 @@
+import { contactReach, contactRing } from './monster-engagement';
 import { TownState } from './town-state';
 import { Activity, Monster, Person, Role, type Expedition } from './person';
 import { Resources, Structure, describe } from './building-catalog';
@@ -73,8 +74,8 @@ export const realmRules = {
   /** Share of a hoard a grunt's kill earns; other ranks by their worth. */
   killSpoils: 0.12,
   /** Melee bites land within this many tiles; a pack closes to this ring around its prey. */
-  biteReach: 0.8,
-  ring: 0.55,
+  biteReach: contactReach,
+  ring: contactRing,
   /** Den mates within this many tiles of a roused monster join the fight. */
   packReach: 12,
   /** Seconds a patrol stays in one chamber before walking to the next. */

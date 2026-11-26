@@ -131,7 +131,9 @@ export function moveAgents(
 ): void {
   const count = s.rows.length;
   const strikes = new Map<number, ReturnType<Town['hits']>[number]>();
+  const wounds = new Map<number, ReturnType<Town['hits']>[number]>();
   for (const hit of town.hits()) {
+    if (hit.onPerson && hit.person >= 0 && !hit.blocked && town.clock() - hit.at < 0.18) wounds.set(hit.person, hit);
     const attacker = hit.attacker ?? (!hit.onPerson ? hit.person : -1);
     if (attacker >= 0) strikes.set(attacker, hit);
   }
@@ -295,15 +297,21 @@ export function moveAgents(
       if (pen) ahead = sub(pen.center, person.position);
     }
     if (passing && transfer?.toward && !person.moving()) ahead = sub(transfer.toward, person.position);
-    if (fighting && !person.moving()) {
+    if (fighting && (!person.moving() || followingThrough)) {
       const foe =
         person.foe >= 0
           ? town.creatureTarget(person.foe)
           : person.attackPerson >= 0
             ? town.person(person.attackPerson)
             : null;
-      if (foe) ahead = sub(foe.position, person.position);
+      if (followingThrough) ahead = sub(strike!.to, person.position);
+      else if (foe) ahead = sub(foe.position, person.position);
       else if (strike) ahead = sub(strike.to, person.position);
+    }
+    if (person.cast === 'whirl' && town.clock() < person.castUntil) {
+      const pending = town.combatState.bursts.find(b => b.by === person.id && b.skill === 'whirl');
+      const mark = pending?.mark === undefined ? null : town.creatureTarget(pending.mark);
+      if (mark) ahead = sub(mark.position, person.position);
     }
     // In-range spacing is not walking. Keep the strike facing its target, and
     // avoid mirroring for subpixel corrections around the target's centerline.
@@ -324,7 +332,16 @@ export function moveAgents(
         ? person.carriedProduct === Product.Stone ? mining.collectSeconds : woodcutting.fallSeconds : 0),
       collecting = !s.sceneView && gatherDuration
         ? f(Math.sin(Math.PI * clamp(1 - (person.until - town.clock()) / gatherDuration, 0, 1))) : 0;
-    figure.paint.transform([figure.facing, 0, screen.x, 0, 1, screen.y, 0, 0, 1]);
+    const wound = wounds.get(person.id);
+    let dx = 0, dy = 0;
+    if (outdoors && wound) {
+      const away = project(wound.to.x - wound.from.x, wound.to.y - wound.from.y);
+      const age = (town.clock() - wound.at) / 0.18;
+      const push = 2.8 * Math.min(1, age * 5) * (1 - age) ** 2 / (Math.hypot(away.x, away.y) || 1);
+      dx = away.x * push;
+      dy = away.y * push;
+    }
+    figure.paint.transform([figure.facing, 0, screen.x + dx, 0, 1, screen.y + dy, 0, 0, 1]);
     // A blow makes the figure flinch and settle; nothing else squashes it.
     const elapsed = figure.shown === undefined ? 0 : clamp(seconds - figure.shown, 0, 0.1);
     let squish = figure.squish ?? 0,
@@ -491,6 +508,11 @@ export function moveAgents(
     if (tool === 'bow') poseBow(figure.parts, 0);
     figure.parts.arrow?.opacity(0);
     if (!s.sceneView) {
+      let contact;
+      if (fighting || casting === 'whirl') {
+        const aimed = project(ahead.x, ahead.y);
+        contact = point(aimed.x * figure.facing, aimed.y - 9);
+      }
       // A skill has its own pose for as long as its cast runs.
       if (casting)
         animateCast(
@@ -498,8 +520,9 @@ export function moveAgents(
           casting,
           tool,
           (town.clock() - person.castAt) / (person.castUntil - person.castAt),
+          contact,
         );
-      else if (fighting && !striding && person.ready > town.clock()) {
+      else if (fighting && (!striding || followingThrough) && person.ready > town.clock()) {
         // The cycle runs from the last blow's contact to the next one.
         const pause = person.swingAt >= 0 ? Math.max(0.2, person.ready - person.swingAt) : 1;
         animateAction(
@@ -509,6 +532,7 @@ export function moveAgents(
             ? town.clock() - person.swingAt + strikePhase * pause
             : town.clock() - person.ready + 1 + strikePhase,
           pause,
+          contact,
         );
       } else if (praying)
         animatePrayer(
@@ -698,7 +722,8 @@ export function moveAgents(
       if (rig) {
         let blow = -1;
         rig.body.transform([1, 0, 0, 0, 1, 0, 0, 0, 1]);
-        const period = breedOf(town.map().dungeons()[beast.lair].kind).pause;
+        const period = beast.swingAt >= 0 ? Math.max(0.2, beast.ready - beast.swingAt)
+          : breedOf(town.map().dungeons()[beast.lair].kind).pause;
         // The engine stamps each blow or spit; the cycle runs from that contact to the next.
         if (!s.sceneView && beast.swingAt >= 0 && town.clock() - beast.swingAt < period) {
           blow = (town.clock() - beast.swingAt) / period;
@@ -731,12 +756,14 @@ export function moveAgents(
         });
         rig.last = { ...beast.position };
       }
+      const attackAge = beast.swingAt < 0 ? Infinity : town.clock() - beast.swingAt;
+      if (!rig && beast.swingHeading && attackAge < 0.35) ahead = beast.swingHeading;
       if (Math.abs(ahead.x - ahead.y) > facingThreshold) facing = ahead.x - ahead.y < 0 ? -1 : 1;
       if (rig) rig.facing = facing;
       // A sleeping animal breathes from the ground up in its lying pose.
       const asleep = town.animalAsleep(beast),
         lying = asleep ? f(1 + 0.03 * Math.sin(town.clock() * 1.6 + beast.id)) : 1;
-      poseAnimal(sprite.paint, asleep, walking, town.clock(), beast.id, facing);
+      poseAnimal(sprite.paint, asleep, walking, town.clock(), beast.id, facing, attackAge);
       // Rank size, a blow's recoil and a wind-up's rear, over the pose above.
       const rank = s.sceneView
         ? { sx: 1, sy: 1, dx: 0, dy: 0 }

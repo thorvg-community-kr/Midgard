@@ -2,7 +2,7 @@
 import { project, tileHalfHeight, tileHalfWidth, type Point } from '../../engine/src/geometry';
 import type { Town } from '../../engine/src/town';
 import { CombatCue, type AbilityId, type CombatEvent } from '../../engine/src/combat-events';
-import type { Hit } from '../../engine/src/person';
+import type { Hit, Monster } from '../../engine/src/person';
 import { skillOfCalling, skills, skillSpec, StrikeKind } from '../../engine/src/skill-catalog';
 import { SceneNode, ShapeNode, type Rgb } from './paint';
 import type { WorldRendererState } from './world-renderer-state';
@@ -577,4 +577,10 @@ export function skillOfCue(town: Town, event: CombatEvent): AbilityId | null {
   for (const [word, id] of nameWords) if (name.includes(word)) return id;
   const calling = town.person?.(event.person)?.calling;
   return calling === undefined ? null : (skillOfCalling(calling, 0)?.id ?? null);
+}
+
+/** Older saves have only the point of contact. A neighbour that merely moved nearby was never struck. */
+export function struckCreature(hit: Hit, monsters: readonly Monster[]): Monster | undefined {
+  if (hit.creature !== undefined) return monsters.find(m => m.id === hit.creature);
+  return monsters.find(m => Math.hypot(m.position.x - hit.to.x, m.position.y - hit.to.y) < 0.01);
 }

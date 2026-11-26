@@ -1,4 +1,4 @@
-// Flat painterly contact effects: one per swing by weapon, bites, blocks, kills, wisps, skills and the brood's
+// Flat painterly contact effects: one per swing by weapon, blocks, kills, wisps, skills and the brood's
 // moments. A crowd keeps the most important effects and drops the least important first.
 import { distance, project, unproject, type Point } from '../../engine/src/geometry';
 import { CombatCue, MonsterRank, type CombatEvent } from '../../engine/src/combat-events';
@@ -34,6 +34,7 @@ import {
   skillOfCue,
   strikeOfHit,
   swingsOf,
+  struckCreature,
   tone,
   unit,
   type Piece,
@@ -59,7 +60,6 @@ import { boxAt, DepthSlot, inFront, Tier, type Extent } from './combat-depth';
 export enum EffectKind {
   Slash,
   Streak,
-  Bite,
   Block,
   /** A guardian's own sprite breaking up. */
   Kill,
@@ -92,7 +92,6 @@ export enum EffectKind {
 const importanceOf: Record<EffectKind, number> = {
   [EffectKind.Slash]: 2,
   [EffectKind.Streak]: 2,
-  [EffectKind.Bite]: 5,
   [EffectKind.Block]: 3,
   [EffectKind.Kill]: 8,
   [EffectKind.Wisp]: 9,
@@ -151,7 +150,6 @@ export interface EffectPart {
 const tierOf: Record<EffectKind, Tier> = {
   [EffectKind.Slash]: Tier.Body,
   [EffectKind.Streak]: Tier.Body,
-  [EffectKind.Bite]: Tier.Body,
   [EffectKind.Block]: Tier.Body,
   [EffectKind.Kill]: Tier.Standing,
   [EffectKind.Wisp]: Tier.Standing,
@@ -328,18 +326,6 @@ const offset = (from: Point, to: Point): Offset => {
     b = project(to.x, to.y);
   return { x: b.x - a.x, y: b.y - a.y };
 };
-function struckFoe(at: Point, monsters: readonly Monster[]): Monster | undefined {
-  let foe: Monster | undefined,
-    gap = 0.7;
-  for (const m of monsters) {
-    const d = distance(m.position, at);
-    if (d < gap) {
-      gap = d;
-      foe = m;
-    }
-  }
-  return foe;
-}
 function bodyHeight(s: WorldRendererState, town: Town, foe: Monster | undefined, onPerson: boolean): number {
   if (onPerson) return 12;
   return foe ? monsterHeight(town, foe, s) * 0.5 : 9;
@@ -396,31 +382,6 @@ function streak(seed: number, length: number, aimed: boolean, tint: Rgb): Piece[
     }),
     piece(appendCloud(flat(tone.sand), 4.5, 3, 3, seed), { vy: -4, delay: 0.05, life: 0.4, end: 1.5 }),
     ...shards(seed, aimed ? 5 : 2, 0, Math.PI * 2, aimed ? 12 : 7, [tone.sand, tone.ochre]),
-  ];
-}
-function jaw(color: Rgb, down: boolean, width: number) {
-  const node = flat(color),
-    teeth = 4,
-    tooth = width / teeth,
-    sign = down ? 1 : -1;
-  node.moveTo(-width / 2, -sign * 2);
-  for (let i = 0; i < teeth; i++) {
-    node.lineTo(-width / 2 + tooth * (i + 0.5), sign * 2.6);
-    node.lineTo(-width / 2 + tooth * (i + 1), 0);
-  }
-  return node.lineTo(width / 2, -sign * 2).close();
-}
-function bite(seed: number, angle: number): Piece[] {
-  // The jaws close on the side the bite came from, clear of the face.
-  const x = -Math.cos(angle) * 5,
-    y = -Math.sin(angle) * 3,
-    jaws = { x, size: 0.8, life: 0.3, end: 0.8 };
-  return [
-    piece(jaw(tone.ink, true, 13), { ...jaws, y: y - 5.5, vy: 3.6 }),
-    piece(jaw(tone.rust, true, 11), { ...jaws, y: y - 5, vy: 3.4, life: 0.28, delay: 0.01 }),
-    piece(jaw(tone.ink, false, 13), { ...jaws, y: y + 5.5, vy: -3.6 }),
-    piece(jaw(tone.rust, false, 11), { ...jaws, y: y + 5, vy: -3.4, life: 0.28, delay: 0.01 }),
-    ...shards(seed, 3, angle, 2.2, 9, [tone.rust, tone.ink]),
   ];
 }
 function block(seed: number, angle: number): Piece[] {
@@ -493,7 +454,7 @@ function onSwing(s: WorldRendererState, state: EffectState, swing: Hit[], monste
     rest = swing.filter((h) => h !== first),
     seed = Number(first.serial % 100000n),
     angle = screenAngle(first.from, first.to),
-    foe = first.onPerson ? undefined : struckFoe(first.to, monsters),
+    foe = first.onPerson ? undefined : struckCreature(first, monsters),
     lift = bodyHeight(s, town, foe, first.onPerson),
     crit = swing.some((h) => h.crit),
     // Crits and blows on a resident matter more; a swarmer's blows matter least.
@@ -503,10 +464,7 @@ function onSwing(s: WorldRendererState, state: EffectState, swing: Hit[], monste
     add(s, state, EffectKind.Block, first.at, first.to, lift, block(seed, angle), -1, bonus);
     return;
   }
-  if (first.onPerson) {
-    add(s, state, EffectKind.Bite, first.at, first.to, lift, bite(seed, angle), -1, bonus);
-    return;
-  }
+  if (first.onPerson) return;
   const by = first.attacker ?? first.person,
     cast = skillCastOf(town, swing);
   if (cast?.skill === 'volley') {
@@ -523,7 +481,7 @@ function onSwing(s: WorldRendererState, state: EffectState, swing: Hit[], monste
     case StrikeKind.Cleave: {
       const targets = [first, ...rest].map((h) => {
         const o = offset(h.from, h.to);
-        return { x: o.x, y: o.y - (bodyHeight(s, town, struckFoe(h.to, monsters), false) - 8) };
+        return { x: o.x, y: o.y - (bodyHeight(s, town, struckCreature(h, monsters), false) - 8) };
       });
       add(s, state, EffectKind.Cleave, first.at, first.from, 8, cleave(seed, targets, crit), -1, bonus, nearest(swing));
       return;

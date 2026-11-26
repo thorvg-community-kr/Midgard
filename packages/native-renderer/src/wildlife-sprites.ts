@@ -141,6 +141,7 @@ export function poseAnimal(
   clock: number,
   id: number,
   facing: number,
+  attackAge = Infinity,
 ): void {
   const animal = animals.get(sprite);
   if (!animal) return;
@@ -160,6 +161,8 @@ export function poseAnimal(
     const breath = 1 + 0.012 * Math.sin(clock * 1.6 + id);
     animal.rest!.transform([1, 0, 0, 0, breath, 0, 0, 0, 1]);
   } else if (asleep && gait.sleep) show(animal, gait.sleep, clock * 30 + id * 17, 3);
+  else if (attackAge < 0.34 && gait.walk !== birdClips.walk)
+    show(animal, quadrupedClips.bite, (quadrupedClips.bite.markers.contact ?? 0) + attackAge * 30, 1);
   else if (walking) show(animal, gait.walk, clock * animal.walkRate + id * 7, 1);
   else {
     // Every so often a standing animal puts its head down for a few seconds.

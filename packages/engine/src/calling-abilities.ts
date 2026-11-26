@@ -1,3 +1,4 @@
+import { bareReach, combatItem } from './equipment';
 import type { Town } from './town';
 import { Activity, Role, type Monster, type Person } from './person';
 import { distance, type Point } from './geometry';
@@ -44,6 +45,12 @@ function allies(town: Town, p: Person, reach: number, at = p.position): Person[]
   return town.folk.filter(
     (a) => a.faction === p.faction && !a.inside && a.health > -0.5 && distance(a.position, at) <= reach,
   );
+}
+// Whirl is a hand-to-hand blow even if the warrior is holding a bow or a staff.
+function strikingRange(p: Person, spec: SkillSpec): number {
+  if (spec.id !== 'whirl') return spec.range;
+  const weapon = combatItem(p);
+  return weapon?.visual === 'bow' || weapon?.visual === 'staff' ? bareReach : (weapon?.reach ?? bareReach);
 }
 function aimedMark(town: Town, p: Person, reach: number): Monster | null {
   if (p.ordered && p.task === Activity.Fighting && p.attackPerson < 0) {
@@ -98,6 +105,7 @@ function skillBlow(town: Town, from: Point, m: Monster, raw: number, by: Person 
     serial: town.nextBlow++,
     from: { ...from },
     to: { ...m.position },
+    creature: m.id,
     damage: lround(f(damage * 10)),
     onPerson: false,
     ranged,
@@ -145,14 +153,14 @@ function fire(town: Town, p: Person, spec: SkillSpec, target?: Point): boolean {
     }
     case 'whirl':
     case 'volley': {
-      const mark = aimedMark(town, p, spec.range);
+      const mark = aimedMark(town, p, strikingRange(p, spec));
       if (!mark) return false;
       if (mark.animal === null) town.engage(p);
       land(spec.id, mark.position, f(town.blowStrength(p) * skillPower[spec.id]), mark.id);
       return true;
     }
     case 'aimed': {
-      const mark = aimedMark(town, p, spec.range);
+      const mark = aimedMark(town, p, strikingRange(p, spec));
       if (!mark) return false;
       if (mark.windupUntil >= 0) town.breakWindup(mark);
       skillBlow(town, p.position, mark, f(town.blowStrength(p) * skillPower.aimed), p, true);
@@ -227,11 +235,11 @@ function worthUsing(town: Town, p: Person, spec: SkillSpec): boolean {
       return enemiesNear(town, p.position, 3).filter((m) => m.animal === null).length >= 2;
     case 'whirl':
     case 'volley': {
-      const mark = aimedMark(town, p, spec.range);
+      const mark = aimedMark(town, p, strikingRange(p, spec));
       return !!mark && (roused(mark) || p.activity === Activity.Fighting);
     }
     case 'aimed': {
-      const mark = aimedMark(town, p, spec.range);
+      const mark = aimedMark(town, p, strikingRange(p, spec));
       return (
         !!mark &&
         (mark.angry || mark.raider || p.activity === Activity.Fighting) &&
@@ -311,7 +319,7 @@ export function setSkillAuto(this: Town, ids: number[], slot: number, enabled: b
 /** How far the skill in `slot` reaches, in tiles (casting range, or the radius of one acting on the spot); 0 without one. */
 export function skillReach(this: Town, p: Person, slot: number): number {
   const spec = skillOfCalling(p.calling, slot);
-  return spec ? spec.range || spec.radius : 0;
+  return spec ? strikingRange(p, spec) || spec.radius : 0;
 }
 /** The first skill of a resident's calling, or null for callings without one. */
 export function abilityOf(this: Town, p: Person): AbilityState | null {
@@ -347,7 +355,7 @@ export function advanceAbilities(this: Town, dt = 0): void {
     if (pending.skill === 'whirl' || pending.skill === 'volley') {
       const mark = pending.mark === undefined ? null : this.creature(pending.mark);
       if (!mark || !exposed(this, mark)) continue;
-      if (pending.skill === 'whirl' && (!caster || distance(caster.position, mark.position) > skillSpec('whirl').range)) continue;
+      if (pending.skill === 'whirl' && (!caster || distance(caster.position, mark.position) > strikingRange(caster, skillSpec('whirl')))) continue;
       skillBlow(this, caster?.position ?? pending.at, mark, pending.damage, caster, pending.skill === 'volley');
       continue;
     }

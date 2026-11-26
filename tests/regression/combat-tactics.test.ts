@@ -125,7 +125,7 @@ describe('downed residents', () => {
   it('goes down instead of dying, and monsters leave the downed alone', () => {
     const { town } = fixture(),
       p = resident(town, point(15, 15)),
-      beast = monster(town, point(15.5, 15));
+      beast = monster(town, point(15.37, 15));
     p.health = 0.001;
     beast.ready = town.time;
     town.advance(0.1);

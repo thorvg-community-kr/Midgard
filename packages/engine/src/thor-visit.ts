@@ -298,6 +298,7 @@ function flyHammer(town: ThorTown): void {
         serial: town.nextBlow++,
         from: { ...thor.throwFrom },
         to: { ...foe.position },
+        creature: foe.id,
         damage: lround(f(thorRules.blow * 10)),
         onPerson: false,
         ranged: true,

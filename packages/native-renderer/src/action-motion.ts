@@ -187,6 +187,20 @@ function shootBow(parts: PersonParts, phase: number, raise: number): void {
     0.1,
   );
 }
+// Aim the contact frame in the isometric view. The shoulders, elbow and wrist keep the authored
+// swing; turning the striking arm at its shoulder lets the same blade reach upstage and downstage.
+function aimBlow(parts: PersonParts, tool: HeldTool | null, target: Point, weight: number): void {
+  if (weight <= 0) return;
+  const arm = parts.arms[1], body = parts.body!.matrix;
+  const y = (target.y - body[5]) / body[4];
+  const x = (target.x - body[2] - body[1] * y) / body[0];
+  const length = tool === 'spear' ? 17 : tool === 'sword' ? 15 : tool ? 9 : 0;
+  const tip = shaft(arm, length), shoulder = arm.shoulder;
+  const turn = Math.atan2(y - shoulder.y, x - shoulder.x) - Math.atan2(tip.y - shoulder.y, tip.x - shoulder.x);
+  const correction = Math.atan2(Math.sin(turn), Math.cos(turn)) * weight;
+  poseArm(arm, arm.turn.upper + correction, arm.turn.elbow, arm.turn.wrist);
+  if (twoHanded(tool) && parts.arms[0].free) reachArm(parts.arms[0], shaft(arm, 2.6), 1, 0, 0);
+}
 /** Each skill's own pose; the two bow skills are shots, and anything not listed raises a shout. */
 const casts: Partial<Record<AbilityId, RigClip>> = {
   challenge: humanoidClips.shout,
@@ -204,6 +218,7 @@ export function animateCast(
   skill: AbilityId,
   tool: HeldTool | null,
   progress: number,
+  target?: Point,
 ): void {
   const along = Math.max(0, Math.min(1, progress));
   if (tool === 'bow' && (skill === 'aimed' || skill === 'volley')) {
@@ -213,6 +228,7 @@ export function animateCast(
   }
   const clip = casts[skill] ?? humanoidClips.shout;
   poseFromClip(parts, clip, along * clip.frames, tool);
+  if (skill === 'whirl' && target) aimBlow(parts, tool, target, smooth(Math.max(0, 1 - Math.abs(along - 0.625) * 3)));
 }
 /** Holding a position: braced over wide feet, weapon forward, breathing. */
 export function animateBrace(parts: PersonParts, tool: HeldTool | null, seconds: number): void {
@@ -224,6 +240,7 @@ export function animateAction(
   tool: HeldTool | null,
   elapsed: number,
   period: number,
+  target?: Point,
 ): void {
   const phase = (((elapsed % period) + period) % period) / period;
   if (tool === 'bow') {
@@ -260,6 +277,7 @@ export function animateAction(
   }
   const clip = blowOf(tool);
   poseFromClip(parts, clip, phase * clip.frames, tool);
+  if (target) aimBlow(parts, tool, target, smooth(Math.max(0, 1 - Math.abs(phase - strikePhase) / 0.23)));
 }
 
 // Work at a tree, a rock face or a frame: the same blow as a fight, without the lunge.

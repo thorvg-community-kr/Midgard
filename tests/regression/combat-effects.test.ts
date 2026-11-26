@@ -247,7 +247,6 @@ describe('contact effects', () => {
       EffectKind.Slash,
       EffectKind.Slash,
       EffectKind.Streak,
-      EffectKind.Bite,
       EffectKind.Block,
     ]);
     const [plain, crit] = combatEffectsOf(s);
@@ -490,10 +489,14 @@ describe('monster rank', () => {
     expect(guardianPaint.children.length).toBe(gruntPaint.children.length + 1);
     // Recoil: pushed away from the attacker for a moment.
     const before = gruntPaint.matrix[2];
-    blow(town, hero.position, grunt.position, 10, { person: hero.id });
+    const bystander = monster(town, point(grunt.position.x + 0.09, grunt.position.y));
+    moveAgents(s, town, new Traffic(), 0, []);
+    const still = s.beasts.get(bystander.id)!.paint.matrix[2];
+    blow(town, hero.position, grunt.position, 10, { person: hero.id, creature: grunt.id });
     advance(town, 0.04);
     moveAgents(s, town, new Traffic(), 0, []);
     expect(Math.abs(gruntPaint.matrix[2] - before)).toBeGreaterThan(1);
+    expect(s.beasts.get(bystander.id)!.paint.matrix[2]).toBe(still);
     advance(town, 0.3);
     moveAgents(s, town, new Traffic(), 0, []);
     expect(gruntPaint.matrix[2]).toBeCloseTo(before, 3);
@@ -869,7 +872,6 @@ describe('draw order', () => {
     check({
       [EffectKind.Slash]: [Tier.Body],
       [EffectKind.Streak]: [Tier.Body],
-      [EffectKind.Bite]: [Tier.Body],
       [EffectKind.Block]: [Tier.Body],
       [EffectKind.Cleave]: [Tier.Body],
       [EffectKind.Crush]: [Tier.Body, Tier.Ground],

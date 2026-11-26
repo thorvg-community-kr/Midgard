@@ -415,6 +415,28 @@ try {
   await stage(() => combatProbe.run(0.15));
   await shot('strike-splash-breakup');
 
+  // A real held attack at maximum lateral separation: the sword and the victim share the contact frame.
+  const contact = await stage(() => {
+    const { town, resident, monster, at, Calling, MonsterRank } = combatProbe;
+    combatProbe.reset();
+    const hero = resident(0, 0, Calling.Warrior), target = monster(0.58, -0.58, MonsterRank.Grunt);
+    hero.inventory[0] = { item: 'sword', quantity: 1 };
+    hero.equipment.weapon = 1;
+    town.reveal(hero.position.x, hero.position.y, 8);
+    town.orderHold([hero.id]);
+    combatProbe.look(0.21, -0.21, 5);
+    combatProbe.frame();
+    town.fight(hero, 0);
+    const missed = target.health === target.vigor;
+    target.position = at(0.41, -0.41);
+    town.fight(hero, 0);
+    combatProbe.frame(0.012);
+    const hit = town.hits().at(-1);
+    return { missed, landed: target.health < target.vigor && hit?.creature === target.id && hit.at === hero.swingAt };
+  });
+  assert.deepEqual(contact, { missed: true, landed: true });
+  await shot('sword-at-contact');
+
   // 7. All ten skills, each at its peak; lasting areas a moment after they land.
   const skillShots = [
     ['skill-challenge', 'challenge', 0.12, 2.6],

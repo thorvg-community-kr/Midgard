@@ -1,3 +1,4 @@
+import { attackReach } from '../../packages/engine/src/equipment';
 import { describe, expect, it } from 'vitest';
 import { Town } from '../../packages/engine/src/town';
 import { WorldMap } from '../../packages/engine/src/world-map';
@@ -191,7 +192,7 @@ describe('two skills per calling', () => {
     expect(town.skillsOf(settler)).toEqual([]);
     expect(town.abilityOf(old)).toEqual(town.skillsOf(old)[0]);
     expect(town.useSkill([young.id], 1)).toBe(0);
-    expect(town.skillReach(old, 1)).toBe(skillSpec('whirl').range);
+    expect(town.skillReach(old, 1)).toBe(attackReach(old));
     expect(town.abilityReach(old)).toBe(town.skillReach(old, 0));
     // Skills help on their own until the player takes one in hand.
     expect(town.skillsOf(old).map((s) => s.auto)).toEqual([true, true]);
@@ -206,7 +207,7 @@ describe('two skills per calling', () => {
     const town = fixture(),
       p = resident(town, point(20, 20), calling, weapon),
       beside = monster(town, point(20.7, 20)),
-      mark = monster(town, point(21, 20)),
+      mark = monster(town, point(20.45, 20)),
       behind = monster(town, point(21.4, 20)),
       blow = town.blowStrength(p);
     p.foe = mark.id;
@@ -215,11 +216,21 @@ describe('two skills per calling', () => {
     expect(town.useSkill([p.id], 1)).toBe(1);
     expect(cues(town, CombatCue.Ability).at(-1)).toMatchObject({ skill, creature: mark.id, radius: 0 });
     expect(mark.health).toBe(100);
-    mark.position = point(21.2, 20.1);
+    mark.position = point(20.5, 20.1);
     town.time += skillSpec(skill).delay;
     town.advanceAbilities();
     expect(100 - mark.health).toBeCloseTo(blow * skillPower[skill], 4);
     expect([beside.health, behind.health]).toEqual([100, 100]);
+  });
+  it('lets the target step out of a warrior’s reach during the wind-up', () => {
+    const town = fixture(), p = resident(town, point(20, 20), Calling.Warrior, 'sword');
+    const mark = monster(town, point(20.4, 20));
+    town.setSkillAuto([p.id], 0, false);
+    expect(town.useSkill([p.id], 1)).toBe(1);
+    mark.position = point(21, 20);
+    town.time += skillSpec('whirl').delay;
+    town.advanceAbilities();
+    expect(mark.health).toBe(100);
   });
   it('does not transfer a physical skill to a bystander when the target dies before impact', () => {
     const town = fixture(), p = resident(town, point(20, 20), Calling.Ranger, 'bow'),
@@ -234,7 +245,7 @@ describe('two skills per calling', () => {
   it.each([Calling.Warrior, Calling.Ranger])('auto skills pass peaceful creatures to hit a raider for calling %i', calling => {
     const town = fixture(), p = resident(town, point(20, 20), calling),
       giant = monster(town, point(20.5, 20)), wildlife = monster(town, point(20.3, 20)),
-      raider = monster(town, point(21.5, 20));
+      raider = monster(town, point(20.25, 20));
     giant.race = Race.Giant;
     wildlife.animal = AnimalKind.Wolf;
     town.beasts.splice(town.beasts.indexOf(wildlife), 1);

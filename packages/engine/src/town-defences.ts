@@ -30,6 +30,7 @@ function shoot(town: TownState, from: Building, mark: Monster, damage: number, p
     serial: town.nextBlow++,
     from: { ...from.center },
     to: { ...mark.position },
+    creature: mark.id,
     damage: lround(f(damage * 10)),
     onPerson: false,
     ranged: true,

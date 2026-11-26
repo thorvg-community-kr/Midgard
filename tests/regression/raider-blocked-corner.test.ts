@@ -77,6 +77,21 @@ describe('a raider pressed against a blocked cell', () => {
     // Walking the established routes, including the pass, does not demand fresh pathfinding every tick.
     expect(searches - musterSearches).toBeLessThan(pack.length * 2);
   });
+  it('takes the last step around a building corner before it can strike the wall', () => {
+    const town = fixture(), camp = town.placed[0], half = camp.footprint().half;
+    const raider = new Monster(town.nextMonster++, 0, point(camp.center.x + half + 0.4, camp.center.y + half + 0.4));
+    raider.raider = true;
+    raider.prey = camp.id;
+    raider.home = { ...raider.position };
+    town.beasts.push(raider);
+    town.stir(0);
+    expect(camp.health).toBe(1);
+    expect(raider.path.length).toBeGreaterThan(0);
+    for (let i = 0; i < 80 && camp.health === 1; ++i) town.advance(0.05);
+    expect(camp.health).toBeLessThan(1);
+    const hit = town.hits().find(h => h.person < 0 && h.onPerson)!;
+    expect(distance(hit.from, hit.to)).toBeLessThanOrEqual(0.43);
+  });
   it('slides round the corner instead of standing there for the rest of the raid', () => {
     const town = fixture(),
       // The last sliver of open ground west of the pond's south end: the first step toward the camp clips its corner.

@@ -35,7 +35,7 @@ export class Monster {
   constructor(public id: number, public lair: number, public position: Point, public path: Point[] = []) {}
   giant(): boolean { return this.race === Race.Giant; }
 }
-export interface Hit { serial: bigint; from: Point; to: Point; damage: number; onPerson: boolean; ranged: boolean; at: number; person: number; attacker?: number; /** A blow for extra damage. */ crit?: boolean; /** Turned aside by a shield; `damage` is 0. */ blocked?: boolean; /** How the blow landed; absent means `StrikeKind.Single`. */ strike?: StrikeKind; /** False for enemies caught by a staff bolt beside its target; absent means true. */ primary?: boolean; }
+export interface Hit { serial: bigint; from: Point; to: Point; damage: number; onPerson: boolean; ranged: boolean; at: number; person: number; attacker?: number; /** The creature struck, or -1 for a structure; absent on old hits. */ creature?: number; /** A blow for extra damage. */ crit?: boolean; /** Turned aside by a shield; `damage` is 0. */ blocked?: boolean; /** How the blow landed; absent means `StrikeKind.Single`. */ strike?: StrikeKind; /** False for enemies caught by a staff bolt beside its target; absent means true. */ primary?: boolean; }
 export interface Expedition { dungeon: number; members: number[]; /** Floor of the world beyond the gate the party will enter. */ floor: number; }
 export class Person {
   static readonly maximumLevel = 100;

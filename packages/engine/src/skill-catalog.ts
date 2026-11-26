@@ -62,7 +62,7 @@ export const skills: readonly SkillSpec[] = [
     level: secondSkillLevel,
     cooldown: 10,
     aim: SkillAim.Enemy,
-    range: 1.8,
+    range: 0, // Whirl takes the reach of the weapon in hand.
     radius: 0,
     delay: 0.25,
     duration: 0,

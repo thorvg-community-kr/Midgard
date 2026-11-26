@@ -1,15 +1,19 @@
 import { MonsterRank } from './combat-events';
-import { add, distance, point, type Point } from './geometry';
+import { add, distance, point, type Footprint, type Point } from './geometry';
 import { preyScore } from './monster-ranks';
 import { f32 as f } from './numeric';
 import type { Monster, Person } from './person';
 import type { TownState } from './town-state';
 
-export const contactReach = f(0.7);
+export const contactReach = f(0.43);
+export const contactRing = 0.37;
+export function withinWallReach(wall: Footprint, at: Point): boolean {
+  return wall.contains(at, contactReach) && distance(at, wall.closestPoint(at)) <= contactReach;
+}
 // At bite distance there is room for five ordinary bodies around one resident.
 const offsets = Array.from({ length: 5 }, (_, i) => {
   const angle = 2 * Math.PI * i / 5;
-  return point(0.61 * Math.cos(angle), 0.61 * Math.sin(angle));
+  return point(contactRing * Math.cos(angle), contactRing * Math.sin(angle));
 });
 interface Engagement {
   person: Person;
@@ -146,7 +150,7 @@ export class MeleeFront {
   inPlace(beast: Monster, claim: Engagement, goal: Point): boolean {
     const gap = distance(beast.position, claim.person.position);
     claim.planted = gap <= contactReach &&
-      (claim.planted || (gap >= 0.38 && distance(beast.position, goal) <= 0.36)) &&
+      (claim.planted || (gap >= 0.21 && distance(beast.position, goal) <= 0.23)) &&
       this.town.grid.clear(beast.position, claim.person.position, Infinity, true);
     return claim.planted;
   }

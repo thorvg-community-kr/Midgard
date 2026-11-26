@@ -12,6 +12,7 @@ import { Point, point, add, sub, scale, normalized, rotated, distance } from './
 import { f32 as f, lround } from './numeric';
 import { CampEconomy } from './camp-economy';
 import { animalSpec, huntsWildlife } from './wildlife';
+import { withinWallReach } from './monster-engagement';
 import { spreadFighter } from './person-navigation';
 import { planRaiderApproach } from './monster-navigation';
 import { campTier, dungeonThreat, raidKind, raidMight, raidMonsterLevel, raidMuster, raidRoom, raidShape, RaidKind, siegeMonsterLevel } from './raid-progression';
@@ -350,6 +351,7 @@ function splashTargets(town: CombatTown, foe: Monster, spec: ReturnType<typeof s
     .slice(0, spec.most - 1)
     .map((entry) => entry.beast);
 }
+/** Resolve the blow once fight or Hold has established contact with its target. */
 export function strike(this: CombatTown, p: Person, foe: Monster): void {
   if (foe.health <= 0 || foe.insideLair) return;
   const critChance =
@@ -371,6 +373,7 @@ export function strike(this: CombatTown, p: Person, foe: Monster): void {
       serial: this.nextBlow++,
       from: { ...p.position },
       to: { ...other.position },
+      creature: other.id,
       damage: lround(f(share * 10)),
       onPerson: false,
       ranged,
@@ -396,6 +399,7 @@ export function strike(this: CombatTown, p: Person, foe: Monster): void {
     serial: this.nextBlow++,
     from: { ...p.position },
     to: { ...foe.position },
+    creature: foe.id,
     damage: lround(f(blow * 10)),
     onPerson: false,
     ranged,
@@ -491,8 +495,9 @@ export function fight(this: CombatTown, p: Person, dt: number): void {
     this.walkTo(p, at);
     return;
   }
-  if (gap > reachOf(p)) {
-    if (!p.path.length || distance(p.path[p.path.length-1],at) > .7) {
+  const reach = reachOf(p);
+  if (gap > reach) {
+    if (!p.path.length || distance(p.path[p.path.length-1],at) > Math.min(reach * 0.6, 0.7)) {
       if (!this.walkTo(p, at)) { p.foe = -1; p.activity = Activity.Idle; p.until = this.time + .5; return; }
     }
     this.walk(p, dt);
@@ -500,7 +505,7 @@ export function fight(this: CombatTown, p: Person, dt: number): void {
     return;
   }
   p.path = [];
-  spreadFighter(this,p,target,reachOf(p),dt);
+  spreadFighter(this,p,target,reach,dt);
   if (this.time < p.ready) return;
   if (foe) this.strike(p,foe);
   else {
@@ -557,17 +562,19 @@ export function wreck(this: CombatTown, beast: Monster, dt: number): void {
   const target = beast.raider ? this.building(beast.prey) : null;
   const nearby = target ? [target, ...this.placed.filter(item => item !== target)] : this.placed;
   for (const item of nearby) {
-    if (!item.footprint().contains(beast.position, f(0.7))) continue;
+    const footprint = item.footprint();
+    if (!withinWallReach(footprint, beast.position)) continue;
+    const wall = footprint.closestPoint(beast.position);
     if (beast.raider && !inRaidedVillage(this, item, seat)) continue;
     this.engage(item);
     const blow = f(breed.bite * beast.strength * f(0.25) * (boon(this, Boon.Bulwark) ? boonRules.bulwarkBuildingDamage : 1));
     beast.ready = this.time + breed.pause;
     beast.swingAt = this.time;
-    beast.swingHeading = sub(item.center, beast.position);
+    beast.swingHeading = sub(wall, beast.position);
     this.blows.push({
       serial: this.nextBlow++,
       from: { ...beast.position },
-      to: { ...item.center },
+      to: wall,
       damage: Math.max(1, lround(f(blow * 100))),
       onPerson: true,
       ranged: false,

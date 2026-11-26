@@ -111,15 +111,33 @@ describe('the weapon in hand shapes the blow', () => {
     expect(beside.health).toBe(100);
     expect(town.hits().at(-1)).toMatchObject({ strike: StrikeKind.Single, primary: true });
   });
+  it.each([
+    [null, 0.55, 0.25], ['mace', 0.75, 0.45], ['sword', 0.8, 0.55], ['spear', 1.2, 0.7],
+    ['bow', 3.5, 2.1], ['staff', 3.2, 2.1],
+  ] as const)('holds fire until the target is within reach of %s', (weapon, far, near) => {
+    const town = fixture(), p = fighter(town, point(20, 20), Calling.Warrior, weapon);
+    // Across the screen, a tile is at its widest and a gap between the two bodies is easiest to see.
+    const at = (gap: number) => point(20 + gap / Math.SQRT2, 20 - gap / Math.SQRT2);
+    const target = foe(town, at(far));
+    town.orderHold([p.id]);
+    town.fight(p, 0.05);
+    expect(target.health).toBe(100);
+    expect(p.swingAt).toBe(-1);
+    target.position = at(near);
+    town.fight(p, 0.05);
+    expect(target.health).toBeLessThan(100);
+  });
   it('marks every bite with the monster’s swing time', () => {
     const town = fixture(),
       p = fighter(town, point(20, 20), Calling.Warrior, 'sword'),
-      m = foe(town, point(20.5, 20));
+      m = foe(town, point(20.65, 20));
     m.raider = true;
     m.ready = 0;
     town.orderHold([p.id]);
     p.ready = Infinity;
     town.advance(0.1);
+    expect(m.swingAt).toBe(-1);
+    for (let tick = 0; tick < 30 && m.swingAt < 0; ++tick) town.advance(0.05);
     expect(m.swingAt).toBeGreaterThan(0);
     expect(town.hits().some((hit) => hit.onPerson && hit.person === p.id)).toBe(true);
   });

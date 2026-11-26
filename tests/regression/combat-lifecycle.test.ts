@@ -135,7 +135,7 @@ describe('combat completion and interrupted orders', () => {
         expect(distance(p.position, foe.position)).toBeGreaterThan(5);
     });
     it('finishes the remaining wave before returning a completed direct Attack to Auto', () => {
-        const { town, p } = fixture(), first = enemy(town, p), last = enemy(town, p, point(-.5, 0)), r = road(town);
+        const { town, p } = fixture(), first = enemy(town, p, point(.25, 0)), last = enemy(town, p, point(-.5, 0)), r = road(town);
         town.setAuto(p.id, false);
         expect(town.orderAttack([p.id], first.id)).toBe(true);
         town.advance(.1);

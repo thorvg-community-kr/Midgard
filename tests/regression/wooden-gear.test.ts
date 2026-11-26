@@ -261,19 +261,19 @@ describe('wooden gear from the workbench', () => {
     // Costs ("from 3 wood") and counts ("Craft two") may stay; rates, times and shares may not.
     for (const text of texts) expect(text).not.toMatch(/\d+ ?(s|%|kg)\b|\d+(\.\d+)? (seconds|tiles|paces)|by hand \d/);
     // Work points count quarter-steps. Scaling weights are distinct from flat attribute bonuses.
-    expect(gearStats(itemSpec('wooden-axe')!)).toEqual(['Felling efficiency +1', 'Attack as a weapon +1', 'Two-handed']);
-    expect(gearStats(itemSpec('stone-axe')!)).toEqual(['Felling efficiency +2', 'Attack as a weapon +2', 'Two-handed']);
-    expect(gearStats(itemSpec('axe')!)).toEqual(['Felling efficiency +3', 'Attack as a weapon +3', 'Two-handed']);
-    expect(gearStats(itemSpec('wooden-mallet')!)).toEqual(['Building efficiency +1', 'Crafting efficiency +1', 'Attack as a weapon +1']);
-    expect(gearStats(itemSpec('wooden-club')!)).toEqual(['Melee attack +1', 'STR scaling +3', 'INT scaling +2', 'Staggers']);
-    expect(gearStats(itemSpec('flint-sword')!)).toEqual(['Melee attack +2', 'STR scaling +4', 'DEX scaling +2']);
-    expect(gearStats(itemSpec('wooden-spear')!)).toEqual(['Melee attack +1', 'STR scaling +2', 'DEX scaling +3', 'Reach +0.5', 'Two-handed']);
-    expect(gearStats(itemSpec('short-bow')!)).toEqual(['Ranged attack +1', 'DEX scaling +3', 'Reach +1.7', 'Two-handed']);
+    expect(gearStats(itemSpec('wooden-axe')!)).toEqual(['Felling efficiency +1', 'Attack as a weapon +1', 'Reach +0.1', 'Two-handed']);
+    expect(gearStats(itemSpec('stone-axe')!)).toEqual(['Felling efficiency +2', 'Attack as a weapon +2', 'Reach +0.1', 'Two-handed']);
+    expect(gearStats(itemSpec('axe')!)).toEqual(['Felling efficiency +3', 'Attack as a weapon +3', 'Reach +0.1', 'Two-handed']);
+    expect(gearStats(itemSpec('wooden-mallet')!)).toEqual(['Building efficiency +1', 'Crafting efficiency +1', 'Attack as a weapon +1', 'Reach +0.1']);
+    expect(gearStats(itemSpec('wooden-club')!)).toEqual(['Melee attack +1', 'STR scaling +3', 'INT scaling +2', 'Reach +0.2', 'Staggers']);
+    expect(gearStats(itemSpec('flint-sword')!)).toEqual(['Melee attack +2', 'STR scaling +4', 'DEX scaling +2', 'Reach +0.3']);
+    expect(gearStats(itemSpec('wooden-spear')!)).toEqual(['Melee attack +1', 'STR scaling +2', 'DEX scaling +3', 'Reach +0.4', 'Two-handed']);
+    expect(gearStats(itemSpec('short-bow')!)).toEqual(['Ranged attack +1', 'DEX scaling +3', 'Reach +2.3', 'Two-handed']);
     expect(gearStats(itemSpec('shield')!)).toEqual(['Shield block +1.5', 'Off hand']);
     expect(gearStats(itemSpec('studded-armor')!)).toEqual(['Defence +1.2']);
     expect(gearStats(itemSpec('pack-basket')!)).toEqual(['Carry +15']);
     expect(gearStats(itemSpec('snow-boots')!)).toEqual(['DEX +1', 'Defence +0.5', 'Walking speed +1.8', 'Snow footing +5']);
-    expect(gearStats(itemSpec('hunting-knife')!)).toEqual(['Attack as a weapon +1', 'Hunt yield +5']);
+    expect(gearStats(itemSpec('hunting-knife')!)).toEqual(['Attack as a weapon +1', 'Reach +0.1', 'Hunt yield +5']);
     // No sentence compares one make with another.
     for (const item of itemCatalog)
       expect(item.description + gearEffect(item), item.id).not.toMatch(/ than |faster|harder|better|short of/);

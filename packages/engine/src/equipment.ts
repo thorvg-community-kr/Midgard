@@ -111,7 +111,9 @@ export const emptyEquipment = (): Equipment => ({
 const tierOf: Record<ItemMaterial, number> = { wood: 1, stone: 2, iron: 3, embersteel: 4, frostwood: 4 };
 // Long hafts, bows and staves take both hands, as the renderer poses them.
 const twoHandedVisuals: readonly (EquipmentVisual | null)[] = ['axe', 'pickaxe', 'hoe', 'shovel', 'spear', 'bow', 'staff'];
-export const bareReach = 0.9;
+// Centre-to-centre reach in ground tiles. Across the isometric view one tile spans 45 pixels.
+export const bareReach = 0.32;
+const toolReach = 0.45, maceReach = 0.52, swordReach = 0.62, spearReach = 0.74;
 const entry = (id: string, name: string, data: Partial<ItemSpec>): ItemSpec => {
   const item: ItemSpec = {
     id,
@@ -126,7 +128,7 @@ const entry = (id: string, name: string, data: Partial<ItemSpec>): ItemSpec => {
     weight: 1,
     attackBonus: 0,
     defense: 0,
-    reach: bareReach,
+    reach: data.category === 'tool' ? toolReach : bareReach,
     work: [],
     rate: 0,
     material: null,
@@ -372,10 +374,10 @@ export const itemCatalog: readonly ItemSpec[] = [
     seconds: 6,
     description: 'Skins and butchers the kill of a hunt.',
   },
-  weapon('wooden-sword', 'Wooden sword', 'sword', 'wood', 1, 0.9, new Resources(0, 4)),
-  weapon('wooden-club', 'Wooden club', 'mace', 'wood', 1, 0.9, new Resources(0, 4)),
+  weapon('wooden-sword', 'Wooden sword', 'sword', 'wood', 1, swordReach, new Resources(0, 4)),
+  weapon('wooden-club', 'Wooden club', 'mace', 'wood', 1, maceReach, new Resources(0, 4)),
   weapon('short-bow', 'Short bow', 'bow', 'wood', 1, 2.6, new Resources(0, 5)),
-  weapon('wooden-spear', 'Wooden spear', 'spear', 'wood', 1, 1.4, new Resources(0, 4)),
+  weapon('wooden-spear', 'Wooden spear', 'spear', 'wood', 1, spearReach, new Resources(0, 4)),
   weapon('wooden-staff', 'Wooden staff', 'staff', 'wood', 1, 1.6, new Resources(0, 4)),
   entry('pack-basket', 'Pack basket', {
     category: 'armor',
@@ -401,19 +403,19 @@ export const itemCatalog: readonly ItemSpec[] = [
   masterTool('embersteel-axe', 'Embersteel axe', 'axe', ['woodcutting'], 4),
   masterTool('embersteel-pick', 'Embersteel pick', 'pickaxe', ['mining'], 3),
   masterTool('embersteel-hammer', 'Embersteel hammer', 'hammer', ['construction', 'crafting'], 3),
-  weapon('flint-sword', 'Flint sword', 'sword', 'stone', 2, 0.9, new Resources(0, 2, 4)),
-  weapon('mace', 'Stone mace', 'mace', 'stone', 2, 0.9, new Resources(0, 2, 4)),
+  weapon('flint-sword', 'Flint sword', 'sword', 'stone', 2, swordReach, new Resources(0, 2, 4)),
+  weapon('mace', 'Stone mace', 'mace', 'stone', 2, maceReach, new Resources(0, 2, 4)),
   weapon('bow', 'Hunting bow', 'bow', 'wood', 2, 2.8, new Resources(0, 5, 2)),
-  weapon('flint-spear', 'Flint spear', 'spear', 'stone', 2, 1.4, new Resources(0, 3, 3)),
+  weapon('flint-spear', 'Flint spear', 'spear', 'stone', 2, spearReach, new Resources(0, 3, 3)),
   weapon('staff', 'Rune staff', 'staff', 'stone', 2, 2.5, new Resources(0, 4, 3)),
-  weapon('sword', 'Iron sword', 'sword', 'iron', 3, 0.9, Resources.from({ gold: 4, wood: 1, ironIngot: 2 })),
-  weapon('iron-mace', 'Iron mace', 'mace', 'iron', 3, 0.9, Resources.from({ gold: 3, wood: 1, ironIngot: 2 })),
+  weapon('sword', 'Iron sword', 'sword', 'iron', 3, swordReach, Resources.from({ gold: 4, wood: 1, ironIngot: 2 })),
+  weapon('iron-mace', 'Iron mace', 'mace', 'iron', 3, maceReach, Resources.from({ gold: 3, wood: 1, ironIngot: 2 })),
   weapon('longbow', 'Longbow', 'bow', 'wood', 3, 3, Resources.from({ gold: 3, wood: 6, ironIngot: 1 })),
-  weapon('spear', 'Iron spear', 'spear', 'iron', 3, 1.4, Resources.from({ gold: 3, wood: 3, ironIngot: 1 })),
+  weapon('spear', 'Iron spear', 'spear', 'iron', 3, spearReach, Resources.from({ gold: 3, wood: 3, ironIngot: 1 })),
   weapon('seer-staff', "Seer's staff", 'staff', 'iron', 3, 2.5, Resources.from({ gold: 4, wood: 4, ironIngot: 1 })),
-  weapon('embersteel-sword', 'Embersteel sword', 'sword', 'embersteel', 4, 0.9, Resources.from({ embersteel: 3 })),
-  weapon('embersteel-mace', 'Embersteel mace', 'mace', 'embersteel', 4, 0.9, Resources.from({ embersteel: 3 })),
-  weapon('embersteel-spear', 'Embersteel spear', 'spear', 'embersteel', 4, 1.4, Resources.from({ embersteel: 2 })),
+  weapon('embersteel-sword', 'Embersteel sword', 'sword', 'embersteel', 4, swordReach, Resources.from({ embersteel: 3 })),
+  weapon('embersteel-mace', 'Embersteel mace', 'mace', 'embersteel', 4, maceReach, Resources.from({ embersteel: 3 })),
+  weapon('embersteel-spear', 'Embersteel spear', 'spear', 'embersteel', 4, spearReach, Resources.from({ embersteel: 2 })),
   weapon('frostwood-bow', 'Frostwood warbow', 'bow', 'frostwood', 4, 3.2, Resources.from({ boundFrostwood: 3, hides: 1 })),
   weapon('frostwood-staff', 'Frostwood staff', 'staff', 'frostwood', 4, 2.7, Resources.from({ boundFrostwood: 2, ironIngot: 1 })),
   shield('shield', 'Wooden shield', 'wood', 1, 0.15, 1, new Resources(0, 5)),

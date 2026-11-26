@@ -4,14 +4,13 @@ import type { RealmArea } from './realm-layout';
 import type { FlowField } from './combat-state';
 import { PairMinHeap } from './priority-queue';
 import { MonsterRank } from './combat-events';
-import { contactReach, meleeContact } from './monster-engagement';
+import { contactReach, contactRing, meleeContact, withinWallReach } from './monster-engagement';
 import type { Building } from './town-models';
 import { Structure, isSeat } from './building-catalog';
 import { inRaidedVillage, raidSeat } from './gate-progression';
 import { add, distance, lerp, point, rotated, scale, sub, type Point } from './geometry';
 import { f32 as f } from './numeric';
 
-const attackReach = f(0.7);
 const spacing = f(0.6);
 // Stable variation does not consume the simulation's gameplay random stream.
 function variation(a: number, b: number): number {
@@ -22,11 +21,11 @@ function variation(a: number, b: number): number {
   return (bits >>> 0) / 4294967296;
 }
 function attackPoints(building: Building): Point[] {
-  const footprint = building.footprint(), extent = f(footprint.half + f(0.65));
+  const footprint = building.footprint(), extent = f(footprint.half + contactRing);
   const count = Math.max(3, Math.ceil(2 * extent / spacing)), points: Point[] = [];
   for (let side = 0; side < 4; ++side)
     for (let slot = 0; slot < count; ++slot) {
-      const along = f(-extent + slot * 2 * extent / count);
+      const along = f(footprint.half * (-1 + 2 * slot / count));
       const local = side === 0 ? point(along, extent) : side === 1 ? point(extent, -along)
         : side === 2 ? point(-along, -extent) : point(-extent, along);
       points.push(add(building.center, rotated(local, building.angle)));
@@ -87,15 +86,18 @@ function approach(town: TownState, beast: Monster, target: Building, routes?: Ma
     if (distance(beast.position, at) < f(0.02)) return [];
     if (town.grid.clear(beast.position, at, Infinity, true))
       return spreadMarch(town, beast, [beast.position, at]);
+    // A striking foot can be on the apron of a cell whose centre lies inside the wall.
+    const entry = pursuitEntry(town, at);
+    const end = entry === at ? [] : [at];
     const corridor = routes?.get(target.id);
     if (corridor) {
-      const joined = joinMarch(town, beast.position, at, corridor);
-      if (joined.length) return spreadMarch(town, beast, joined);
+      const joined = joinMarch(town, beast.position, entry, corridor);
+      if (joined.length) return spreadMarch(town, beast, [...joined, ...end]);
     }
-    const path = town.grid.path(beast.position, at, true);
+    const path = town.grid.path(beast.position, entry, true);
     if (path.length) {
       if (!corridor && path.length >= 2) routes?.set(target.id, path);
-      return spreadMarch(town, beast, path);
+      return spreadMarch(town, beast, [...path, ...end]);
     }
   }
   return null;
@@ -118,8 +120,8 @@ export function planRaiderApproach(town: TownState, beast: Monster, waveRoutes?:
   // The planning pass assigns the least crowded slot. Once the perimeter fills, arrivals may share it
   // without rerunning a path search every tick while their wave is still marching.
   const valid = !!chosen && (!end
-    ? chosen.footprint().contains(beast.position, attackReach)
-    : chosen.footprint().contains(end, attackReach) && town.grid.walkable(end) &&
+    ? withinWallReach(chosen.footprint(), beast.position)
+    : withinWallReach(chosen.footprint(), end) && town.grid.walkable(end) &&
       town.grid.clear(beast.position, beast.path[0], Infinity));
   if (chosen) {
     // The Camp's existing minimum health still applies. Once reached, prefer
@@ -186,10 +188,10 @@ export function pursueResident(town: TownState, beast: Monster, resident: Person
     // An attacker assigned the far side rounds the defender's feet on its final approach.
     const from = sub(beast.position, resident.position), to = sub(goal, resident.position);
     const radius = Math.hypot(from.x, from.y);
-    if (radius > 0.12 && radius < 1.4 && from.x * to.x + from.y * to.y < radius * 0.32) {
+    if (radius > 0.12 && radius < 1.4 && from.x * to.x + from.y * to.y < radius * contactRing * 0.52) {
       const cross = from.x * to.y - from.y * to.x;
       const turn = Math.abs(cross) > 0.001 ? Math.sign(cross) : (beast.id % 2 ? 1 : -1);
-      const arc = add(resident.position, rotated(scale(from, 0.68 / radius), turn * 0.8));
+      const arc = add(resident.position, rotated(scale(from, (contactRing + 0.07) / radius), turn * 0.8));
       if (grid.clear(beast.position, arc, Infinity, true)) waypoint = arc;
     }
   }
@@ -291,7 +293,7 @@ export function separateMonsters(town: TownState, dt: number): void {
     const contact = contacts[i];
     if (contact && distance(at, contact.position) > contactReach) continue;
     const target = beast.raider && !beast.path.length ? town.building(beast.prey) : null;
-    if (target?.footprint().contains(beast.position, attackReach) && !target.footprint().contains(at, attackReach)) continue;
+    if (target && withinWallReach(target.footprint(), beast.position) && !withinWallReach(target.footprint(), at)) continue;
     if (town.grid.clear(beast.position, at, Infinity, true)) beast.position = at;
   }
 }

@@ -110,7 +110,8 @@ export function poseMonster(body: SceneNode, moment: MonsterMoment): void {
   } else if (moment.blow >= 0) {
     // The blow's cycle starts on contact: follow through, recover, then gather for the next.
     const clip = state.attack;
-    show(state, clip, (clip.markers.contact ?? 0) + moment.blow * clip.frames, hold);
+    const elapsed = moment.blow * clip.frames;
+    show(state, clip, (clip.markers.contact ?? 0) + elapsed, elapsed < hold ? 1 : hold);
   } else if (moment.walking) {
     state.stride += moment.moved * kind.pace * (state.gait === kind.walk ? 1 : 0.6);
     show(state, state.gait, state.stride, hold);

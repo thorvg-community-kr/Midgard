@@ -1,3 +1,4 @@
+import { contactReach } from './monster-engagement';
 import { TownState } from './town-state';
 import type { CampEconomy } from './camp-economy';
 import { Person, Monster, AnimalKind, Activity } from './person';
@@ -162,7 +163,7 @@ export function stirWildlife(this: WildlifeTown, dt: number): void {
     if (attacker && spec.defends) {
       const gap = distance(animal.position, attacker.position);
       animal.path = [];
-      if (gap <= f(0.8) && this.time >= animal.ready) {
+      if (gap <= contactReach && this.time >= animal.ready) {
         this.engage(attacker);
         const bite = f(
           (animal.animal === AnimalKind.Wolf ? f(0.045) : f(0.028)) * (1 - armorProtection(attacker)) / attacker.vitalityMultiplier(),
@@ -182,11 +183,12 @@ export function stirWildlife(this: WildlifeTown, dt: number): void {
           primary: true,
         });
         animal.swingAt = this.time;
+        animal.swingHeading = sub(attacker.position, animal.position);
         animal.ready = this.time + 1.4;
         this.hurtGuest(attacker, attacker.health <= 0);
         if (attacker.health <= 0)
           this.strikeDown(attacker, `Killed by a ${spec.name.toLowerCase()}`, attacker.name + ' fell while hunting');
-      } else if (gap > f(0.8)) {
+      } else if (gap > contactReach) {
         const next = add(
           animal.position,
           scale(normalized(sub(attacker.position, animal.position)), Math.min(gap, f(spec.speed * f(dt)))),

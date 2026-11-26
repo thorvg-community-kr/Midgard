@@ -124,27 +124,31 @@ export interface RankPose {
 }
 const still: RankPose = { sx: 1, sy: 1, dx: 0, dy: 0 };
 
-const fresh = new WeakMap<Town, { at: number; seen: number; hits: Hit[] }>();
-/** Blows on monsters in the last moment, filtered once a frame rather than once per monster. */
-function freshBlows(town: Town): readonly Hit[] {
-  const now = town.clock(),
-    all = town.hits(),
-    last = fresh.get(town);
-  if (last && last.at === now && last.seen === all.length) return last.hits;
-  const hits = all.filter((h) => !h.onPerson && !h.blocked && now - h.at >= 0 && now - h.at < 0.22);
-  fresh.set(town, { at: now, seen: all.length, hits });
-  return hits;
+interface RecentHits {
+  at: number;
+  serial?: bigint;
+  byCreature: Map<number, Hit>;
+  legacy: Hit[];
+}
+const fresh = new WeakMap<Town, RecentHits>();
+/** Index recent hits once for the whole horde. Old saves carry only the exact point of contact. */
+function freshBlows(town: Town): RecentHits {
+  const now = town.clock(), hits = town.hits(), serial = hits.at(-1)?.serial, last = fresh.get(town);
+  if (last && last.at === now && last.serial === serial) return last;
+  const current: RecentHits = { at: now, serial, byCreature: new Map(), legacy: [] };
+  for (const h of hits) {
+    if (h.onPerson || h.blocked || now < h.at || now - h.at >= 0.22) continue;
+    if (h.creature === undefined) current.legacy.push(h);
+    else if (h.creature >= 0) current.byCreature.set(h.creature, h);
+  }
+  fresh.set(town, current);
+  return current;
 }
 /** Recoil from the latest blow on this monster: a quick shove away from the attacker, then back. */
 export function recoilOf(town: Town, beast: Monster): { dx: number; dy: number; squash: number } {
-  const now = town.clock();
-  let best: Hit | undefined;
-  const { x, y } = beast.position;
-  for (const hit of freshBlows(town)) {
-    const dx = hit.to.x - x,
-      dy = hit.to.y - y;
-    if (dx * dx + dy * dy < 0.49 && (!best || hit.at > best.at)) best = hit;
-  }
+  const now = town.clock(), hits = freshBlows(town);
+  const best = hits.byCreature.get(beast.id) ?? hits.legacy.find(hit =>
+    Math.hypot(hit.to.x - beast.position.x, hit.to.y - beast.position.y) < 0.01);
   if (!best) return { dx: 0, dy: 0, squash: 0 };
   const age = now - best.at,
     push = Math.sin((Math.PI / 2) * unit(age / 0.04)) * (1 - unit((age - 0.04) / 0.18)) ** 2,

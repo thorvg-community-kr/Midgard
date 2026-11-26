@@ -4,7 +4,7 @@ import { huntsWildlife } from './wildlife';
 import { canControl, isPlayerResident } from './faction';
 import { gateCenter, gateOrder, raidSeat } from './gate-progression';
 import { gateSealed, sealable, sealFloors, sealProgress } from './gate-seals';
-import { add, contains, distance, normalized, point, rotated, scale, sub, type Point } from './geometry';
+import { Footprint, add, contains, distance, normalized, point, rotated, scale, sub, type Point } from './geometry';
 import { pastureOutline } from './pasture-geometry';
 import { f32 } from './numeric';
 import { CombatCue, MonsterRank } from './combat-events';
@@ -146,9 +146,9 @@ export function attackDungeon(town: AttackTown, p: Person, gate: number, dt: num
     return;
   }
   p.activity = Activity.Fighting;
-  const site = town.world.dungeons()[gate], mouth = monsterEntrance(site);
-  const at = p.goal;
-  if (p.inside || distance(p.position, at) > reachOf(p)) {
+  const site = town.world.dungeons()[gate], at = p.goal;
+  const wall = new Footprint(gateCenter(site), 1).closestPoint(p.position);
+  if (p.inside || distance(p.position, wall) > reachOf(p)) {
     if (!p.path.length && !town.walkTo(p, at)) return;
     town.walk(p, dt);
     if (!town.world.revealedWithin(p.position, 3.5)) town.reveal(p.position.x, p.position.y, 7.5);
@@ -164,7 +164,7 @@ export function attackDungeon(town: AttackTown, p: Person, gate: number, dt: num
   siege.health = Math.max(0, f32(before - damage));
   p.ready = town.time + 1;
   p.swingAt = town.time;
-  town.blows.push({ serial: town.nextBlow++, from: { ...p.position }, to: mouth, damage: Math.round(damage * 10),
+  town.blows.push({ serial: town.nextBlow++, from: { ...p.position }, to: wall, creature: -1, damage: Math.round(damage * 10),
     ranged: shoots(p), onPerson: false, person: p.id, attacker: p.id, at: town.time, strike: StrikeKind.Single, primary: true });
   for (let wave = 1; wave < finalWave; ++wave) {
     const threshold = maxHealth * (finalWave - wave) / finalWave;

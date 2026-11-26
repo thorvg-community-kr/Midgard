@@ -30,6 +30,11 @@ export class Footprint {
   constructor(public center: Point = point(), public half = .5, public angle = 0) {}
   corners(): Outline { return [point(-this.half, -this.half), point(this.half, -this.half), point(this.half, this.half), point(-this.half, this.half)].map(p => add(this.center, rotated(p, this.angle))); }
   contains(p: Point, margin = 0): boolean { const delta = sub(p, this.center), extent = f32(this.half + margin), bound = f32(2 * extent); if (Math.abs(delta.x) > bound || Math.abs(delta.y) > bound) return false; const local = rotated(delta, -this.angle); return Math.abs(local.x) <= extent && Math.abs(local.y) <= extent; }
+  closestPoint(at: Point): Point {
+    const local = rotated(sub(at, this.center), -this.angle);
+    const face = point(clamp(local.x, -this.half, this.half), clamp(local.y, -this.half, this.half));
+    return add(this.center, rotated(face, this.angle));
+  }
   overlaps(other: Footprint): boolean {
     if (this.half <= 0 || other.half <= 0) return false;
     const delta = sub(other.center, this.center), angle = other.angle - this.angle;
