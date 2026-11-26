@@ -617,22 +617,68 @@ try {
       setGuidePreference('focus', false);
       window.shell = await startNativeGame(document.querySelector('#world'), { titleScreen: true, seed: 5 }, 'gl', undefined, false);
       window.stamp = 0;
+      // A brief focus between frames is enough to open a phone keyboard.
+      window.textFocuses = 0;
+      document.addEventListener('focusin', e => {
+        if (e.target.matches('[data-goldfantasy-text-input]')) window.textFocuses++;
+      });
     });
     const paint = (n = 2) => page.evaluate(n => {
       for (let i = 0; i < n; ++i) shell.host.render(window.stamp += .1);
     }, n);
-    const tap = async (id, game = false) => {
-      const r = await page.evaluate(([id, game]) => {
-        const c = game ? shell.app.gameSession.game.context : shell.app.overlay;
+    const textFocus = () => page.evaluate(() => ({
+      editing: document.activeElement.matches('[data-goldfantasy-text-input]'), count: window.textFocuses,
+    }));
+    const tapAt = async (id, layer, fingerSized) => {
+      const r = await page.evaluate(([id, layer]) => {
+        const c = layer === 'overlay' ? shell.app.overlay : shell.app[layer].game.context;
         return c.controls.find(k => k.id === id)?.bounds;
-      }, [id, game]);
-      assert.ok(r && r.w >= 44 && r.h >= 44, id + ' is a finger-sized button');
+      }, [id, layer]);
+      assert.ok(r && r.w > 0 && r.h > 0, id + ' is on screen');
+      if (fingerSized) assert.ok(r.w >= 44 && r.h >= 44, id + ' is a finger-sized button');
       await page.touchscreen.tap(r.x + r.w / 2, r.y + r.h / 2);
       await paint();
+    };
+    const tap = async (id, game = false) => {
+      const { count } = await textFocus();
+      await tapAt(id, game ? 'gameSession' : 'overlay', true);
+      assert.deepEqual(await textFocus(), { editing: false, count }, id + ' must not summon the text keyboard');
     };
     await paint();
     await tap('title-settings');
     await tap('settings/close');
+    await tap('map-editor');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await paint();
+    await tapAt('map-tool-1', 'editorSession');
+    assert.deepEqual(await textFocus(), { editing: false, count: 0 });
+    await tapAt('map-path', 'editorSession');
+    assert.deepEqual(await textFocus(), { editing: true, count: 1 });
+    const ime = await shellContext.newCDPSession(page);
+    const syllable = String.fromCodePoint(0xd55c);
+    const path = () => page.evaluate(() => shell.app.editorSession.game.atlas.path.value);
+    const beforeTyping = await path();
+    await ime.send('Input.imeSetComposition', { text: syllable, selectionStart: 1, selectionEnd: 1 });
+    await page.setViewportSize({ width: 390, height: 520 });
+    await paint();
+    assert.deepEqual(await textFocus(), { editing: true, count: 1 }, 'The active field survives a keyboard-sized viewport change');
+    await tapAt('map-path', 'editorSession');
+    assert.deepEqual(await textFocus(), { editing: true, count: 1 }, 'Tapping the field again keeps its input session');
+    await ime.send('Input.insertText', { text: syllable });
+    assert.equal(await path(), beforeTyping + syllable, 'The composed syllable is committed once');
+    await page.keyboard.press('Tab');
+    assert.deepEqual(await textFocus(), { editing: false, count: 1 });
+    await page.keyboard.press('Shift+Tab');
+    assert.deepEqual(await textFocus(), { editing: true, count: 2 }, 'Tab navigation can return to the text field');
+    await tap('settings');
+    await tap('settings/close');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await paint();
+    await tapAt('map-tool-1', 'editorSession');
+    assert.deepEqual(await textFocus(), { editing: false, count: 2 });
+    await page.evaluate(() => shell.app.command('scene.title'));
+    await page.setViewportSize({ width: 568, height: 320 });
+    await paint();
     await tap('new-game');
     await page.evaluate(() => shell.app.command('scene.skip-saga'));
     await paint(30);
@@ -698,7 +744,7 @@ try {
     await tap('roster-close', true);
     assert.ok(await page.evaluate(() => !shell.app.settingsOpen && !shell.app.gameSession.game.rosterOpen &&
       shell.app.overlay.controls.some(k => k.id === 'settings')), 'The overlapping close button closes the rotated window without opening Settings');
-    report.shell = 'Title, settings, save slots, game, open-window rotation and overlapping controls passed';
+    report.shell = 'Title, settings, save slots, game, text focus, IME composition, viewport resizing and overlapping controls passed';
   } finally {
     await shellContext.pages()[0]?.evaluate(() => window.shell?.dispose()).catch(() => {});
     await shellContext.close();

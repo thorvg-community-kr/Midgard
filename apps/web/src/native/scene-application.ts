@@ -25,6 +25,7 @@ import {
   type Camera,
   type LaunchOptions,
   type NativeSound,
+  type Point,
   type Preview,
   type Property,
   type SceneId,
@@ -135,6 +136,11 @@ export class SceneApplication implements Application {
     this.touchInput = enabled;
     this.gameSession?.setTouchInput?.(enabled);
     this.editorSession?.setTouchInput?.(enabled);
+  }
+  takesTyping(at?: Point): boolean {
+    if (this.settingsOpen || this.requested || this.intro !== 'None' || this.overlayPointer) return false;
+    if (at && this.overlay.controlAt(at.x, at.y)) return false;
+    return this.active()?.takesTyping?.(at) ?? false;
   }
   scene(): Scene {
     return this.root;
@@ -488,6 +494,7 @@ export class SceneApplication implements Application {
     if (id === 'scene.is-transitioning') return this.intro !== 'None';
     if (id === 'scene.is-title') return this.current === 'Title';
     if (id === 'scene.is-game') return this.current === 'Game';
+    if (id === 'ui.text-input') return argument === 'off' && !this.takesTyping();
     if (id === 'ui.cursor' && this.settingsOpen) return false;
     if (id === 'session.save')
       return this.save(argument ? this.slotFromArgument(argument) : (this.currentSlot ?? 0));

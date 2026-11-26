@@ -979,7 +979,7 @@ try {
     runtime.app.game.openPrayer(1);
     runtime.host.render(0);
   }, { renderer, town: townForPaste });
-  const clickHost = async (id) => {
+  const clickHost = async (id, touch = false) => {
     const point = await page.evaluate((id) => {
       pasteRuntime.app.dirty = true;
       pasteRuntime.host.render(0);
@@ -988,14 +988,25 @@ try {
       const { x, y, w, h } = control.bounds;
       return [x + w / 2, y + h / 2];
     }, id);
-    await page.mouse.click(...point);
+    if (touch) await page.touchscreen.tap(...point);
+    else await page.mouse.click(...point);
   };
   try {
-    await clickHost('prayer-customize');
-    await clickHost('prayer-presets');
+    const editing = () => page.locator('[data-goldfantasy-text-input]').evaluate(field => field === document.activeElement);
+    const residentName = () => page.evaluate(() => pasteRuntime.app.game.prayer.draft.name.value);
+    await clickHost('prayer-customize', true);
+    assert.equal(await editing(), false);
+    const name = await residentName(), syllable = String.fromCodePoint(0xc194);
+    await clickHost('prayer-name', true);
+    assert.equal(await editing(), true);
+    await page.keyboard.insertText(syllable);
+    assert.equal(await residentName(), name + syllable);
+    await clickHost('prayer-presets', true);
+    assert.equal(await editing(), false);
+    report.cases.push('Touching the name field accepts a Korean syllable and the preset button returns focus to the game.');
     await clickHost('prayer-presets-code');
     await clickHost('prayer-code-input');
-    assert(await page.locator('[data-goldfantasy-text-input]').evaluate((field) => field === document.activeElement));
+    assert(await editing());
     await page.keyboard.press('Control+v');
     await clickHost('prayer-code-apply');
     assert.equal(await page.evaluate(async () => {

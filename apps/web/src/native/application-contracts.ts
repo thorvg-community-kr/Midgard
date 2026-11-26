@@ -51,6 +51,8 @@ export interface Application {
   presented?(pixelRatio: number): void;
   invalidatePresentation?(): void;
   setTouchInput?(enabled: boolean): void;
+  /** Whether an editable control owns text input. A point also has to hit that control. */
+  takesTyping?(at?: Point): boolean;
   event(event: AppEvent): void;
   properties(): Property[];
   property(id: string, value: number): boolean;

@@ -1,6 +1,6 @@
 // Native application.cpp window/session/input boundary, independent of DOM layout.
 import type { Scene, ThorVGNamespace } from '@thorvg/webcanvas';
-import type { Application, AppEvent, LaunchOptions, NativeSound, Property } from './application-contracts';
+import type { Application, AppEvent, LaunchOptions, NativeSound, Point, Property } from './application-contracts';
 import type { GameRuntime } from './game-runtime';
 import { Tool, Order, PointerButton } from '../../../../packages/engine/src/game-tools';
 import { Town } from '../../../../packages/engine/src/town';
@@ -421,9 +421,8 @@ export class GameApplication implements Application {
       Number(this.keys.has('down')) - Number(this.keys.has('up')),
     );
   }
-  takesTyping(): boolean {
-    if (this.game.prayer) return this.game.context.textFocused();
-    return this.authoringTool() || this.editorAttached || this.game.context.textFocused();
+  takesTyping(at?: Point): boolean {
+    return this.game.context.textFocused(at);
   }
   /** Changes whenever the settlement passes a point worth an autosave. */
   private milestoneMark(): string {

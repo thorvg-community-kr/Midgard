@@ -83,7 +83,7 @@ export class BrowserHost {
         if (!this.closed) {
           this.app.event(event);
           this.loop.wake();
-          this.syncTextInput();
+          this.syncTextInput(event);
         }
       };
     element.addEventListener(
@@ -127,6 +127,13 @@ export class BrowserHost {
         event = emptyEvent(type);
       event.x = e.clientX - bounds.left;
       event.y = e.clientY - bounds.top;
+      if (
+        type === 'PointerDown' &&
+        (document.activeElement !== this.textInput || !this.app.takesTyping?.(event))
+      ) {
+        // Finish any composition on the old field before dispatch changes the in-game focus.
+        element.focus({ preventScroll: true });
+      }
       if (e.pointerType === 'touch') {
         this.app.setTouchInput?.(true);
         this.touch.event(type, e.pointerId, { x: event.x, y: event.y });
@@ -146,7 +153,6 @@ export class BrowserHost {
       'pointerdown',
       (e) => {
         e.preventDefault();
-        element.focus({ preventScroll: true });
         element.setPointerCapture(e.pointerId);
         pointer('PointerDown', e);
       },
@@ -297,15 +303,21 @@ export class BrowserHost {
       (document.activeElement === this.element || document.activeElement === this.textInput)
     );
   }
-  private syncTextInput(): void {
+  private syncTextInput(event?: AppEvent): void {
     if (!this.ownsFocus()) return;
-    const wanted = !this.app.command('ui.text-input', 'off');
-    if (wanted && document.activeElement !== this.textInput) {
+    const editing = document.activeElement === this.textInput;
+    const press = event?.type === 'PointerDown' && event.button === 1;
+    // A redraw or a menu restoring its focus must not summon a phone's keyboard.
+    if (!editing && this.touchDisplay && !press && !(event?.type === 'KeyDown' && event.key === Key.Tab)) return;
+    // Desktop hosts may still use the original text-input command. Touch requires an explicit editable target.
+    const wanted = this.app.takesTyping?.(press ? event : undefined) ??
+      (!this.touchDisplay && !this.app.command('ui.text-input', 'off'));
+    if (wanted && !editing) {
       const bounds = this.element.getBoundingClientRect();
       this.textInput.style.left = `${bounds.left}px`;
       this.textInput.style.top = `${bounds.top}px`;
       this.textInput.focus({ preventScroll: true });
-    } else if (!wanted && document.activeElement === this.textInput) {
+    } else if (!wanted && editing) {
       this.textInput.value = '';
       this.element.focus({ preventScroll: true });
     }

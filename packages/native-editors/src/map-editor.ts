@@ -389,20 +389,24 @@ export class MapEditor {
       }
       this.shownRevision = this.doc.revision();
     }
-    this.renderer.update(this.preview!, this.camera, this.canvas.w, this.canvas.h, c.time());
-    setTransform(this.renderer.scene(), {
-      e11: 1,
-      e12: 0,
-      e13: this.canvas.x,
-      e21: 0,
-      e22: 1,
-      e23: this.canvas.y,
-      e31: 0,
-      e32: 0,
-      e33: 1,
-    });
     c.rect(viewport, t.background);
-    c.clip(this.canvas, () => c.add(this.renderer.scene()));
+    c.clip(this.canvas, () => {
+      // Let the clip reattach on resize before changing the native paints underneath it.
+      this.renderer.update(this.preview!, this.camera, this.canvas.w, this.canvas.h, c.time());
+      const scene = this.renderer.scene();
+      setTransform(scene, {
+        e11: 1,
+        e12: 0,
+        e13: this.canvas.x,
+        e21: 0,
+        e22: 1,
+        e23: this.canvas.y,
+        e31: 0,
+        e32: 0,
+        e33: 1,
+      });
+      c.add(scene);
+    });
     c.control('map-canvas', this.canvas, undefined, true, false);
     c.text(new Rect(24, 18, 400, 18), 'MIDGARD  /  CREATOR TOOLS', t.muted, 11, true);
     c.text(new Rect(24, 39, 380, 32), 'Map Editor', t.text, 24, true);

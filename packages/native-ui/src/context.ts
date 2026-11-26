@@ -326,9 +326,9 @@ export class Context {
   focused(): string {
     return this.focusId;
   }
-  textFocused(): boolean {
+  textFocused(at?: { x: number; y: number }): boolean {
     const control = this.find(this.focusId);
-    return !!control?.enabled && control.cursor === Cursor.Text;
+    return !!control?.enabled && control.cursor === Cursor.Text && (!at || this.hit(at.x, at.y) === control);
   }
   cursor(): Cursor {
     const pressed = this.find(this.pressedId);
