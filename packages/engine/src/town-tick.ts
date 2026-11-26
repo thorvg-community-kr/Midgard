@@ -18,7 +18,7 @@ import { lavaHealthPerSecond } from './walk-paths';
 import { f32 as f, clamp } from './numeric';
 import * as mining from './mining';
 import { canHarvest, harvestAmount, harvestProduct } from './harvest-material';
-import { collectSeconds, hammerTiming, harvestTiming, harvestDuration, harvestSwingPeriod, roadCrewStep, roadWorkRate, workElapsed, workImpactBetween } from './work-timing';
+import { collectSeconds, hammerContact, harvestTiming, harvestDuration, harvestSwingPeriod, roadCrewStep, roadWorkRate, workImpactBetween } from './work-timing';
 import { takeHeld } from './carried-resources';
 import { advanceHerding, advanceRanchHarvest, herdLeader, isRanchHarvest } from './livestock';
 import { animalSpec } from './wildlife';
@@ -83,16 +83,6 @@ export interface TickTown extends PeopleTown {
   rallied(p: Person): boolean;
   advanceThor(dt: number): void;
   tend(p: Person): void;
-}
-/** Sounds are emitted by productive ticks, never an unrelated ambience timer. */
-function hammerContact(town: TickTown, p: Person, dt: number): void {
-  const contact = workImpactBetween(workElapsed(town.time - dt, p.id), workElapsed(town.time, p.id), hammerTiming);
-  if (contact === null) return;
-  town.timberEvents.push({
-    serial: town.nextTreeEvent++, kind: TreeWorkKind.Hammer, person: p.id,
-    cell: Math.floor(p.position.y) * town.world.width() + Math.floor(p.position.x),
-    index: 0, worker: { ...p.position }, at: contact - workElapsed(0,p.id),
-  });
 }
 export function dangerNear(town: TickTown, p: Person): boolean {
   const notice = p.ordered ? 6 : p.role === Role.Guest ? 8 : town.raiding() ? 10 : 5;
@@ -295,8 +285,9 @@ export function tick(this: TickTown, dt: number): void {
           p.activity = Activity.Idle;
           break;
         }
-        if (distance(p.position, buildingWorkSpot(this,p,place)) > f(0.02)) {
-          if (!this.walkTo(p, buildingWorkSpot(this,p,place))) {
+        const spot = buildingWorkSpot(this, p, place);
+        if (distance(p.position, spot) > f(0.02)) {
+          if (!this.walkTo(p, spot)) {
             p.activity = Activity.Idle;
             p.until = this.time + 3;
           }
@@ -326,7 +317,7 @@ export function tick(this: TickTown, dt: number): void {
             f(place.progress + f(f(dt * workEfficiency(p, 'construction')) / buildWork(place.kind))),
           );
         }
-        if (place.health > previousHealth || place.progress > previousProgress) hammerContact(this,p,dt);
+        if (place.health > previousHealth || place.progress > previousProgress) hammerContact(this, p, dt, place.center);
         if (!repairing && place.built()) {
           this.notify(structureSpec(place.kind).name + ' is finished');
           this.assignHomes();

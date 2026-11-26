@@ -1,6 +1,7 @@
 import { Terrain } from './world-types';
 import type { Town } from './town';
 import type { TownState } from './town-state';
+import type { Building } from './town-models';
 import { Activity, type Person } from './person';
 import { footBounds, footBoxesOverlap, footSeparation, footSegmentBlockedBy } from './person-collision';
 import { add, sub, scale, point, normalized, distance, Footprint, closestOnSegment, type Point } from './geometry';
@@ -164,15 +165,49 @@ export function waitsForFront(road: import('./road-network').Road, spot: Point, 
   return !!heading && off > 0.0001 && off <= roadLayReach && (at.x - spot.x) * heading.x + (at.y - spot.y) * heading.y > 0;
 }
 
+const siteSpots = new WeakMap<Building, { revision: bigint; crew: number; slots: Map<number, Point> }>();
+
+/** Work successive sections of the front wall. Each short step stays on the clear apron. */
+export function frameWorkSpot(
+  town: TownState, building: Building, index: number, crew: number, progress: number,
+): Point {
+  const section = Math.max(0, Math.min(2, Math.floor(progress * 3 - (index % 3) * 0.1)));
+  let spots = siteSpots.get(building);
+  if (!spots || spots.revision !== town.walkRevision || spots.crew !== crew) {
+    spots = { revision: town.walkRevision, crew, slots: new Map() };
+    siteSpots.set(building, spots);
+  }
+  const key = index * 3 + section;
+  const known = spots.slots.get(key);
+  if (known) return known;
+  const door = building.door(),
+    outward = normalized(sub(door, building.threshold())),
+    side = point(-outward.y, outward.x),
+    row = Math.floor(index / 3),
+    columns = Math.min(3, crew - row * 3),
+    span = Math.min(0.52, building.footprint().half * 0.55),
+    offset = ((index % 3) - (columns - 1) / 2) * 0.34 + [0, span, -span][section];
+  let at = door;
+  for (const share of [1, 0.5]) {
+    const candidate = add(door, add(scale(side, offset * share), scale(outward, row * 0.22)));
+    if (
+      town.grid.cost(Math.floor(candidate.x), Math.floor(candidate.y)) > 0 &&
+      town.grid.walkable(candidate) && town.grid.clear(door, candidate, Infinity, true)
+    ) {
+      at = candidate;
+      break;
+    }
+  }
+  spots.slots.set(key, at);
+  return at;
+}
+
 /** Keep shared building work outside, on distinct reachable apron positions. */
 export function buildingWorkSpot(
   town: TownState,
   person: Person,
-  building: import('./town-models').Building,
+  building: Building,
 ) {
-  const door = building.door(),
-    outward = normalized(sub(door, building.threshold())),
-    side = point(-outward.y, outward.x);
   const crew = town.folk.filter(
     (p) =>
       p.health > 0 &&
@@ -182,8 +217,15 @@ export function buildingWorkSpot(
         (p.activity === Activity.Working && p.target === building.id)),
   );
   crew.sort((a, b) => a.id - b.id);
+  const index = crew.indexOf(person);
+  if (index < 0) return building.door();
+  const repairing = building.health < 1 && (person.activity === Activity.Building || person.task === Activity.Building);
+  if (!building.built() || repairing)
+    return frameWorkSpot(town, building, index, crew.length, building.built() ? building.health : building.progress);
+  const door = building.door();
   if (crew.length < 2) return door;
-  const index = crew.indexOf(person),
+  const outward = normalized(sub(door, building.threshold())),
+    side = point(-outward.y, outward.x),
     row = Math.floor(index / 3),
     columns = Math.min(3, crew.length - row * 3),
     offset = ((index % 3) - (columns - 1) / 2) * 0.2;

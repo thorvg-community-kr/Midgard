@@ -86,7 +86,7 @@ describe('work contacts use one simulation timeline', () => {
     expect(town.orderBuild([p.id], site.id)).toBe(true);
     const events: TreeWorkEvent[] = [];
     let heard = 0n;
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0; i < 900 && site.progress < 0.92; i++) {
       town.advance(0.1);
       for (const event of town.treeEvents())
         if (event.serial >= heard) {
@@ -96,11 +96,14 @@ describe('work contacts use one simulation timeline', () => {
     }
     const strikes = events.filter((e) => e.kind === TreeWorkKind.Hammer);
     expect(strikes.length).toBeGreaterThan(2);
+    expect(new Set(strikes.map(hit => JSON.stringify(hit.worker))).size).toBeGreaterThanOrEqual(3);
     for (const strike of strikes) {
+      expect(strike.wall).toEqual(site.center);
+      expect(town.grid.walkable(strike.worker)).toBe(true);
       const phase = (workElapsed(strike.at, p.id) - hammerTiming.impact) / hammerTiming.period;
       expect(phase).toBeCloseTo(Math.round(phase), 8);
     }
-    expect(site.progress).toBeGreaterThan(0);
+    expect(site.progress).toBeGreaterThanOrEqual(0.92);
     expect(p).toMatchObject({ level: 1, experience: 0 });
     town.orderMove([p.id], point(25, 18));
     const serial = town.nextTreeEvent;

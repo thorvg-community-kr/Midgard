@@ -5,8 +5,9 @@ import * as mining from '../../engine/src/mining';
 import { treePosition } from '../../engine/src/world-map';
 import { SceneNode, identity, type Matrix } from './paint';
 import { inFront } from './combat-depth';
-import { harvestDebris, type HarvestDebris } from './harvest-debris';
-import { registerDepth } from './world-depth';
+import { buildingDust, dustSeconds, harvestDebris, type HarvestDebris } from './harvest-debris';
+import { registerDepth, standingRow } from './world-depth';
+import { buildingContact } from './work-motion';
 import type { WorldRendererState } from './world-renderer-state';
 
 type ResourceKind = 'tree' | 'rock';
@@ -77,6 +78,12 @@ function bend(kind: ResourceKind, age: number): number {
   return (kind === 'tree' ? 0.065 : 0.05) * strike * settle * Math.cos(t * Math.PI * 2);
 }
 
+function addDebris(state: WorldRendererState, current: Reactions, event: TreeWorkEvent, foot: Point, row: number, debris: HarvestDebris): void {
+  registerDepth(debris.paint, inFront(foot), `resource-hit:${event.serial}`);
+  current.hits.set(event.serial, { ...debris, row, foot, at: event.at });
+  state.rows[row].add(debris.paint);
+}
+
 /** Only real contact events drive the response; the model and harvest cadence are untouched. */
 export function updateResourceHits(state: WorldRendererState, town: Town): void {
   const now = town.clock();
@@ -93,12 +100,26 @@ export function updateResourceHits(state: WorldRendererState, town: Town): void 
     events = town.treeEvents(),
     poses = new Map<SceneNode, { resource: Resource; event: TreeWorkEvent; side: number }>();
   for (const event of events) {
-    if (event.kind !== TreeWorkKind.Chop && event.kind !== TreeWorkKind.Mine) continue;
-    const kind = event.kind === TreeWorkKind.Chop ? 'tree' : 'rock',
-      age = now - event.at;
+    const wall = event.kind === TreeWorkKind.Hammer ? event.wall : undefined;
+    if (!wall && event.kind !== TreeWorkKind.Chop && event.kind !== TreeWorkKind.Mine) continue;
+    const age = now - event.at;
     if (age < 0) continue;
     const fresh = event.serial > current.lastSerial;
     if (fresh) current.lastSerial = event.serial;
+    const showDebris = fresh && !state.reducedMotion && current.hits.size < 64;
+    if (wall) {
+      if (!showDebris || age >= dustSeconds || !inView(state, event.worker)) continue;
+      const foot = event.worker, row = standingRow(town, foot, state.rows.length);
+      if (!state.rows[row]) continue;
+      const figure = state.figures.get(event.person),
+        side = figure?.facing ?? (project(wall.x - foot.x, wall.y - foot.y).x >= 0 ? 1 : -1),
+        base = project(foot.x, foot.y),
+        grip = figure && !figure.striding ? buildingContact(figure.parts) : { x: 8, y: -6 },
+        at = { x: base.x + side * grip.x, y: base.y + grip.y };
+      addDebris(state, current, event, foot, row, buildingDust(at, side, map.seed(), event));
+      continue;
+    }
+    const kind = event.kind === TreeWorkKind.Chop ? 'tree' : 'rock';
     const recoiling = age < duration(kind);
     if (!recoiling && (!fresh || age >= 2 || state.reducedMotion)) continue;
     const x = event.cell % map.width(),
@@ -129,13 +150,9 @@ export function updateResourceHits(state: WorldRendererState, town: Town): void 
       if (!previous || previous.event.at <= event.at)
         poses.set(target.paint, { resource: target.resource, event, side });
     }
-    if (fresh && !state.reducedMotion && current.hits.size < 64) {
+    if (showDebris) {
       const debris = harvestDebris(state, map, town.climate(), event, side, terminal, target?.resource.wind ?? identity);
-      if (age < debris.life) {
-        registerDepth(debris.paint, inFront(foot), `resource-hit:${event.serial}`);
-        current.hits.set(event.serial, { ...debris, row, foot, at: event.at });
-        state.rows[row].add(debris.paint);
-      }
+      if (age < debris.life) addDebris(state, current, event, foot, row, debris);
     }
   }
   for (const [paint, pose] of poses) {

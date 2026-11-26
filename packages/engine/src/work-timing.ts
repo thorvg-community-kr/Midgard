@@ -1,4 +1,6 @@
-import type { Person } from './person';
+import { TreeWorkKind, type Person } from './person';
+import type { Point } from './geometry';
+import type { TownState } from './town-state';
 import { workEfficiency } from './equipment';
 
 /** Shared simulation-time contacts for work poses and discrete sound events. */
@@ -30,4 +32,15 @@ export function workImpactBetween(
   const cycle = (time: number) => Math.floor((time - timing.impact) / timing.period + 1e-8);
   const current = cycle(after);
   return current > cycle(before) ? timing.impact + current * timing.period : null;
+}
+
+/** One productive stroke drives its sound and, against a building, the dust at its face. */
+export function hammerContact(town: TownState, p: Person, dt: number, wall?: Point): void {
+  const contact = workImpactBetween(workElapsed(town.time - dt, p.id), workElapsed(town.time, p.id), hammerTiming);
+  if (contact === null) return;
+  town.timberEvents.push({
+    serial: town.nextTreeEvent++, kind: TreeWorkKind.Hammer, person: p.id,
+    cell: Math.floor(p.position.y) * town.world.width() + Math.floor(p.position.x),
+    index: 0, worker: { ...p.position }, at: contact - workElapsed(0, p.id), wall,
+  });
 }

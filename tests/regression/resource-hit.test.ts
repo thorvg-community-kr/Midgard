@@ -180,6 +180,25 @@ function expectGrounded(paint: SceneNode, pivot: { x: number; y: number }) {
   expect(m[4]).toBe(1);
 }
 
+it('draws building dust from a productive stroke and releases it after the puff has dispersed', () => {
+  const v = fixture(true);
+  try {
+    const event = v.contact(TreeWorkKind.Hammer);
+    event.wall = v.foot;
+    v.town.timberEvents.push(event);
+    const before = v.draw(0.99, 0, 0);
+    expect(v.draw(1.10, 0, 0)).not.toBe(before);
+    expect(hasResourceHits(v.state)).toBe(true);
+    expect(v.draw(1.55, 0, 0)).toBe(before);
+    expect(hasResourceHits(v.state)).toBe(false);
+    v.state.reducedMotion = true;
+    v.town.timberEvents.push({ ...v.contact(TreeWorkKind.Hammer, 2), wall: v.foot });
+    expect(v.draw(2.10, 0, 0)).toBe(before);
+  } finally {
+    v.dispose();
+  }
+});
+
 it('picks every stone in a group as one deposit and clears the entire group when mined', () => {
   const v = fixture(true);
   try {

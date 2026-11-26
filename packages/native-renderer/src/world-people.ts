@@ -392,6 +392,7 @@ export function moveAgents(
     figure.parts.affiliation?.opacity(person.faction > 0 ? 255 : 0);
     const hammering =
       working && (person.activity === Activity.Building || person.activity === Activity.Roadwork);
+    const fittingFrame = buildSite && buildSite.progress >= 1 / 3 && buildSite.progress < 2 / 3;
     const farming = working && workplace?.kind === Structure.Farm && person.workField >= 0,
       watering = farming && farmWorkPhase(person, town.clock(), town.fields()) === 1,
       processing =
@@ -515,7 +516,7 @@ export function moveAgents(
           Math.max(0, ceremonySeconds - (person.until - town.clock())),
           ceremonySeconds,
         );
-      else if (improving || (buildSite && buildSite.progress >= 1 && buildSite.health < 1))
+      else if (improving || fittingFrame || (buildSite?.built() && buildSite.health < 1))
         animateStationWork(figure.parts, tool, workElapsed(town.clock(), person.id));
       else if (refining)
         animateFoundry(

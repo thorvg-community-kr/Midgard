@@ -1,6 +1,7 @@
 // Clearing: a building, field or road marked for tearing down, and the residents sent to do it.
 import type { Town } from './town';
-import { Activity, Person, Role, TreeWorkKind } from './person';
+import { Activity, Person, Role } from './person';
+import { frameWorkSpot } from './person-navigation';
 import { Check } from './town-models';
 import { buildWork, isSeat } from './building-catalog';
 import { isCraftStation, workEfficiency } from './equipment';
@@ -8,7 +9,7 @@ import { Point, area, centroid, distance, point } from './geometry';
 import { TownState } from './town-state';
 import { beyondOrders, canControl } from './faction';
 import { f32 } from './numeric';
-import { hammerTiming, workElapsed, workImpactBetween } from './work-timing';
+import { hammerContact } from './work-timing';
 
 export type ClearKind = 'building' | 'field' | 'road';
 export interface ClearTarget {
@@ -124,6 +125,19 @@ function closestOnRoad(town: Town, mark: ClearMark, p: Person): Point | null {
   }
   return best;
 }
+function clearingSpot(town: Town, mark: ClearMark, p: Person): Point | null {
+  if (mark.kind === 'building') {
+    const building = town.building(mark.id);
+    if (!building) return null;
+    const crew = mark.crew.length, index = mark.crew.indexOf(p.id);
+    if (index < 0) return frameWorkSpot(town, building, crew, crew + 1, mark.done);
+    return frameWorkSpot(town, building, index, crew, mark.done);
+  }
+  const at = mark.kind === 'road' ? closestOnRoad(town, mark, p) : spotFor(town, mark);
+  if (!at) return null;
+  const reachable = town.grid.nearestWalkable(at);
+  return distance(at, reachable) <= reach ? reachable : null;
+}
 const free = (town: Town, p: Person): boolean =>
   canControl(p, town.controlFaction) &&
   p.role === Role.Resident &&
@@ -135,11 +149,11 @@ const free = (town: Town, p: Person): boolean =>
   p.activity !== Activity.Sleeping;
 function enlist(town: Town, mark: ClearMark, p: Person): boolean {
   if (!canControl(p, town.controlFaction) || beyondOrders(p)) return false;
-  const spot = mark.kind === 'road' ? closestOnRoad(town, mark, p) : spotFor(town, mark);
+  const spot = clearingSpot(town, mark, p);
   if (!spot) return false;
   const auto = p.autoMode;
+  if (!town.walkTo(p, spot)) return false;
   town.setOrder(p, Activity.Holding);
-  if (!town.walkTo(p, town.grid.nearestWalkable(spot))) return false;
   p.goal = { ...(p.path.length ? p.path[p.path.length - 1] : p.position) };
   p.activity = Activity.Moving;
   p.autoMode = false;
@@ -211,15 +225,6 @@ export function keepClear(town: Town, kind: ClearKind, id: number): boolean {
   ++town.changes;
   return true;
 }
-function hammer(town: Town, p: Person, dt: number): void {
-  const contact = workImpactBetween(workElapsed(town.time - dt, p.id), workElapsed(town.time, p.id), hammerTiming);
-  if (contact === null) return;
-  town.timberEvents.push({
-    serial: town.nextTreeEvent++, kind: TreeWorkKind.Hammer, person: p.id,
-    cell: Math.floor(p.position.y) * town.world.width() + Math.floor(p.position.x),
-    index: 0, worker: { ...p.position }, at: contact - workElapsed(0, p.id),
-  });
-}
 /** Runs once a tick: crews walk to the site, work it down and remove it. */
 export function advanceClearing(town: Town, dt: number): void {
   const list = clearMarks(town);
@@ -236,12 +241,14 @@ export function advanceClearing(town: Town, dt: number): void {
         mark.crew = mark.crew.filter((other) => other !== pid);
         continue;
       }
-      if (p.moving() || p.activity === Activity.Fighting) continue;
-      const spot = mark.kind === 'road' ? closestOnRoad(town, mark, p) : spotFor(town, mark);
-      if (!spot) continue;
-      if (distance(p.position, spot) > reach && distance(p.position, p.goal) > f32(0.3)) {
-        const target = town.grid.nearestWalkable(spot);
-        if (!town.walkTo(p, target)) {
+      if (p.moving() || p.inside || p.crossingDoorway() || p.activity === Activity.Fighting) continue;
+      const spot = clearingSpot(town, mark, p);
+      if (!spot) {
+        release(town, mark, pid);
+        continue;
+      }
+      if (distance(p.position, spot) > (mark.kind === 'building' ? 0.02 : reach)) {
+        if (!town.walkTo(p, spot)) {
           release(town, mark, pid);
           continue;
         }
@@ -254,7 +261,7 @@ export function advanceClearing(town: Town, dt: number): void {
       p.activity = Activity.Holding;
       p.until = town.time + 1;
       mark.done = Math.min(1, f32(mark.done + f32(f32(dt * workEfficiency(p, 'construction')) / mark.work)));
-      hammer(town, p, dt);
+      hammerContact(town, p, dt, mark.kind === 'building' ? town.building(mark.id)?.center : undefined);
     }
     if (mark.done >= 1) {
       keepClear(town, mark.kind, mark.id);

@@ -7,7 +7,7 @@ import { Town } from '../../packages/engine/src/town';
 import { WorldMap } from '../../packages/engine/src/world-map';
 import { DungeonKind, Layer, Terrain, makeTile } from '../../packages/engine/src/world-types';
 import { Resources, Structure } from '../../packages/engine/src/building-catalog';
-import { Activity, Calling, Person, Race, Role } from '../../packages/engine/src/person';
+import { Activity, Calling, Person, Race, Role, TreeWorkKind } from '../../packages/engine/src/person';
 import { Camera, point, project, type Outline } from '../../packages/engine/src/geometry';
 import { Field } from '../../packages/engine/src/town-models';
 import { sharpAnchor } from '../../packages/engine/src/road-network';
@@ -102,6 +102,22 @@ describe('clearing through residents', () => {
     run(town, 120, () => !town.building(b.id));
     expect(town.building(b.id)).toBeNull();
     expect(near.autoMode).toBe(true);
+  });
+  it('tears down successive sections with both workers on reachable ground', () => {
+    const town = world(), a = resident(town, 0), b = resident(town, 1), site = tent(town);
+    const mark = markClear(town, 'building', site.id, [a.id, b.id]).mark!;
+    const positions = [new Set<string>(), new Set<string>()];
+    for (let i = 0; i < 1000 && town.building(site.id); ++i) {
+      town.advance(0.05);
+      for (const hit of town.treeEvents()) {
+        if (hit.kind !== TreeWorkKind.Hammer || !hit.wall) continue;
+        expect(hit.wall).toEqual(site.center);
+        expect(town.grid.walkable(hit.worker)).toBe(true);
+        positions[hit.person].add(JSON.stringify(hit.worker));
+      }
+    }
+    expect(mark.done).toBe(1);
+    for (const spots of positions) expect(spots.size).toBeGreaterThanOrEqual(2);
   });
   it('fields and roads are torn down the same way', () => {
     const town = world(),

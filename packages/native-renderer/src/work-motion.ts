@@ -6,7 +6,7 @@ import { animateGather, animateWork, poseFromClip, stand, swing, toolRestAngle, 
 import { Structure } from '../../engine/src/building-catalog';
 import { hammerTiming } from '../../engine/src/work-timing';
 import { humanoidClips } from './humanoid-rig';
-import type { HeldTool } from './person-equipment';
+import { hammerHead, type HeldTool } from './person-equipment';
 import type { PersonParts } from './world-sprites';
 import { animateReap, animateSpade, liftFromGround, scatterSoil } from './site-work-motion';
 import { workHand, workPiece } from './work-pieces';
@@ -142,6 +142,15 @@ const handPoint = (parts: PersonParts, p: Point): Point =>
       transform(parts.arms[1].hand!.matrix, parts.workGrip ? transform(parts.workGrip.matrix, p) : p),
     ),
   );
+
+/** Point where the working hand or the face of its mallet meets the frame, relative to the boots. */
+export function buildingContact(parts: PersonParts): Point {
+  if (!parts.hammer?.alpha) return workHand(parts);
+  const { base, top, half } = hammerHead(parts.toolHeads.hammer?.wood?.alpha ? 'wood' : 'iron'),
+    shaft = (base + top) / 2,
+    wrist = parts.arms[1].wrist;
+  return handPoint(parts, point(wrist.x + 0.6 * shaft + 0.8 * half, wrist.y - 0.8 * shaft + 0.6 * half));
+}
 
 function pourWater(parts: PersonParts, from: Point, seconds: number, amount: number): void {
   if (amount <= 0) return;

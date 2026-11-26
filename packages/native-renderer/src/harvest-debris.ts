@@ -19,6 +19,34 @@ export interface HarvestDebris {
 }
 type Variation = (piece: number, salt: number) => number;
 
+export const dustSeconds = 0.48;
+/** A short wedge of earth rolls out of the joint while two flecks drop to the ground. */
+export function buildingDust(at: Point, side: number, seed: number, event: TreeWorkEvent): HarvestDebris {
+  const paint = new SceneNode();
+  paint.transform([side, 0, at.x, 0, 1, at.y, 0, 0, 1]);
+  const plume = new SceneNode();
+  plume.add(new ShapeNode().moveTo(-4.6, 0.6).cubicTo(-5.0, -0.7, -3.8, -1.4, -2.5, -1.5)
+    .cubicTo(-2.6, -3.2, -0.2, -4.1, 1.2, -2.6).cubicTo(3.2, -2.4, 2.9, -1.0, 4.6, -0.5)
+    .cubicTo(4.2, 1.1, -0.8, 1.8, -4.6, 0.6).close().fill(141, 112, 87));
+  plume.add(new ShapeNode().moveTo(-3.9, -0.5).cubicTo(-3.5, -1.8, -2.3, -1.0, -1.6, -2.6)
+    .cubicTo(-0.7, -3.6, 0.8, -3.1, 1.2, -2.6).cubicTo(2.0, -1.4, 3.2, -1.4, 3.7, -0.8)
+    .cubicTo(1.0, -1.0, -0.3, 0.8, -3.9, -0.5).close().fill(201, 173, 134));
+  paint.add(plume);
+  const chips = new SceneNode();
+  for (const color of [[181, 145, 106], [123, 96, 73]] as const)
+    chips.add(new ShapeNode().moveTo(-0.9, -0.25).lineTo(0.2, -0.7).lineTo(1, 0.1).lineTo(-0.4, 0.7).close()
+      .fill(color[0], color[1], color[2]));
+  paint.add(chips);
+  const drift = 2 + 2.5 * hash01(seed, event.cell, Number(BigInt.asUintN(32, event.serial)), 0);
+  return { paint, life: dustSeconds, draw(age) {
+    const t = age / dustSeconds, out = 1 - (1 - t) ** 2;
+    plume.transform([0.36 + out, 0, -drift * out, 0, 0.38 + 0.65 * out, -3.1 * out, 0, 0, 1])
+      .opacity(200 * (1 - t * t));
+    chips.children.forEach((chip, i) => chip.translate((i ? 3 : -5) * out, 5 * t * t - (i ? 2 : 1) * Math.sin(Math.PI * t)));
+    chips.opacity(235 * (1 - t));
+  } };
+}
+
 function stoneChips(base: Point, size: number, side: number, final: boolean,
   stone: ReturnType<typeof depositColors>, vary: Variation): HarvestDebris {
   const paint = new SceneNode().translate(base.x, base.y);
